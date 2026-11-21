@@ -531,10 +531,23 @@ async fn model_and_config_need_a_real_line_delimited_supported_banner() {
     inside_cal.push(inside_binary.len() as u8);
     inside_cal.extend_from_slice(&inside_binary);
     inside_cal.extend_from_slice(b"\r\n");
+    let mut extended_blocks = b"$s\x0e".to_vec(); // 14 blocks of 16 points
+    extended_blocks.extend_from_slice(&inside_binary);
+    extended_blocks.extend_from_slice(b"\r\n");
+    let mut extended_length = b"$z\x00\xe0".to_vec(); // 224 points, big-endian length
+    extended_length.extend_from_slice(&inside_binary);
+    extended_length.extend_from_slice(b"\r\n");
+    let mut screen = b"$D".to_vec(); // 128 × 64 one-bit pixels
+    screen.extend_from_slice(&inside_binary);
+    screen.resize(1026, 0);
+    screen.extend_from_slice(b"\r\n");
     for prefix in [
         Vec::new(), // raw tail could begin with exact model and configuration records
         sweep(&inside_binary),
         inside_cal,
+        extended_blocks,
+        extended_length,
+        screen,
         b"noiseRF Explorer 01.34 27-Apr-22 01.04.05\r\n".to_vec(),
         b"RF Explorer 01.33 27-Apr-22 01.04.05\r\n".to_vec(),
         b"RF Explorer 01.34 99-Nul-22 01.04.05\r\n".to_vec(),

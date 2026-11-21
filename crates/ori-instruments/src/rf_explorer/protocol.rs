@@ -402,7 +402,23 @@ impl<T: AsyncRead + Unpin> StartupPrefix<'_, T> {
         let mut header_end = start + 2;
         let length = loop {
             self.fill(header_end).await?;
-            match binary_length(&self.bytes[start + 1..header_end]) {
+            let header = &self.bytes[start + 1..header_end];
+            // Other vendor modes can leave extended sweeps or a 128x64 screen
+            // dump queued. Skip them before C0; the live profile accepts only $S.
+            let size = match header {
+                [b's' | b'z'] | [b'z', _] => Ok(None),
+                [b's', blocks] => Ok(Some(
+                    16 * if *blocks == 0 {
+                        256
+                    } else {
+                        usize::from(*blocks)
+                    },
+                )),
+                [b'z', hi, lo] => Ok(Some(usize::from(u16::from_be_bytes([*hi, *lo])))),
+                [b'D'] => Ok(Some(128 * 8)),
+                _ => binary_length(header),
+            };
+            match size {
                 Ok(Some(length)) => break length,
                 Ok(None) => header_end += 1,
                 Err(_) => return Ok(None),
