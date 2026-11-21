@@ -3,8 +3,17 @@ on:
   push:
     branches: [main, 'codex/**']
     paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/**', 'Cargo.lock', 'deploy/windows/**', 'tools/release/prepare_windows_node.py', 'tools/release/native_notices.py', 'docs/operator-guide/**', 'tools/release/operator_manual.py']
-  pull_request:
-    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/**', 'Cargo.lock', 'deploy/windows/**', 'tools/release/prepare_windows_node.py', 'tools/release/native_notices.py', 'docs/operator-guide/**', 'tools/release/operator_manual.py']
+  workflow_call:
+    outputs:
+      web:
+        description: Web client conclusion
+        value: ${{ jobs.web.outputs.acceptance }}
+      native-bridge:
+        description: Native bridge conclusion
+        value: ${{ jobs.native-bridge.outputs.acceptance }}
+      windows-installer:
+        description: Windows installer conclusion
+        value: ${{ jobs.windows-installer.outputs.acceptance }}
   workflow_dispatch:
     inputs:
       prior_run_id:
@@ -25,6 +34,8 @@ env:
 
 jobs:
   web:
+    outputs:
+      acceptance: ${{ job.status == 'success' && steps.browser.outcome || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -62,6 +73,7 @@ jobs:
       - run: npm run format:check && npm test && npm run build
         working-directory: clients/web
       - name: Real-core browser workflows
+        id: browser
         run: CHROMIUM_PATH=$(node -e "process.stdout.write(require('playwright').chromium.executablePath())") npm run test:e2e
         working-directory: clients/web
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -73,6 +85,8 @@ jobs:
             clients/web/test-results
 
   native-bridge:
+    outputs:
+      acceptance: ${{ job.status == 'success' && steps.bridge_tests.outcome || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -86,9 +100,12 @@ jobs:
           workspaces: clients/windows
       - run: cargo fmt --manifest-path clients/windows/Cargo.toml --all -- --check
       - run: cargo clippy --manifest-path clients/windows/Cargo.toml --locked --all-targets -- -D warnings
-      - run: cargo test --manifest-path clients/windows/Cargo.toml --locked -- --test-threads=2
+      - id: bridge_tests
+        run: cargo test --manifest-path clients/windows/Cargo.toml --locked -- --test-threads=2
 
   windows-installer:
+    outputs:
+      acceptance: ${{ job.status == 'success' && steps.installed.outcome || '' }}
     permissions:
       contents: read
       actions: read
