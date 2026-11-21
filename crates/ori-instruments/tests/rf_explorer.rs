@@ -638,3 +638,56 @@ async fn opening_on_a_partial_record_shares_one_deadline_with_identity_and_can_b
         peer_task.abort();
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_configuration_query_and_receive_retune_each_get_one_response_deadline() {
+    for delayed_confirmation in [false, true] {
+        let (wire, mut peer) = duplex(2048);
+        let limits = IoLimits {
+            text_timeout: Duration::from_millis(100),
+            ..IoLimits::default()
+        };
+        let mut device = RfExplorer::new(wire, Some(NEW_WINDOW), limits).unwrap();
+        let peer_task = tokio::spawn(async move {
+            expect_bytes(&mut peer, QUERY).await;
+            tokio::time::sleep(Duration::from_millis(70)).await;
+            peer.write_all(BANNER).await.unwrap();
+            peer.write_all(MODEL).await.unwrap();
+            peer.write_all(CONFIG.as_bytes()).await.unwrap();
+            expect_bytes(&mut peer, TUNE).await;
+            // A previous-window sweep received during the retune must neither
+            // confirm it nor restart that request's response deadline.
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            peer.write_all(&sweep(&[68; 112])).await.unwrap();
+            let remaining_ms = if delayed_confirmation { 70 } else { 30 };
+            tokio::time::sleep(Duration::from_millis(remaining_ms)).await;
+            let updated = CONFIG.replace("0100000,", "0101120,");
+            peer.write_all(updated.as_bytes()).await.unwrap();
+            peer.write_all(&sweep(&[84; 112])).await.unwrap();
+            let mut extra = Vec::new();
+            peer.read_to_end(&mut extra).await.unwrap();
+            assert!(
+                extra.is_empty(),
+                "unexpected command after retuning: {extra:?}"
+            );
+        });
+
+        let prepared = device.prepare().await;
+        if delayed_confirmation {
+            assert!(matches!(prepared, Err(InstrumentError::Timeout)));
+            assert!(matches!(device.poll().await, Err(InstrumentError::Tainted)));
+            assert!(matches!(
+                device.prepare().await,
+                Err(InstrumentError::Tainted)
+            ));
+        } else {
+            prepared.unwrap();
+            let sample = device.poll().await.unwrap();
+            assert_eq!(sample.frequencies_hz[0], NEW_WINDOW.0);
+            assert_eq!(sample.frequencies_hz[111], NEW_WINDOW.1);
+            assert_eq!(sample.levels[0], -42.0);
+        }
+        device.close().await.unwrap();
+        peer_task.await.unwrap();
+    }
+}

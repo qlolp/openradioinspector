@@ -87,18 +87,30 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
         }
         let limits = self.connection.limits.clone();
         let requested = self.requested;
-        let cancel = self.cancellation_handle();
-        let config = self
+        let mut config = self
             .connection
             .streaming(limits.text_timeout, async |io| {
                 send(io, b"#\x04C0", &limits).await?;
                 let original = read_profile(io, &limits).await?;
-                match requested {
-                    Some(window) => tune_window(io, &limits, &cancel, original, window).await,
-                    None => Ok(original),
+                if let Some(window) = requested {
+                    validate_active_window(&original, window)?;
                 }
+                Ok(original)
             })
             .await?;
+        if let Some(window) = requested
+            && window != config.window()
+        {
+            // A second physical request can wait for a second hardware sweep.
+            let cancel = self.cancellation_handle();
+            config = self
+                .connection
+                .streaming(limits.text_timeout, async |io| {
+                    tune_window(io, &limits, &cancel, &config, window).await
+                })
+                .await
+                .inspect_err(|_| self.connection.taint())?;
+        }
         self.config = Some(config);
         Ok(())
     }
@@ -211,33 +223,34 @@ async fn read_profile(
     Err(missing_frame())
 }
 
-async fn tune_window(
-    io: &mut (impl AsyncRead + AsyncWrite + Unpin),
-    limits: &IoLimits,
-    cancel: &CancellationHandle,
-    original: Configuration,
-    window: (u64, u64),
-) -> Result<Configuration> {
+fn validate_active_window(original: &Configuration, window: (u64, u64)) -> Result<()> {
     if !original.contains(window) {
         return Err(InstrumentError::InvalidRequest(
             "requested window exceeds the active RF Explorer board limits".into(),
         ));
-    }
-    if original.window() == window {
-        return Ok(original);
     }
     if !(window.1 - window.0).is_multiple_of(original.points as u64 - 1) {
         return Err(InstrumentError::InvalidRequest(
             "requested RF Explorer span cannot produce an exact integer-Hz bin step".into(),
         ));
     }
+    Ok(())
+}
+
+async fn tune_window(
+    io: &mut (impl AsyncRead + AsyncWrite + Unpin),
+    limits: &IoLimits,
+    cancel: &CancellationHandle,
+    original: &Configuration,
+    window: (u64, u64),
+) -> Result<Configuration> {
     if cancel.is_cancelled() {
         return Err(InstrumentError::Cancelled);
     }
     send(io, &original.tune_command(window), limits).await?;
     for _ in 0..MAX_INTERVENING_FRAMES {
         match next_frame(io, limits).await? {
-            Frame::Configuration(updated) if updated.confirms_tuning(&original, window) => {
+            Frame::Configuration(updated) if updated.confirms_tuning(original, window) => {
                 return Ok(updated);
             }
             Frame::Configuration(_) => {
