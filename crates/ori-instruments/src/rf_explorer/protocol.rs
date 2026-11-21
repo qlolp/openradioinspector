@@ -240,32 +240,39 @@ async fn read_crlf(io: &mut (impl AsyncRead + Unpin)) -> Result<()> {
     Ok(())
 }
 
+/// Header bytes after the leading '$'. None means another header byte is required.
+fn binary_length(header: &[u8]) -> Result<Option<usize>> {
+    match header {
+        [b'S' | b'q', len] | [b'C', b'c' | b'd', len] => Ok(Some(usize::from(*len))),
+        [b'Q', lo, hi] => Ok(Some(usize::from(u16::from_le_bytes([*lo, *hi])))),
+        [b'C', b'b', _address, blocks] => Ok(Some(5 + (usize::from(*blocks) + 1) * 16)),
+        [b'S' | b'q' | b'Q' | b'C'] | [b'Q', _] | [b'C', b'b' | b'c' | b'd'] | [b'C', b'b', _] => {
+            Ok(None)
+        }
+        _ => Err(protocol("unsupported RF Explorer binary framing")),
+    }
+}
+
 async fn read_binary(
     io: &mut (impl AsyncRead + Unpin),
     limit: usize,
     started_at: chrono::DateTime<Utc>,
 ) -> Result<Frame> {
-    let kind = io.read_u8().await?;
-    let length = match kind {
-        b'S' | b'q' => usize::from(io.read_u8().await?),
-        b'Q' => usize::from(io.read_u16_le().await?),
-        b'C' => match io.read_u8().await? {
-            b'c' | b'd' => usize::from(io.read_u8().await?),
-            b'b' => {
-                let _address = io.read_u8().await?;
-                let blocks = usize::from(io.read_u8().await?) + 1;
-                5 + blocks * 16 // five remaining header bytes, then payload
-            }
-            _ => return Err(protocol("unknown RF Explorer calibration framing")),
-        },
-        _ => return Err(protocol("unsupported RF Explorer binary framing")),
+    let mut header = [0u8; 4];
+    let mut received = 0;
+    let length = loop {
+        header[received] = io.read_u8().await?;
+        received += 1;
+        if let Some(length) = binary_length(&header[..received])? {
+            break length;
+        }
     };
     if length > limit {
         return Err(protocol(
             "RF Explorer binary frame exceeds configured limit",
         ));
     }
-    if kind == b'S' {
+    if header[0] == b'S' {
         let mut counts = vec![0; length];
         io.read_exact(&mut counts).await?;
         read_crlf(io).await?;
@@ -321,7 +328,7 @@ fn text_frame(line: &[u8]) -> Result<Frame> {
         Err(protocol("unsupported RF Explorer configuration format"))
     } else if text.starts_with("#a") && text != "#a0" {
         Err(protocol("unsupported RF Explorer input stage"))
-    } else if text.starts_with("(C) Ariel Rocholl ") {
+    } else if text.starts_with("(C) Ariel Rocholl ") || text.starts_with("RF Explorer ") {
         Ok(Frame::Reset)
     } else {
         // Printable banner, serial number, calibration flags and status notifications.
@@ -350,6 +357,131 @@ pub(super) async fn next_frame(
         return Err(protocol("missing RF Explorer text frame terminator"));
     }
     text_frame(&line)
+}
+
+// C0 can arrive while the Standard is already pushing sweeps. Only during
+// startup, retain a bounded prefix so a misleading binary header at open can
+// be checked by its declared length and CRLF without losing a later banner.
+const MAX_STARTUP_BYTES: usize = 8 * 1024;
+
+struct StartupPrefix<'a, T> {
+    io: &'a mut T,
+    bytes: Vec<u8>,
+}
+
+impl<T: AsyncRead + Unpin> StartupPrefix<'_, T> {
+    async fn fill(&mut self, end: usize) -> Result<()> {
+        if end > MAX_STARTUP_BYTES {
+            return Err(protocol(
+                "RF Explorer C0 banner exceeds startup byte budget",
+            ));
+        }
+        let len = self.bytes.len();
+        if end > len {
+            self.bytes.resize(end, 0);
+            self.io.read_exact(&mut self.bytes[len..]).await?;
+        }
+        Ok(())
+    }
+
+    async fn line_end(&mut self, start: usize) -> Result<usize> {
+        let mut end = start + 2;
+        loop {
+            self.fill(end).await?;
+            if self.bytes[end - 2..end] == *b"\r\n" {
+                return Ok(end);
+            }
+            end += 1;
+        }
+    }
+
+    /// Skip entire documented binary records, including arbitrary banner-like
+    /// bytes inside them. A false header in an orphaned payload can have the
+    /// wrong terminator. Its bytes stay available for locating the true boundary.
+    async fn binary_end(&mut self, start: usize, limit: usize) -> Result<Option<usize>> {
+        let mut header_end = start + 2;
+        let length = loop {
+            self.fill(header_end).await?;
+            match binary_length(&self.bytes[start + 1..header_end]) {
+                Ok(Some(length)) => break length,
+                Ok(None) => header_end += 1,
+                Err(_) => return Ok(None),
+            }
+        };
+        if length > limit {
+            return Err(protocol(
+                "RF Explorer startup binary frame exceeds configured limit",
+            ));
+        }
+        let end = header_end + length + 2;
+        self.fill(end).await?;
+        Ok((self.bytes[end - 2..end] == *b"\r\n").then_some(end))
+    }
+}
+
+fn dotted_pairs(text: &str, count: usize) -> bool {
+    text.len() == count * 3 - 1
+        && text
+            .split('.')
+            .all(|pair| pair.len() == 2 && pair.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn is_startup_banner(line: &[u8]) -> Result<bool> {
+    let Some(fields) = line.strip_prefix(b"RF Explorer ") else {
+        return Ok(false);
+    };
+    let Ok(fields) = std::str::from_utf8(fields) else {
+        return Ok(false);
+    };
+    let mut fields = fields.split(' ');
+    let (Some(firmware), Some(date), Some(build), None) =
+        (fields.next(), fields.next(), fields.next(), fields.next())
+    else {
+        return Ok(false);
+    };
+    if !dotted_pairs(firmware, 2)
+        || date.len() != 9
+        || chrono::NaiveDate::parse_from_str(date, "%d-%b-%y").is_err()
+        || !dotted_pairs(build, 3)
+    {
+        return Ok(false);
+    }
+    if firmware != "01.34" {
+        return Err(InstrumentError::UnsupportedProfile(
+            "expected RF Explorer Standard firmware 01.34 in C0 banner".into(),
+        ));
+    }
+    Ok(true)
+}
+
+pub(super) async fn synchronize(
+    io: &mut (impl AsyncRead + Unpin),
+    limits: &IoLimits,
+) -> Result<Vec<u8>> {
+    let mut prefix = StartupPrefix {
+        io,
+        bytes: Vec::new(),
+    };
+    let mut start = 0;
+    loop {
+        prefix.fill(start + 1).await?;
+        if start == 0 && prefix.bytes[0] == b'\n' {
+            // The port can open on the second byte of a preceding CRLF.
+            start = 1;
+            continue;
+        }
+        if prefix.bytes[start] == b'$'
+            && let Some(end) = prefix.binary_end(start, limits.max_binary_bytes).await?
+        {
+            start = end;
+            continue;
+        }
+        let end = prefix.line_end(start).await?;
+        if is_startup_banner(&prefix.bytes[start..end - 2])? {
+            return Ok(prefix.bytes.split_off(end));
+        }
+        start = end;
+    }
 }
 
 pub(super) async fn send(

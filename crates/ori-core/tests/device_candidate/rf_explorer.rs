@@ -36,7 +36,8 @@ impl TransportFactory for DuplexFactory {
                 } else {
                     MODEL
                 };
-                let mut reply = [model, CONFIG].concat();
+                let banner = b"RF Explorer 01.34 27-Apr-22 01.04.05\r\n";
+                let mut reply = [banner.as_slice(), model, CONFIG].concat();
                 if tuned {
                     peer.write_all(&reply).await.unwrap();
                     let mut command = [0; 32];

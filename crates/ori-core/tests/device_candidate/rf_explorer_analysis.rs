@@ -19,7 +19,8 @@ impl TransportFactory for SyntheticFrames {
 
     fn open<'a>(&'a self, _: &'a DeviceStream) -> DeviceFuture<'a, BoxTransport> {
         Box::pin(async {
-            let mut wire = b"#C2-M:003,005,01.34\r\n".to_vec();
+            let mut wire =
+                b"RF Explorer 01.34 27-Apr-22 01.04.05\r\n#C2-M:003,005,01.34\r\n".to_vec();
             // Both inputs cover the same 433 MHz grid. Only the specified readback changes.
             for (board, rbw, offset, detector, counts) in [
                 (EXPANSION, 15, 0, 4, &[120, 140, 160][..]),

@@ -13,6 +13,7 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 
+const BANNER: &[u8] = b"RF Explorer 01.34 27-Apr-22 01.04.05\r\n";
 const MODEL: &[u8] = b"#C2-M:003,005,01.34\r\n";
 const CONFIG: &str =
     "#C2-F:0100000,0010000,0000,-118,0112,1,000,0015000,2700000,0600000,00015,0000,004\r\n";
@@ -43,6 +44,7 @@ fn setup(window: Option<(u64, u64)>) -> (RfExplorer<DuplexStream>, DuplexStream)
 
 async fn readback(peer: &mut DuplexStream) {
     expect_bytes(peer, QUERY).await;
+    peer.write_all(BANNER).await.unwrap();
     peer.write_all(MODEL).await.unwrap();
     peer.write_all(CONFIG.as_bytes()).await.unwrap();
 }
@@ -58,6 +60,7 @@ async fn fragmented_frames_follow_device_and_preserve_raw_counts_detector_and_ti
         expect_bytes(&mut peer, QUERY).await;
         // Old stream data arrives before both pieces of evidence. Never relabel it.
         peer.write_all(&sweep(&[42; 112])).await.unwrap();
+        peer.write_all(BANNER).await.unwrap();
         peer.write_all(CONFIG.as_bytes()).await.unwrap();
         peer.write_all(&sweep(&[66; 112])).await.unwrap();
         peer.write_all(MODEL).await.unwrap();
@@ -110,6 +113,7 @@ async fn every_original_byte_is_recoverable_with_stable_settings_across_sweeps()
     let (mut device, mut peer) = setup(None);
     let producer = tokio::spawn(async move {
         expect_bytes(&mut peer, QUERY).await;
+        peer.write_all(BANNER).await.unwrap();
         peer.write_all(MODEL).await.unwrap();
         peer.write_all(CONFIG.replace("00015,0000", "00015,0007").as_bytes())
             .await
@@ -271,6 +275,7 @@ async fn partial_or_out_of_profile_counts_cannot_be_published_even_if_lengths_ma
         let (mut device, mut peer) = setup(None);
         let producer = tokio::spawn(async move {
             expect_bytes(&mut peer, QUERY).await;
+            peer.write_all(BANNER).await.unwrap();
             peer.write_all(MODEL).await.unwrap();
             let config = CONFIG
                 .replace(",0112,", &format!(",{points:04},"))
@@ -289,6 +294,7 @@ async fn missing_metadata_cannot_be_replaced_by_valid_sweeps() {
         let (mut device, mut peer) = setup(None);
         tokio::spawn(async move {
             expect_bytes(&mut peer, QUERY).await;
+            peer.write_all(BANNER).await.unwrap();
             peer.write_all(if missing_model {
                 CONFIG.as_bytes()
             } else {
@@ -401,6 +407,7 @@ async fn active_board_limits_reject_requested_window_before_a_tuning_command() {
     let (mut device, mut peer) = setup(Some((99_000_000, 100_110_000)));
     let producer = tokio::spawn(async move {
         expect_bytes(&mut peer, QUERY).await;
+        peer.write_all(BANNER).await.unwrap();
         peer.write_all(MODEL).await.unwrap();
         peer.write_all(b"#C2-F:0300000,0010000,0000,-118,0112,0,000,0240000,0960000,0100000,00015,0000,004\r\n").await.unwrap();
         let mut extra = Vec::new();
@@ -446,6 +453,7 @@ async fn revoked_execution_authority_prevents_the_second_startup_write() {
     });
     let producer = tokio::spawn(async move {
         expect_bytes(&mut peer, QUERY).await;
+        peer.write_all(BANNER).await.unwrap();
         allowed.store(false, Ordering::Release);
         peer.write_all(MODEL).await.unwrap();
         peer.write_all(CONFIG.as_bytes()).await.unwrap();
@@ -474,4 +482,108 @@ async fn impossible_integer_step_window_sends_no_tuning_command() {
     device.close().await.unwrap();
     assert!(producer.await.unwrap().is_empty());
     assert!(matches!(error, InstrumentError::InvalidRequest(_)));
+}
+
+#[tokio::test]
+async fn startup_accepts_an_orphaned_binary_or_text_tail_before_the_full_c0_response() {
+    // A port can open in the middle of an existing sweep. Include CRLF and
+    // convincing metadata in the synthetic orphan, including a false frame start.
+    let mut orphan = [165; 112];
+    orphan[8..31].copy_from_slice(b"\r\n#C2-M:060,061,01.33\r\n");
+    let mut false_sweep = b"$S\xff".to_vec();
+    false_sweep.extend_from_slice(&[166; 33]);
+    for tail in [orphan.as_slice(), b"-118,0112,1,000", &false_sweep, b""] {
+        let (mut device, mut peer) = setup(None);
+        let mut bytes = tail.to_vec();
+        bytes.extend_from_slice(
+            b"\r\nRF Explorer 01.34 08-May-24 02.05.09\r\n#CAL:11\r\n#BAT:04\r\n",
+        );
+        bytes.extend_from_slice(MODEL);
+        bytes.extend_from_slice(b"#QA:0\r\n");
+        bytes.extend_from_slice(CONFIG.as_bytes());
+        bytes.extend_from_slice(b"#SnSYNTHETIC\r\n");
+        for _ in 0..3 {
+            bytes.extend_from_slice(&sweep(&[77; 112]));
+        }
+        let peer_task = tokio::spawn(async move {
+            expect_bytes(&mut peer, QUERY).await;
+            for fragment in bytes.chunks(3) {
+                peer.write_all(fragment).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+        });
+        device.prepare().await.unwrap();
+        let sample = device.poll().await.unwrap();
+        assert_eq!(sample.levels, vec![-38.5; 112]);
+        assert_eq!(sample.frequencies_hz[111], 101_110_000);
+        peer_task.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn model_and_config_need_a_real_line_delimited_supported_banner() {
+    let mut inside_binary = b"\r\n".to_vec();
+    inside_binary.extend_from_slice(BANNER);
+    inside_binary.resize(112, 172);
+    let mut inside_cal = b"$q".to_vec();
+    inside_cal.push(inside_binary.len() as u8);
+    inside_cal.extend_from_slice(&inside_binary);
+    inside_cal.extend_from_slice(b"\r\n");
+    for prefix in [
+        Vec::new(), // raw tail could begin with exact model and configuration records
+        sweep(&inside_binary),
+        inside_cal,
+        b"noiseRF Explorer 01.34 27-Apr-22 01.04.05\r\n".to_vec(),
+        b"RF Explorer 01.33 27-Apr-22 01.04.05\r\n".to_vec(),
+        b"RF Explorer 01.34 99-Nul-22 01.04.05\r\n".to_vec(),
+        b"RF Explorer 01.34 27-Apr-22 01.04.05 trailing\r\n".to_vec(),
+    ] {
+        let (mut device, mut peer) = setup(None);
+        let peer_task = tokio::spawn(async move {
+            expect_bytes(&mut peer, QUERY).await;
+            peer.write_all(&prefix).await.unwrap();
+            peer.write_all(MODEL).await.unwrap();
+            peer.write_all(CONFIG.as_bytes()).await.unwrap();
+            peer.write_all(&sweep(&[86; 112])).await.unwrap();
+        });
+        assert!(device.prepare().await.is_err());
+        assert!(device.cancellation_handle().is_tainted());
+        peer_task.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn startup_byte_budget_expires_even_if_a_valid_banner_arrives_later() {
+    let (wire, mut peer) = duplex(32_768);
+    let mut device = RfExplorer::new(wire, None, IoLimits::default()).unwrap();
+    let peer_task = tokio::spawn(async move {
+        expect_bytes(&mut peer, QUERY).await;
+        for _ in 0..200 {
+            peer.write_all(&sweep(&[88; 112])).await.unwrap();
+        }
+        peer.write_all(BANNER).await.unwrap();
+        peer.write_all(MODEL).await.unwrap();
+        peer.write_all(CONFIG.as_bytes()).await.unwrap();
+    });
+    assert!(matches!(
+        device.prepare().await,
+        Err(InstrumentError::Protocol(_))
+    ));
+    peer_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_new_banner_during_acquisition_invalidates_the_previous_handshake() {
+    let (mut device, mut peer) = setup(None);
+    let peer_task = tokio::spawn(async move {
+        readback(&mut peer).await;
+        peer.write_all(BANNER).await.unwrap();
+        peer.write_all(MODEL).await.unwrap();
+        peer.write_all(CONFIG.as_bytes()).await.unwrap();
+        peer.write_all(&sweep(&[71; 112])).await.unwrap();
+    });
+    device.prepare().await.unwrap();
+    assert!(device.poll().await.is_err());
+    assert!(device.cancellation_handle().is_tainted());
+    peer_task.await.unwrap();
 }

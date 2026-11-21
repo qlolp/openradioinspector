@@ -5,9 +5,11 @@ use crate::{
     CancellationHandle, ExecutionCheck, InstrumentError, IoLimits, Result, SpectrumSample,
     transport::Connection,
 };
-use protocol::{Configuration, Frame, MAX_HZ, MAX_SPAN_HZ, MIN_HZ, MIN_SPAN_HZ, next_frame, send};
+use protocol::{
+    Configuration, Frame, MAX_HZ, MAX_SPAN_HZ, MIN_HZ, MIN_SPAN_HZ, next_frame, send, synchronize,
+};
 use serde_json::{Value, json};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 // Also stop when an always-readable stream supplies only unrelated frames.
 const MAX_INTERVENING_FRAMES: usize = 1024;
@@ -181,10 +183,14 @@ async fn read_profile(
     io: &mut (impl AsyncRead + Unpin),
     limits: &IoLimits,
 ) -> Result<Configuration> {
+    let buffered = synchronize(io, limits).await?;
+    // A false binary length at open can require reading past the banner to
+    // disprove its terminator. Consume those bytes in wire order before returning.
+    let mut response = buffered.as_slice().chain(io);
     let mut identified = false;
     let mut config: Option<Configuration> = None;
     for _ in 0..MAX_INTERVENING_FRAMES {
-        match next_frame(io, limits).await? {
+        match next_frame(&mut response, limits).await? {
             Frame::Model => identified = true,
             Frame::Configuration(updated) => config = Some(updated),
             Frame::Detector(mode) => {
@@ -192,13 +198,13 @@ async fn read_profile(
                     config.detector = mode;
                 }
             }
-            Frame::Reset => {
-                identified = false;
-                config = None;
-            }
+            Frame::Reset => return Err(reset_error()),
             Frame::Auxiliary | Frame::Sweep(_, _) => {}
         }
-        if identified && let Some(config) = config.take() {
+        if identified
+            && response.get_ref().0.is_empty()
+            && let Some(config) = config.take()
+        {
             return Ok(config);
         }
     }

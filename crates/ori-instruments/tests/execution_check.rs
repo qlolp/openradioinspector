@@ -413,7 +413,7 @@ async fn rf_explorer_cancellation_during_a_ready_read_discards_the_frame() {
         let mut query = [0; 4];
         fixture.peer.read_exact(&mut query).await.unwrap();
         assert_eq!(&query, b"#\x04C0");
-        fixture.peer.write_all(b"#C2-M:003,005,01.34\r\n#C2-F:0100000,0010000,0000,-118,0112,1,000,0015000,2700000,0600000,00015,0000,004\r\n").await.unwrap();
+        fixture.peer.write_all(b"RF Explorer 01.34 27-Apr-22 01.04.05\r\n#C2-M:003,005,01.34\r\n#C2-F:0100000,0010000,0000,-118,0112,1,000,0015000,2700000,0600000,00015,0000,004\r\n").await.unwrap();
     });
     prepared.unwrap();
     // Every byte is already buffered. Cancellation fires inside the first read,
