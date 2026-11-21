@@ -524,7 +524,9 @@ async fn startup_accepts_an_orphaned_binary_or_text_tail_before_the_full_c0_resp
 async fn model_and_config_need_a_real_line_delimited_supported_banner() {
     let mut inside_binary = b"\r\n".to_vec();
     inside_binary.extend_from_slice(BANNER);
-    inside_binary.resize(112, 172);
+    inside_binary.extend_from_slice(MODEL);
+    inside_binary.extend_from_slice(CONFIG.as_bytes());
+    inside_binary.resize(224, 172);
     let mut inside_cal = b"$q".to_vec();
     inside_cal.push(inside_binary.len() as u8);
     inside_cal.extend_from_slice(&inside_binary);
@@ -586,4 +588,40 @@ async fn a_new_banner_during_acquisition_invalidates_the_previous_handshake() {
     assert!(device.poll().await.is_err());
     assert!(device.cancellation_handle().is_tainted());
     peer_task.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn opening_on_a_partial_record_shares_one_deadline_with_identity_and_can_be_cancelled() {
+    for cancel_during_orphan in [true, false] {
+        let (wire, mut peer) = duplex(1024);
+        let limits = IoLimits {
+            text_timeout: Duration::from_millis(100),
+            ..IoLimits::default()
+        };
+        let mut device = RfExplorer::new(wire, None, limits).unwrap();
+        let cancel = device.cancellation_handle();
+        let peer_task = tokio::spawn(async move {
+            expect_bytes(&mut peer, QUERY).await;
+            peer.write_all(&[181; 30]).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            if cancel_during_orphan {
+                cancel.cancel();
+            } else {
+                peer.write_all(b"\r\n").await.unwrap();
+                peer.write_all(BANNER).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                peer.write_all(MODEL).await.unwrap();
+                peer.write_all(CONFIG.as_bytes()).await.unwrap();
+            }
+            std::future::pending::<()>().await;
+        });
+        let error = device.prepare().await.unwrap_err();
+        if cancel_during_orphan {
+            assert!(matches!(error, InstrumentError::Cancelled));
+        } else {
+            assert!(matches!(error, InstrumentError::Timeout));
+        }
+        assert!(device.cancellation_handle().is_tainted());
+        peer_task.abort();
+    }
 }
