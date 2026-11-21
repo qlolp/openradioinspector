@@ -1,5 +1,6 @@
 """Controlled API-tool children retain actual status and descendant authority."""
 
+import errno
 import json
 import os
 import signal
@@ -86,13 +87,27 @@ def held_help_release(operation):
             yield process, controller
         finally:
             if not process.closed:
-                controller.close()
-                process.stop(2)
+                # The anchor can still send its readiness byte during cleanup.
+                try:
+                    controller.shutdown(socket.SHUT_WR)
+                except OSError as error:
+                    if error.errno != errno.ENOTCONN:
+                        raise
+                finally:
+                    process.stop(2)
             process.dispose()
 
 
 if os.name == "posix":
     class PosixProbeFinishTests(unittest.TestCase):
+        def test_cleanup_preserves_a_failure_before_the_release_gate(self):
+            with self.assertRaisesRegex(RuntimeError, "controlled fixture exit"):
+                with held_help_release("replace") as (process, _gate):
+                    self.assertEqual(process.wait(5), 0)
+                    raise RuntimeError("controlled fixture exit")
+            self.assertTrue(process.closed)
+            self.assertFalse(process.directory.exists())
+
         def test_terminal_observation_after_deadline_keeps_lease_for_a_fresh_recovery(self):
             for operation, expected in (("replace", TimeoutError), ("reap", subprocess.TimeoutExpired)):
                 with self.subTest(operation=operation), held_help_release(operation) as (process, gate):
