@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import PurePosixPath
 import subprocess
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 
 class GuideReferences(HTMLParser):
@@ -12,14 +12,19 @@ class GuideReferences(HTMLParser):
         super().__init__()
         self.images = []
         self.local = []
+        self.anchors = set()
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if attrs.get('id'):
+            self.anchors.add(attrs['id'])
+        if tag == 'a' and attrs.get('name'):
+            self.anchors.add(attrs['name'])
         if tag == 'img':
-            self.images.append(attrs.get('src', ''))
+            self.images.append(attrs.get('src') or '')
         for key in ('src', 'href'):
-            if key in attrs and not attrs[key].startswith('#'):
-                self.local.append(attrs[key])
+            if key in attrs:
+                self.local.append(attrs[key] or '')
 
 
 def stage_manual(root, destination):
@@ -36,22 +41,34 @@ def stage_manual(root, destination):
         raise ValueError('offline operator guide missing from this commit')
     destination.mkdir(parents=True, exist_ok=False)
     hashes = {}
+    pages = {}
     for name, oid in sorted(entries.items()):
         data = subprocess.check_output(['git', 'cat-file', 'blob', oid], cwd=root)
         path = destination / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         hashes[name] = hashlib.sha256(data).hexdigest()
-    guide = GuideReferences()
-    guide.feed((destination / 'index.html').read_text(encoding='utf-8'))
-    if not guide.images:
+        if path.suffix.lower() in ('.htm', '.html'):
+            page = GuideReferences()
+            page.feed(data.decode('utf-8'))
+            page.close()
+            pages[name] = page
+    shown = set()
+    for name, page in pages.items():
+        directory = PurePosixPath(name).parent
+        for reference in page.local:
+            url = urlsplit(reference)
+            local = unquote(url.path)
+            target = (directory / local).as_posix() if local else name
+            if (url.scheme or url.netloc or url.query or (not local and not reference.startswith('#'))
+                    or '\\' in local or '..' in PurePosixPath(local).parts or target not in hashes):
+                raise ValueError('operator guide references content outside the bundled files')
+            if url.fragment and target in pages and unquote(url.fragment) not in pages[target].anchors:
+                raise ValueError(f'operator guide references a missing anchor in {target}: {reference}')
+        for source in page.images:
+            shown.add((directory / unquote(urlsplit(source).path)).as_posix())
+    if not shown:
         raise ValueError('operator guide is missing its screenshots')
-    for reference in guide.local:
-        url = urlsplit(reference)
-        if (url.scheme or url.netloc or url.query or not url.path or '\\' in url.path
-                or '..' in PurePosixPath(url.path).parts or PurePosixPath(url.path).as_posix() not in hashes):
-            raise ValueError('operator guide references content outside the bundled files')
-    shown = {PurePosixPath(urlsplit(src).path).as_posix() for src in guide.images}
     documented = set()
     inventory = json.loads((destination / 'captures.json').read_text(encoding='utf-8'))
     for group in inventory['groups']:

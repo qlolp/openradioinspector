@@ -300,16 +300,28 @@ class PublicationTests(unittest.TestCase):
             root = Path(tmp)
             listing = (b'100644 blob cafe\tdocs/operator-guide/index.html\x00'
                        b'100644 blob face\tdocs/operator-guide/images/screen.png\x00'
-                       b'100644 blob fade\tdocs/operator-guide/captures.json\x00')
+                       b'100644 blob fade\tdocs/operator-guide/captures.json\x00'
+                       b'100644 blob bead\tdocs/operator-guide/steps/page.html\x00')
             original = b'controlled screenshot'
             recorded = {'file': 'images/screen.png', 'sha256': sha256(original).hexdigest()}
-            cases = [('./images/screen.png', [recorded]), ('https://example.invalid/remote.png', [recorded]),
-                     ('../private.png', [recorded]), ('images/screen.png', [dict(recorded, sha256='0' * 64)]),
-                     ('images/screen.png', []), ('images/screen.png', [recorded, recorded])]
-            for i, (src, captures) in enumerate(cases):
+            cases = [
+                ('./images/screen.png', [recorded], 'steps/page.html#%D1%80'),
+                ('https://example.invalid/remote.png', [recorded], '#top'),
+                ('../private.png', [recorded], '#top'),
+                ('images/screen.png', [dict(recorded, sha256='0' * 64)], '#top'),
+                ('images/screen.png', [], '#top'),
+                ('images/screen.png', [recorded, recorded], '#top'),
+                ('images/screen.png', [recorded], '#missing'),
+                ('images/screen.png', [recorded], 'steps/page.html#top'),
+            ]
+            for i, (src, captures, link) in enumerate(cases):
                 provenance = {'version': 1, 'groups': [{'captures': captures}]}
-                content = {'cafe': f'<img src="{src}">'.encode(), 'face': original,
-                           'fade': json.dumps(provenance).encode()}
+                content = {
+                    'cafe': f'<main id="top"><img src="{src}"><a href="{link}">steps</a></main>'.encode(),
+                    'face': original,
+                    'fade': json.dumps(provenance).encode(),
+                    'bead': '<h2 id="р">Приём</h2><a href="#р">Приём</a>'.encode(),
+                }
                 def git(args, cwd):
                     return listing if 'ls-tree' in args else content[args[-1]]
                 with patch('tools.release.operator_manual.subprocess.check_output', side_effect=git):
