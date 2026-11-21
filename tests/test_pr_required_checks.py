@@ -68,6 +68,34 @@ class ChangeSelectionTests(unittest.TestCase):
         head = self.commit(["tools/ci/pr_checks.py"], base)
         self.assertEqual(self.selections(base, head), {"clients": "true", "reference": "true"})
 
+    def test_build_inputs_select_their_consumers(self):
+        base = self.commit([])
+        cases = {
+            ("true", "true"): (
+                ".gitattributes", "Cargo.toml", "Cargo.lock", ".cargo/config.toml", "rust-toolchain.toml",
+                "tools/build_modern_web.py", "crates/ori-core/src/lib.rs",
+                "clients/web/package-lock.json", "contracts/generated/runtime-openapi-v1.json",
+                "radioinspector/web/static/app.js", "radioinspector/monitoring/storage_window.sql",
+            ),
+            ("true", "false"): (
+                ".gitignore", "pyproject.toml", "rustfmt.toml", "LICENSE", "deploy/windows/operator-window-fixture.json",
+                "tests/fixtures/field-strength-rms-v2.json", "docs/operator-guide/guide.md",
+            ),
+            ("false", "true"): (
+                "tests/release_process_ownership.py", "tests/run_release_checks.py",
+                "tests/loopback_dns.py", "tools/modernization/api_parity.py",
+            ),
+            ("false", "false"): (
+                "docs/release/status.md", "clients/web/SECURITY.md",
+                "crates/ori-archive/tests/fixtures/README.md", "tests/test_windows_monitoring.py",
+            ),
+        }
+        for (clients, reference), filenames in cases.items():
+            for filename in filenames:
+                with self.subTest(filename=filename):
+                    head = self.commit([filename], base)
+                    self.assertEqual(self.selections(base, head), {"clients": clients, "reference": reference})
+
     def test_unknown_revision_and_incomplete_history_cannot_certify_a_skip(self):
         base = self.commit([])
         head = self.commit(["docs/guide.md"], base)
@@ -79,6 +107,22 @@ class ChangeSelectionTests(unittest.TestCase):
                 result = check("paths", older, newer, cwd=cwd)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
+
+
+class PushPathTests(unittest.TestCase):
+    def test_push_and_pr_filters_cover_the_same_build_inputs(self):
+        from tools.ci.pr_checks import OPERATOR_GUIDE, PATHS
+
+        for suite, workflow in (("clients", "modern-clients"), ("reference", "windows-load")):
+            with self.subTest(suite=suite):
+                source = (ROOT / ".github/workflows" / (workflow + ".yml")).read_text(encoding="utf-8")
+                # The push paths are a JSON array inside YAML, so this check needs only the standard library.
+                push = source.split("  push:\n", 1)[1].split("  workflow_call:", 1)[0]
+                patterns, _ = json.JSONDecoder().raw_decode(push.split("    paths:", 1)[1].lstrip())
+                expected = [path for path in PATHS[suite] if path != OPERATOR_GUIDE] + ["!**/*.md"]
+                if OPERATOR_GUIDE in PATHS[suite]:
+                    expected.append(OPERATOR_GUIDE)
+                self.assertEqual(patterns, expected)
 
 
 class RequiredVerdictTests(unittest.TestCase):
