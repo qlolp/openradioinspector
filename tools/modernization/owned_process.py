@@ -245,21 +245,24 @@ class ManagedProcess:
                 if code != 0:
                     raise ManagedError("adapter_failed")
                 record = _record(self.directory / "complete.json", self.nonce)
+                target_code = self.returncode
                 if (
                     record is None
                     or record.get("streams_closed") is not True
-                    or self.returncode is None
+                    or target_code is None
                 ):
                     raise ManagedError("incomplete_child_closure")
                 if self.owner is not None:
                     if self.owner.authority.members():
                         raise ManagedError("owned_descendant")
-                    return self.returncode
-                if not self.job.active():
-                    return self.returncode
-            if time.monotonic() >= deadline:
+                else:
+                    completed = not self.job.active()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 raise subprocess.TimeoutExpired(self.argv, timeout)
-            time.sleep(0.005)
+            if completed:
+                return target_code
+            time.sleep(min(.005, remaining))
 
     def finish(self, timeout=2):
         if self.closed:
@@ -267,8 +270,11 @@ class ManagedProcess:
         if self.owner is not None:
             self.owner.release(timeout)
         else:
+            deadline = time.monotonic() + timeout
             if self.bootstrap.poll() is None or self.job.active():
                 raise ManagedError("unconfirmed_windows_closure")
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired("owned Windows job", timeout)
             self.job.close()
         self.closed = True
         self._log.close()
@@ -288,11 +294,14 @@ class ManagedProcess:
                 # authority inferred from an exit/readiness record.
                 self.bootstrap.terminate()
             if self.bootstrap is not None:
-                self.bootstrap.wait(timeout=max(0.001, deadline - time.monotonic()))
+                self.bootstrap.wait(timeout=max(0, deadline - time.monotonic()))
             while self.job.active():
-                if time.monotonic() >= deadline:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     raise ManagedError("unconfirmed_windows_closure")
-                time.sleep(0.01)
+                time.sleep(min(.01, remaining))
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired("owned Windows job", timeout)
             self.job.close()
         else:
             raise ManagedError("launch_authority_unavailable")

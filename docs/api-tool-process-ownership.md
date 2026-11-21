@@ -34,6 +34,18 @@ and anchor exit separately while the real `--help` probe runs. Withholding the
 acknowledgment or reap exhausts the release budget and keeps the owner available
 for recovery. A separate blocked target exercises the command timeout.
 
+The caller checks the monotonic deadline after observing the final command
+and membership evidence, the terminal acknowledgment, and the actual anchor
+reap. A parent that resumes late records a timeout even when the target has
+already exited. Cancellation and release share the same absolute cleanup
+deadline. A fresh recovery call can use the original reaped process handle.
+
+Once timely closure is proved, retirement removes the outer registration
+before deleting the independent scope. A failed link removal leaves the
+registration resolvable. If scope deletion stops partway through, the live
+parent retains the verified directory identity and can resume deletion even
+after status files have gone. The owner reports completion after both removals.
+
 CLI stdout and stderr remain separate, with the existing 256 KiB cap for each.
 Node output uses one merged stream with one aggregate 256 KiB cap. Writers keep
 draining after a cap is reached while discarding excess bytes; overflow always

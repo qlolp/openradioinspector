@@ -552,8 +552,16 @@ class OwnedProducerTests(unittest.TestCase):
                     evidence={'probe':name,'exit_code':probe.get('exit_code'),
                               'lifecycle':probe.get('lifecycle')}
                     self.assertEqual(probe['successful'],expected,evidence)
+                    if name=='readiness':
+                        self.assertIs(type(probe['exit_code']),int,evidence)
+                        self.assertGreater(probe['exit_code'],0,evidence)
+                        self.assertTrue('--data-dir' in probe['stderr'],evidence)
+                        self.assertIsNone(probe['error'],evidence)
+                        self.assertEqual(probe['lifecycle']['failed_phase'],'target_exit',evidence)
+                        self.assertEqual(probe['lifecycle']['cleanup'],'unneeded',evidence)
+                        for event in ('target_exit','streams_closed','adapter_exit','closed'):
+                            self.assertIn(event,probe['lifecycle']['observed_ms'],evidence)
                 self.assertFalse(probes['successful'])
-                self.assertNotEqual(probes['commands']['readiness']['exit_code'],0)
             self.assertTrue(original.joined)
             self.assertEqual(original.process.returncode,0)
             self.assertFalse(original.ready.exists())
