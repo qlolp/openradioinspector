@@ -1,0 +1,21 @@
+name: Required conditional PR checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  pr:
+    name: PR
+    # Only a base edit changes the PR comparison. Unrelated labels must not replace a prior verdict.
+    if: >-
+      (github.event.action != 'edited' || github.event.changes.base) &&
+      (github.event.label.name == '' || github.event.label.name == 'full-reference-load')
+    concurrency:
+      group: required-conditional-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/conditional-checks.yml

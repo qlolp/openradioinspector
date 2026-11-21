@@ -3,9 +3,19 @@ on:
   push:
     branches: [main, 'codex/**']
     paths: ['benchmarks/**', 'crates/ori-core/examples/benchmark_background.rs', '.github/workflows/windows-load.yml']
-  pull_request:
-    types: [opened, reopened, synchronize, labeled]
-    paths: ['benchmarks/**', 'crates/ori-core/examples/benchmark_background.rs', '.github/workflows/windows-load.yml']
+  workflow_call:
+    inputs:
+      full:
+        description: Run the full reference schedule
+        type: boolean
+        required: true
+    outputs:
+      windows-x64:
+        description: Windows x64 completed the selected schedule
+        value: ${{ jobs.reference.outputs.windows_x64 }}
+      linux-arm64:
+        description: Linux arm64 completed the selected schedule
+        value: ${{ jobs.reference.outputs.linux_arm64 }}
   workflow_dispatch:
     inputs:
       full:
@@ -18,7 +28,10 @@ permissions:
 
 jobs:
   reference:
-    if: github.event.action != 'labeled' || github.event.label.name == 'full-reference-load'
+    # Matrix outputs are merged by key. Each native leg publishes only its own workload conclusion.
+    outputs:
+      windows_x64: ${{ matrix.platform == 'windows-x64' && job.status == 'success' && steps.workload.outcome || '' }}
+      linux_arm64: ${{ matrix.platform == 'linux-arm64' && job.status == 'success' && steps.workload.outcome || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +46,7 @@ jobs:
       CARGO_BUILD_JOBS: 2
       LIBSQLITE3_SYS_USE_PKG_CONFIG: '0'
       ORI_BUILD_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      FULL_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.full) || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'full-reference-load') }}
+      FULL_RUN: ${{ inputs.full || false }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,6 +96,7 @@ jobs:
       - run: python tools/build_modern_web.py --check
       - run: cargo +1.99.1 build --release --locked --features serial -p ori-core --example benchmark_background
       - name: Run live export, verified cursor history and online backup during original acquisition
+        id: workload
         shell: python
         run: |
           import hashlib, json, os, subprocess, sys
