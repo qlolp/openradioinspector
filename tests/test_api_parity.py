@@ -545,16 +545,20 @@ class OwnedProducerTests(unittest.TestCase):
                 self.assertEqual(command[0],str(embedding))
                 self.assertEqual(command[1::2],['--data-dir','--ready-file'])
                 probes=node.readonly_cli()
-                self.assertTrue(probes['commands']['help']['successful'],probes)
-                self.assertTrue(probes['commands']['version']['successful'],probes)
-                self.assertFalse(probes['commands']['readiness']['successful'],probes)
+                for name, expected in (('help',True),('version',True),('readiness',False)):
+                    probe=probes['commands'][name]
+                    # CI needs the observed boundaries without command lines,
+                    # private paths or the target's captured stdout/stderr.
+                    evidence={'probe':name,'exit_code':probe.get('exit_code'),
+                              'lifecycle':probe.get('lifecycle')}
+                    self.assertEqual(probe['successful'],expected,evidence)
                 self.assertFalse(probes['successful'])
                 self.assertNotEqual(probes['commands']['readiness']['exit_code'],0)
             self.assertTrue(original.joined)
             self.assertEqual(original.process.returncode,0)
             self.assertFalse(original.ready.exists())
         except BaseException:
-            print('Retained failed separate-executable parity fixture:',directory)
+            print('Retained failed separate-executable parity fixture',directory.name)
             raise
         else:
             import shutil

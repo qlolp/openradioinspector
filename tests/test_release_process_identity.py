@@ -92,6 +92,7 @@ class SessionIdentityTests(unittest.TestCase):
         owner.directory = MagicMock()
         owner.process = None
         owner.meta = {"owner": "a" * 32}
+        owner.observed_ns = {}
         owner.authority = SessionAuthority(anchor, kernel=kernel)
         owner.status = lambda: {
             "phase": "released",
@@ -115,6 +116,23 @@ class SessionIdentityTests(unittest.TestCase):
         owner.process.stdin.close.assert_called_once()
         owner.process.wait.assert_called_once()
         self.assertEqual(kernel.sent, [])
+
+    def test_failed_release_ack_is_reported_for_its_own_serial(self):
+        owner, _kernel = self.released_owner()
+        owner.authority = Mock()
+        owner.authority.members.return_value = []
+        owner.status = Mock(side_effect=[
+            {"phase": "exited"}, {"phase": "failed", "control_serial": 1},
+            {"phase": "failed", "control_serial": 2},
+        ])
+        owner.request = Mock(return_value=2)
+        with patch.object(ownership, "_condition_wait") as wait, self.assertRaisesRegex(
+            OwnershipError, "release failed"
+        ):
+            owner.release(.1)
+        wait.assert_called_once()  # The older failure belongs to another request.
+        self.assertNotIn("release_acknowledged", owner.observed_ns)
+        owner.directory.__truediv__.return_value.unlink.assert_not_called()
 
     def test_target_pid_reuse_after_snapshot_fails_closed(self):
         anchor = self.anchor()
@@ -178,6 +196,7 @@ class RegistryRetirementTests(unittest.TestCase):
         self.owner.directory = self.scope
         self.owner.meta = meta
         self.owner.process = None
+        self.owner.observed_ns = {}
         self.owner.authority = SessionAuthority(anchor, kernel=self.kernel)
         retained = patch.dict(ownership._retained_commands, {self.scope: self.owner}, clear=True)
         retained.start()

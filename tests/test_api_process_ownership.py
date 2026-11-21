@@ -4,10 +4,12 @@ import json
 import os
 import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -15,6 +17,125 @@ from tests.owned_fixture_io import CAPTURED_STDOUT, READY_STDOUT, owned_control_
 from tests.release_process_ownership import OwnershipError
 from tools.modernization import owned_process
 from tools.modernization.api_parity import NodeSpec, OwnedNode, ProtocolError, probe_cli
+
+
+def _gated_anchor(operation, descriptor):
+    """Run the original supervisor with one controlled post-exit boundary."""
+    from tests import release_process_ownership as ownership
+    from tests import run_release_checks as release
+
+    with socket.socket(fileno=descriptor) as gate:
+        gate.set_inheritable(False)
+        gate.settimeout(10)
+
+        def hold():
+            gate.sendall(b"r")
+            gate.recv(1)
+
+        if operation == "reap":
+            code = release.main()
+            hold()  # Terminal record already visible, process still alive.
+            return code
+
+        write = ownership.write_record
+        syscall = getattr(os, operation)
+
+        def write_status(path, value, **options):
+            if value.get("phase") != "released":
+                return write(path, value, **options)
+            held = False
+
+            def gated(*args):
+                nonlocal held
+                if not held:
+                    held = True
+                    hold()
+                return syscall(*args)
+
+            with patch.object(os, operation, gated):
+                return write(path, value, **options)
+
+        with patch.object(ownership, "write_record", write_status):
+            return release.main()
+
+
+@contextmanager
+def held_help_release(operation):
+    controller, anchor = socket.socketpair()
+    with controller, anchor:
+        controller.settimeout(5)
+        launch = subprocess.Popen
+        descriptor = anchor.fileno()
+        wrapper = (
+            "from tests.test_api_process_ownership import _gated_anchor;"
+            f"raise SystemExit(_gated_anchor({operation!r}, {descriptor}))"
+        )
+
+        def start(argv, **options):
+            assert argv[1:3] == ["-m", "tests.run_release_checks"]
+            return launch([argv[0], "-c", wrapper, *argv[3:]],
+                          pass_fds=(descriptor,), **options)
+
+        process = owned_process.ManagedProcess([sys.executable, "--help"])
+        with patch.object(subprocess, "Popen", start):
+            process.start()
+        anchor.close()
+        try:
+            yield process, controller
+        finally:
+            if not process.closed:
+                controller.shutdown(socket.SHUT_WR)
+                process.stop(2)
+            process.dispose()
+
+
+if os.name == "posix":
+    class PosixProbeFinishTests(unittest.TestCase):
+        def test_help_release_is_independent_of_storage_writeback(self):
+            with held_help_release("fsync") as (process, _gate):
+                self.assertEqual(process.wait(5), 0)
+                self.assertIn(b"usage:", process.outputs()[0].lower())
+                self.assertTrue(owned_process._record(process.directory / "complete.json",
+                                                      process.nonce)["streams_closed"])
+                anchor = process.owner.process
+                self.assertIsNone(anchor.poll())
+                with patch.object(os, "fsync", wraps=os.fsync) as parent_writeback:
+                    process.finish(2)
+                parent_writeback.assert_not_called()
+                self.assertTrue(process.closed)
+                self.assertEqual(anchor.returncode, 0)
+
+        def test_release_ack_and_reaping_are_each_required_and_recoverable(self):
+            for operation, phase, error in (("replace", "exited", TimeoutError),
+                                            ("reap", "released", subprocess.TimeoutExpired)):
+                with self.subTest(operation=operation), held_help_release(operation) as (process, gate):
+                    self.assertEqual(process.wait(5), 0)
+                    owner = process.owner
+                    request = owner.request
+
+                    def request_at_barrier(*args):
+                        serial = request(*args)
+                        self.assertEqual(gate.recv(1), b"r")
+                        return serial
+
+                    with patch.object(owner, "request", request_at_barrier), self.assertRaises(error) as failure:
+                        process.finish(.25)
+                    if operation == "reap":
+                        self.assertEqual(failure.exception.cmd, "owned session anchor")
+                    self.assertEqual(process.pending_phase,
+                                     "anchor_reap" if operation == "reap" else "release_acknowledgement")
+                    self.assertEqual(owner.status()["phase"], phase)
+                    self.assertIsNone(owner.process.poll())
+                    self.assertFalse(process.closed)
+                    self.assertTrue(Path(process.recovery).is_file())
+                    self.assertEqual("release_acknowledged" in owner.observed_ns, operation == "reap")
+                    self.assertNotIn("anchor_reaped", owner.observed_ns)
+                    gate.sendall(b"g")
+                    process.stop(2)
+                    self.assertIs(process.owner, owner)
+                    self.assertEqual(owner.process.returncode, 0)
+                    self.assertTrue(process.closed)
+                    self.assertIn("anchor_reaped", owner.observed_ns)
 
 
 def inherited_pipe_scenario(self, *, changed_group):
@@ -101,6 +222,48 @@ def inherited_pipe_scenario(self, *, changed_group):
 
 
 class ActualProbeOwnershipTests(unittest.TestCase):
+    def test_live_target_hits_command_deadline_and_original_owner_closes_it(self):
+        wait = owned_process.ManagedProcess.wait
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            listener.settimeout(10)
+            port = listener.getsockname()[1]
+            script = (
+                "import socket;"
+                f"s=socket.create_connection(('127.0.0.1',{port}),timeout=10);"
+                "s.sendall(b'r');s.recv(1)"
+            )
+            owners = []
+            connections = []
+
+            def wait_for_live_child(process, timeout):
+                connection, _ = listener.accept()
+                connections.append(connection)
+                connection.settimeout(5)
+                self.assertEqual(connection.recv(1), b"r")
+                self.assertIsNone(process.returncode)
+                owners.append(process)
+                return wait(process, timeout)
+
+            try:
+                with patch.object(owned_process.ManagedProcess, "wait", wait_for_live_child):
+                    result = probe_cli([sys.executable, "-c", script], timeout=.1)
+                self.assertFalse(result["successful"])
+                self.assertEqual(result["error"], "command_deadline")
+                self.assertTrue(owners[0].closed)
+                self.assertTrue(owned_control_closed(connections[0], joined=owners[0].closed))
+                lifecycle = result["lifecycle"]
+                self.assertEqual(lifecycle["failed_phase"], "command")
+                self.assertEqual(lifecycle["cleanup"], "closed")
+                observed = lifecycle["observed_ms"]
+                self.assertLessEqual(observed["failure"], observed["cleanup_completed"])
+                if "target_exit" in observed:
+                    self.assertGreaterEqual(observed["target_exit"], observed["failure"])
+            finally:
+                for connection in connections:
+                    connection.close()
+
     def test_reports_the_actual_native_child_exit(self):
         script = (
             "import os,signal;os.kill(os.getpid(),signal.SIGTERM)"
@@ -150,6 +313,14 @@ class ManagedProcessTests(unittest.TestCase):
             self.assertEqual(result["stdout"], "captured\n")
             self.assertTrue(Path(result["recovery"]).is_file())
             self.assertFalse(processes[0].closed)
+            lifecycle = result["lifecycle"]
+            self.assertEqual(lifecycle["failed_phase"], "release")
+            self.assertEqual(lifecycle["cleanup"], "retained")
+            self.assertEqual(lifecycle["cleanup_failed_phase"], "cleanup")
+            times = lifecycle["observed_ms"]
+            stages = ("target_exit", "streams_closed", "adapter_exit", "failure", "cleanup_failed")
+            self.assertEqual([times[stage] for stage in stages], sorted(times[stage] for stage in stages))
+            self.assertNotIn("anchor_reaped", times)
         finally:
             for process in processes:
                 process.stop(2)
@@ -189,6 +360,11 @@ class ManagedProcessTests(unittest.TestCase):
         )
         self.assertEqual(result["stdout"], "o" * 262144)
         self.assertEqual(result["stderr"], "e" * 262144)
+        times = result["lifecycle"]["observed_ms"]
+        stages = ["target_exit", "streams_closed", "adapter_exit", "release_started"]
+        if os.name == "posix":
+            stages += ["release_requested", "release_acknowledged", "anchor_reaped"]
+        self.assertEqual([times[stage] for stage in stages], sorted(times[stage] for stage in stages))
 
     def test_failed_release_retains_an_independent_lease_then_original_authority_recovers(
         self,
