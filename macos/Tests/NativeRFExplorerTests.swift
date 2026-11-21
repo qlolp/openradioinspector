@@ -97,15 +97,22 @@ import SpektrKomandy
         NativeNodeConnectionTests.Stub.register(host: host, handler: core.reply)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [NativeNodeConnectionTests.Stub.self]
-        let http = URLSession(configuration: configuration)
         let model = RemoteDualModel()
-        defer { model.disconnect(); http.invalidateAndCancel(); NativeNodeConnectionTests.Stub.remove([host]) }
+        defer { model.disconnect(); NativeNodeConnectionTests.Stub.remove([host]) }
         model.serverURL = "https://\(host)"
-        let client = try PlatformClient(baseURL: model.serverURL, session: http)
+        // Queued analysis tasks retain the client. Its transport owns the session until those references are released.
+        let client = try PlatformClient(baseURL: model.serverURL, session: URLSession(configuration: configuration))
         model.connect(startPolling: false, using: client)
         for _ in 0..<400 where !model.coreReachable { try await Task.sleep(for: .milliseconds(5)) }
         #expect(model.coreReachable)
         try await perform(model, client)
+    }
+
+    @Test @MainActor func catalogRequestRetainedAcrossFixtureTeardownReceivesCancellation() async throws {
+        var retained: PlatformClient?
+        try await withConnectedCore(Core()) { _, client in retained = client }
+        let client = try #require(retained)
+        await #expect(throws: CancellationError.self) { try await client.measurementCatalog() }
     }
 
     @Test @MainActor func connectSelectsRFExplorerAndDisplaysPersistedBinsAfterStop() async throws {
