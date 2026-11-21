@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from .automatic_detection import _integer, _number
 from .contracts import (
     DeviceRole,
     Investigation,
@@ -28,26 +29,6 @@ DEFAULT_POLICY: dict[str, Any] = {
 }
 POLICY_FIELDS = frozenset(DEFAULT_POLICY)
 ACTIVE_STATES = (InvestigationState.LISTENING, InvestigationState.DECODING)
-
-
-def _number(value: Any, name: str, minimum: float, maximum: float) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} должно быть конечным числом")
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} должно быть конечным числом") from exc
-    if not math.isfinite(result) or not minimum <= result <= maximum:
-        raise ValueError(f"{name} должно быть в диапазоне {minimum}…{maximum}")
-    return result
-
-
-def _integer(value: Any, name: str, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{name} должно быть целым числом")
-    if not minimum <= value <= maximum:
-        raise ValueError(f"{name} должно быть в диапазоне {minimum}…{maximum}")
-    return value
 
 
 def _runtime() -> dict[str, Any]:
