@@ -74,22 +74,26 @@ struct ContentView: View {
             Divider()
             NativeOperatorHeader(model: model, setupExpanded: $setupExpanded, workspace: mode,
                                  openWorkspace: { navigation.destination.settings = .guardSettings })
-            NativeObservationActions(model: model, workspace: workspace,
-                prepare: presentPreparation,
-                settings: { navigation.destination.settings = $0 })
+            if !model.isStandaloneRFExplorer {
+                NativeObservationActions(model: model, workspace: workspace,
+                    prepare: presentPreparation,
+                    settings: { navigation.destination.settings = $0 })
+            }
             Group {
                 switch navigation.destination.page {
                 case .observation:
                     HSplitView {
                         RemoteUltraPane(model: model, research: true, scanBands: currentScanBands,
-                                        bandPlanWorkspace: workspace, compact: true)
+                                        bandPlanWorkspace: model.isStandaloneRFExplorer ? nil : workspace, compact: true)
                             .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
-                        NativeGuardSignalsPane(workspace: workspace,
-                            openGuard: { navigation.destination.settings = .guardSettings }, compact: true, research: mode == .research,
-                            openReceiver: { navigation.destination.settings = .receiver }, remote: model)
-                            .frame(minWidth: 300, idealWidth: 350, maxWidth: 540, maxHeight: .infinity)
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("observation.events")
+                        if !model.isStandaloneRFExplorer {
+                            NativeGuardSignalsPane(workspace: workspace,
+                                openGuard: { navigation.destination.settings = .guardSettings }, compact: true, research: mode == .research,
+                                openReceiver: { navigation.destination.settings = .receiver }, remote: model)
+                                .frame(minWidth: 300, idealWidth: 350, maxWidth: 540, maxHeight: .infinity)
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("observation.events")
+                        }
                     }
                 case .archive:
                     NativeArchivePage(model: model, openSpectrum: { navigation.destination.page = .observation })
@@ -104,7 +108,7 @@ struct ContentView: View {
             observe: { navigation.destination.page = .observation },
             archive: { navigation.destination.page = .archive },
             settings: { navigation.destination.settings = .connection },
-            prepare: { if model.connected { presentPreparation() } else { navigation.destination.settings = .connection } }))
+            prepare: model.isStandaloneRFExplorer ? nil : { if model.connected { presentPreparation() } else { navigation.destination.settings = .connection } }))
         .background(NativeMonitoringLifecycle(model: model, workspace: workspace))
         .task {
             await NativeConsoleServiceWatch.run(enabled: NativeLocalService.isPersonalRC,
@@ -151,8 +155,10 @@ struct ContentView: View {
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
         .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showSerialForm }, set: { model.showSerialForm = $0 })) { RemoteSerialSessionPane(model: model) }
         .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showTinySAControl }, set: { model.showTinySAControl = $0 })) {
-            RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
-                client: model.client, access: nodeConnection.authorizedNode?.access)
+            if let analyzer = model.tinySAAnalyzer {
+                RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID, streamID: analyzer.id,
+                    client: model.client, access: nodeConnection.authorizedNode?.access)
+            }
         }
         .background(WindowCloseObserver {
             windowClosed = true

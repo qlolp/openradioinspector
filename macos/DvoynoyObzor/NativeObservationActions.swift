@@ -71,10 +71,12 @@ struct NativeConsoleSettingsPane<Connection: View>: View {
                 Button("Готово") { dismiss() }.keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("settings.close")
             }
-            Picker("Раздел настроек", selection: $section) {
-                ForEach(NativeConsoleSettings.allCases) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden()
-            switch section {
+            if !model.isStandaloneRFExplorer {
+                Picker("Раздел настроек", selection: $section) {
+                    ForEach(NativeConsoleSettings.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden()
+            }
+            switch model.isStandaloneRFExplorer ? .connection : section {
             case .connection: connection()
             case .guardSettings:
                 Picker("Режим", selection: $workspaceMode) {
@@ -103,11 +105,15 @@ struct NativeConsoleSettingsPane<Connection: View>: View {
             .sheet(item: Binding(get: { workspace.signalOriginal }, set: { _ in workspace.clearSignalOriginal() })) {
                 NativeGuardOriginalPane(sweep: $0)
             }
-            .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
+            .sheet(isPresented: $model.showSerialForm) {
+                RemoteSerialSessionPane(model: model, onRFExplorerConnected: { dismiss() })
+            }
             .sheet(isPresented: $model.showFrequencyHistory) { NativeFrequencyHistoryPane(model: model) }
             .sheet(isPresented: $model.showTinySAControl) {
-                RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID,
-                    streamID: model.analyzer?.id ?? "", client: model.client, access: access)
+                if let analyzer = model.tinySAAnalyzer {
+                    RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID,
+                        streamID: analyzer.id, client: model.client, access: access)
+                }
             }
     }
 }

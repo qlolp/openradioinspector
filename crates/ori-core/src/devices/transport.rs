@@ -1,7 +1,7 @@
 //! Connectors are explicit operator configuration. No enumeration or opening
 //! happens when a manager is constructed or a session is merely started.
-use super::{DeviceFuture, DeviceResult};
-use ori_contracts::DeviceStream;
+use super::{DeviceError, DeviceFuture, DeviceResult, rf_explorer, simulator};
+use ori_contracts::{DeviceStream, JSONObject};
 use std::{
     pin::Pin,
     sync::{
@@ -26,6 +26,25 @@ pub type BoxTransport = Box<dyn Transport>;
 pub trait TransportFactory: Send + Sync + 'static {
     fn identity(&self, stream: &DeviceStream) -> DeviceResult<String>;
     fn open<'a>(&'a self, stream: &'a DeviceStream) -> DeviceFuture<'a, BoxTransport>;
+}
+
+/// A connector may support additional line rates, but each instrument must
+/// open at a rate accepted by its own profile.
+pub(super) fn baud(settings: &JSONObject) -> DeviceResult<u32> {
+    let default = match settings.get("adapter").and_then(serde_json::Value::as_str) {
+        Some(rf_explorer::ADAPTER) => {
+            return Ok(simulator::integer(settings, "baud", 500_000, 500_000, 500_000)? as u32);
+        }
+        Some("tinysa-serial") => 9600,
+        _ => 115200,
+    };
+    let baud = simulator::integer(settings, "baud", default, 9600, 115200)?;
+    if !matches!(baud, 9600 | 19200 | 38400 | 57600 | 115200) {
+        return Err(DeviceError::Invalid(
+            "Unsupported native serial baud".into(),
+        ));
+    }
+    Ok(baud as u32)
 }
 
 #[cfg(feature = "serial")]
@@ -64,22 +83,12 @@ impl TransportFactory for NativeSerialFactory {
     }
     fn open<'a>(&'a self, stream: &'a DeviceStream) -> DeviceFuture<'a, BoxTransport> {
         Box::pin(async move {
-            let adapter = stream
-                .settings
-                .as_ref()
-                .and_then(|s| s.get("adapter"))
-                .and_then(serde_json::Value::as_str);
-            let default = if adapter == Some("tinysa-serial") {
-                9600
-            } else {
-                115200
-            };
             let settings = stream.settings.clone().unwrap_or_default();
             let options = ori_instruments::serial::SerialOptions {
                 path: stream.port.clone().ok_or_else(|| {
                     super::DeviceError::Invalid("Explicit serial path required".into())
                 })?,
-                baud: super::simulator::integer(&settings, "baud", default, 9600, 115200)? as u32,
+                baud: baud(&settings)?,
             };
             // Pinned native open is nonblocking and excludes peers before any
             // termios/DTR change. No detached blocking task can open it later.

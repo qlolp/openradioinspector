@@ -5,6 +5,12 @@ use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use tokio::{net::TcpListener, task::JoinHandle};
 
+#[path = "device_candidate/rf_explorer.rs"]
+mod rf_explorer;
+#[cfg(unix)]
+#[path = "device_candidate/rf_explorer_analysis.rs"]
+mod rf_explorer_analysis;
+
 struct Server {
     core: Arc<Core>,
     url: String,

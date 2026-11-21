@@ -195,8 +195,8 @@ struct NativeArchivePage: View {
         guard let client = model.client, let stream = model.analyzer else { return }
         do {
             guard start < end else { throw NativeAnalyzerDraft.DraftError.invalid("Начало должно быть раньше окончания") }
-            let low = minimum.isEmpty ? nil : try NativeAnalyzerDraft.hz(minimum)
-            let high = maximum.isEmpty ? nil : try NativeAnalyzerDraft.hz(maximum)
+            let low = minimum.isEmpty ? nil : try NativeHistoryFrequencyInput.hz(minimum)
+            let high = maximum.isEmpty ? nil : try NativeHistoryFrequencyInput.hz(maximum)
             if let low, let high, low > high { throw NativeAnalyzerDraft.DraftError.invalid("Неверный диапазон поиска") }
             let session = model.selectedSessionID
             selection = nil; message = ""

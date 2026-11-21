@@ -35,6 +35,21 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertFalse((target/'contracts/generated/openapi-v1.json').exists())
             self.assertFalse((target/'crates/ori-contracts/src/models.rs').exists())
 
+    def test_rf_explorer_session_example_is_scoped_to_the_live_rust_feature(self):
+        baseline, extension = self.documents()
+        document = self.composer().compose_runtime_document(baseline, extension)
+        def session_media(schema):
+            return schema['paths']['/api/v1/sessions']['post']['requestBody']['content']['application/json']
+        example = session_media(document).get('examples', {}).get('rfExplorer3G')
+        self.assertIsNotNone(example)
+        self.assertIn('rf_explorer_3g_spectrum', example['description'])
+        stream = example['value']['streams'][0]
+        self.assertEqual((stream['role'], stream['level_unit']), ('spectrum_analyzer', 'dBm'))
+        settings = stream['settings']
+        self.assertEqual((settings['adapter'], settings['baud']), ('rf-explorer-3g-serial', 500000))
+        self.assertEqual(settings['stop_hz'] - settings['start_hz'], 111 * 10000)
+        self.assertNotIn('rfExplorer3G', session_media(baseline).get('examples', {}))
+
     def test_composition_keeps_baseline_schemas_paths_and_rendered_bytes_unchanged(self):
         from tools.contracts.generate import render
         baseline, extension = self.documents()

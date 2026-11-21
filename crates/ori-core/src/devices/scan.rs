@@ -116,10 +116,12 @@ pub(super) fn qualify_source(adapter: Option<&str>, source: &mut Value) -> Devic
     let settings = source["settings"]
         .as_object_mut()
         .ok_or_else(|| DeviceError::Worker("Missing raw scan settings".into()))?;
-    settings.insert(
-        "measurement_qualification".into(),
-        ori_guard::measurement_qualification(adapter, start, stop),
-    );
+    let qualification = if adapter == Some(rf_explorer::ADAPTER) {
+        json!({"status":"unverified", "reason":"reference_not_verified", "verified_through_hz":null})
+    } else {
+        ori_guard::measurement_qualification(adapter, start, stop)
+    };
+    settings.insert("measurement_qualification".into(), qualification);
     Ok(())
 }
 

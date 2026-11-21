@@ -1,16 +1,18 @@
 # Local core from the native development app
 
-The normal Xcode app can explicitly start the shared compatibility core with its
-local-core control. This does not connect receivers, arm monitoring, or enable a
-generator. The core exclusively owns hardware and archive writes; the SwiftUI
-client connects through `/api/v1/*`.
+In the development app, **Подключение → Локальное ядро на этом Mac →
+Запустить локальное ядро** starts the local core. The SwiftUI client checks the
+core's readiness and connects through `/api/v1/*`. Choose a stream and start
+reception separately. The core owns hardware access and archive writes.
 
 Personal RC builds continue to use `NativeLocalService` and their supervised
 Rust LaunchAgent. `NativeDevelopmentCore` refuses to launch in personal RC,
 including when a Python environment is configured. There is no fallback from a
 failed RC service to Python.
 
-Discovery first checks the packaged
+Discovery first looks for an executable `Contents/Helpers/ori-core`. Bundle the
+native Rust core built with the `serial` feature to use RF Explorer. The app
+launches it with `--mode live --allow-serial`. The next choice is the packaged
 `Contents/Helpers/openradioinspector-core/openradioinspector-core`. In an Xcode
 checkout it uses `.venv/bin/python3` or `.venv/bin/python`. A prepared interpreter
 can also be selected explicitly through the UI; a validated selection is saved
@@ -20,8 +22,9 @@ Dependencies must already be installed in the selected environment: the app does
 not install packages or search global Python installations. A missing environment
 is reported rather than silently launching a different backend.
 
-The development archive is separate from personal RC and command-line defaults:
-`~/Library/Application Support/OpenRadioInspector/macOS-Development`.
+The Rust development archive is under
+`~/Library/Application Support/OpenRadioInspector/macOS-Development/Rust`.
+The Python development core uses the parent `macOS-Development` directory.
 Each launch binds loopback on an OS-selected port and writes readiness to a
 private, unique temporary directory. The client validates the ready URL and
 `/api/v1/health` before exposing its endpoint. Arguments are passed directly to
@@ -36,9 +39,7 @@ as `http://127.0.0.1:8770` can be connected through the regular node connection
 controls and is never claimed as owned by this launcher. Changing nodes does not
 implicitly stop the app's existing local core.
 
-Twelve Swift Testing cases cover readiness validation, argument construction,
+The launcher tests cover bundled-core discovery, archive paths, readiness validation, argument construction,
 RC exclusion, successful ownership/release, failed-health cleanup, missing
 environments, persistence, cancellation, and shutdown timeout ownership. A real
 synthetic subprocess confirms EOF shutdown through Foundation's `Process` pipe.
-The focused suite passed on macOS. Hardware behavior has not been
-validated by these tests. Hardware preparation remains a separate explicit step.

@@ -1,6 +1,7 @@
 import { t } from './i18n';
 import { useRef, useState } from 'react';
 import { receiveSession } from './api';
+import { rfExplorerAdapter } from './rf-explorer';
 import type { Desk } from './useDesk';
 import type { Project, Session } from './types';
 import { Modal } from './components';
@@ -115,6 +116,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                 {desk.sessions
                   .filter(
                     (s) =>
+                      s.streams.every((x) => x.settings?.adapter !== rfExplorerAdapter) &&
                       s.streams.filter((x) => x.role === 'spectrum_analyzer').length === 1 &&
                       s.streams.filter((x) => x.role === 'receiver').length === 1,
                   )

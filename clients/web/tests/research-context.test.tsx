@@ -913,3 +913,101 @@ it('places research before live charts and preserves its state while switching l
     fixture.requests.filter((request) => request.path.split('?')[0].endsWith('/history')),
   ).toHaveLength(historyReads);
 });
+
+function rfFixture() {
+  const fixture = new CoreFixture();
+  const ordinaryRequest = fixture.transport.request;
+  fixture.transport.request = async (path, body, signal) => {
+    const archive = fixture.restored ? 'new' : 'old';
+    const id = 'rf-' + archive;
+    const stream = {
+      id: 'analyzer-' + archive,
+      role: 'spectrum_analyzer',
+      device: 'RF Explorer 3G Combo',
+      port: 'COM77',
+      level_unit: 'dBm',
+      settings: { adapter: 'rf-explorer-3g-serial', baud: 500000 },
+    };
+    if (path === '/api/v1/capabilities')
+      return envelope({ features: { rf_explorer_3g_spectrum: true } });
+    if (path === '/api/v1/sessions')
+      return envelope([{ id, name: id, state: 'running', streams: [stream] }]);
+    if (path === '/api/v1/sessions/' + id + '/workers')
+      return envelope([
+        { stream_id: stream.id, state: 'disconnected', alive: false, measurements: 0 },
+      ]);
+    if (path.startsWith('/api/v1/sessions/' + id + '/sweeps?')) {
+      expect(new URL(path, 'http://fixture.invalid').searchParams.get('stream_id')).toBe(stream.id);
+      return envelope([{ ...sweep('sweep-' + archive), session_id: id, stream_id: stream.id }]);
+    }
+    return ordinaryRequest(path, body, signal);
+  };
+  return fixture;
+}
+
+it('reloads the RF Explorer session and its live source when the core archive changes', async () => {
+  const fixture = rfFixture();
+  localStorage.setItem('ori-modern-workspace', 'rf-explorer');
+  await mount(fixture);
+  const source = () => container.querySelector('[data-testid="source-id"]')?.textContent;
+  expect(source()).toBe('sweep-old');
+  await rollback(fixture);
+  expect(source()).toBe('sweep-new');
+  expect(container.textContent).not.toContain('rf-old');
+});
+
+it('keeps RF Explorer live when a paired project resume finishes after switching instruments', async () => {
+  const fixture = rfFixture();
+  localStorage.setItem('ori-modern-project', project.id);
+  await mount(fixture);
+  await act(async () => root!.unmount());
+  root = undefined;
+  const priorRequest = fixture.transport.request;
+  const gate = deferred<void>();
+  let pending = false;
+  fixture.transport.request = async (path, body, signal) => {
+    if (path.endsWith('/search/status')) {
+      pending = true;
+      await gate.promise;
+    }
+    return priorRequest(path, body, signal);
+  };
+  await mount(fixture);
+  expect(pending).toBe(true);
+  await click(button('RF Explorer'));
+  expect(container.querySelector('[data-testid="source-id"]')?.textContent).toBe('sweep-old');
+  await act(async () => gate.resolve());
+  await settle();
+  const committed = { ...sweep('after-switch'), session_id: 'rf-old', stream_id: 'analyzer-old' };
+  await act(async () => {
+    expect(
+      await fixture.receive!(
+        JSON.stringify(
+          envelope({
+            sequence: 101,
+            event_type: 'sweep.received',
+            payload: { sweep: committed },
+          }),
+        ),
+      ),
+    ).toBe(101);
+  });
+  await settle();
+  expect(container.querySelector('[data-testid="source-id"]')?.textContent).toBe('after-switch');
+});
+
+it('starts the RF Explorer event stream on a core that provides sessions without monitoring projects', async () => {
+  const fixture = rfFixture();
+  const sessionRequest = fixture.transport.request;
+  fixture.transport.request = async (path, body, signal) => {
+    if (path === '/api/v1/capabilities')
+      return envelope({ features: { rf_explorer_3g_spectrum: true, monitoring_projects: false } });
+    if (path.startsWith('/api/v1/monitoring-projects'))
+      throw Error('Monitoring projects are unavailable');
+    return sessionRequest(path, body, signal);
+  };
+  await mount(fixture);
+  await click(button('RF Explorer'));
+  expect(container.querySelector('[data-testid="source-id"]')?.textContent).toBe('sweep-old');
+  expect(fixture.cursors).toEqual([100]);
+});

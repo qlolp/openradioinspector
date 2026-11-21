@@ -4,6 +4,7 @@ pub(crate) mod control;
 mod receipt;
 pub(crate) use receipt::RetainedWorkerHandle;
 mod acquisition;
+mod rf_explorer;
 mod scan;
 mod simulator;
 pub(crate) use acquisition::AcquisitionHealth;
@@ -239,16 +240,19 @@ fn parse_session(value: &Value) -> DeviceResult<Session> {
 enum Native {
     Analyzer(TinySaActor),
     Receiver(ArDv1Actor),
+    RfExplorer(Arc<rf_explorer::Connection>),
 }
 impl Native {
     fn cancel(&self) {
         match self {
             Self::Analyzer(actor) => actor.cancel(),
             Self::Receiver(actor) => actor.cancel(),
+            Self::RfExplorer(connection) => connection.cancel.cancel(),
         }
     }
     fn current(&self) -> Value {
         match self {
+            Self::RfExplorer(connection) => connection.current(),
             Self::Analyzer(actor) => {
                 let state = actor.state();
                 json!({"instrument":state,"settings_source":state.settings_source,"settings_readback":false,"generator_output":"unknown","generator_output_readback":false,"restart_required":state.restart_required,"simulated":false,"hardware_validation":"not_run"})
@@ -279,6 +283,7 @@ impl Native {
     }
     async fn close(&self) -> DeviceResult<()> {
         match self {
+            Self::RfExplorer(connection) => connection.close().await,
             Self::Analyzer(actor) => match actor.enqueue(TinySaRequest::Close)?.result().await? {
                 TinySaReply::Closed => Ok(()),
                 _ => Err(DeviceError::Worker(
@@ -336,13 +341,17 @@ struct Registry {
 }
 pub(crate) struct DeviceManager {
     archive: Archive,
+    mode: crate::CoreMode,
     options: DeviceOptions,
     registry: Mutex<Registry>,
     policy: Mutex<Option<Policy>>,
     control_receipts: control::Receipts,
 }
 impl DeviceManager {
-    pub fn validate_profiles(&self, session: &Session) -> DeviceResult<()> {
+    pub(crate) fn rf_explorer_enabled(&self) -> bool {
+        self.mode == crate::CoreMode::Live && self.options.transport.is_some()
+    }
+    pub fn validate_guard_profiles(&self, session: &Session) -> DeviceResult<()> {
         for stream in &session.streams {
             scan::Plan::read(stream)?;
             let settings = stream.settings.clone().unwrap_or_default();
@@ -361,22 +370,7 @@ impl DeviceManager {
                     ));
                 }
                 let _ = Profile::read(stream)?;
-                let baud = simulator::integer(
-                    &settings,
-                    "baud",
-                    if adapter == "tinysa-serial" {
-                        9600
-                    } else {
-                        115200
-                    },
-                    9600,
-                    115200,
-                )?;
-                if ![9600, 19200, 38400, 57600, 115200].contains(&baud) {
-                    return Err(DeviceError::Invalid(
-                        "Unsupported native serial baud".into(),
-                    ));
-                }
+                transport::baud(&settings)?;
             } else {
                 return Err(DeviceError::Unsupported(
                     "Explicit supported adapter required".into(),
@@ -435,9 +429,10 @@ impl DeviceManager {
         }
         Ok(())
     }
-    pub fn new(archive: Archive, options: DeviceOptions) -> Arc<Self> {
+    pub fn new(archive: Archive, options: DeviceOptions, mode: crate::CoreMode) -> Arc<Self> {
         Arc::new(Self {
             archive,
+            mode,
             options,
             registry: Mutex::new(Registry {
                 workers: BTreeMap::new(),
@@ -685,9 +680,18 @@ impl DeviceManager {
                 None,
                 None,
             )
-        } else if matches!(adapter_name, "tinysa-serial" | "ardv1-serial") {
+        } else if matches!(
+            adapter_name,
+            "tinysa-serial" | "ardv1-serial" | rf_explorer::ADAPTER
+        ) {
+            if adapter_name == rf_explorer::ADAPTER && !self.rf_explorer_enabled() {
+                return Err(DeviceError::Unsupported(
+                    "RF Explorer requires the live native serial connector".into(),
+                ));
+            }
             let factory=self.options.transport.clone().ok_or_else(||DeviceError::Unsupported("Physical serial is disabled; an explicit native connector and connect request are required".into()))?;
             let profile = Profile::read(&stream)?;
+            transport::baud(&settings)?;
             let identity = factory.identity(&stream)?;
             if identity.is_empty() || identity.len() > 1024 {
                 return Err(DeviceError::Invalid(
@@ -718,6 +722,13 @@ impl DeviceManager {
             gate.check(None)?;
             let (transport, released) = transport::OwnedTransport::new(transport);
             let native = match profile {
+                Profile::RfExplorer(window) => {
+                    Native::RfExplorer(Arc::new(rf_explorer::Connection::new(
+                        transport,
+                        window,
+                        self.options.io_limits.clone(),
+                    )?))
+                }
                 Profile::Analyzer(config) => Native::Analyzer(TinySaActor::spawn(
                     if let Some(plan) = scan_plan.as_ref().filter(|p| p.uses_grid()) {
                         TinySa::new_for_grid(
@@ -751,7 +762,7 @@ impl DeviceManager {
             )
         } else {
             return Err(DeviceError::Unsupported(format!(
-                "Поток {}: требуется явный адаптер tinysa-sim, ardv1-sim, tinysa-serial или ardv1-serial",
+                "Поток {}: требуется явный поддерживаемый адаптер прибора",
                 stream.id
             )));
         };
@@ -781,7 +792,9 @@ impl DeviceManager {
             applied_revision: AtomicU64::new(0),
             confirmed_tunes: AtomicU64::new(0),
             preparation: Mutex::new(None),
-            period: if scope_points.is_some() && !settings.contains_key("period_s") {
+            period: if (scope_points.is_some() || adapter_name == rf_explorer::ADAPTER)
+                && !settings.contains_key("period_s")
+            {
                 Duration::ZERO
             } else {
                 period
@@ -1070,6 +1083,7 @@ impl Drop for SessionStop {
 enum Profile {
     Analyzer(ReceiveConfig),
     Receiver(ReceiverConfig, Option<ReceiverScope>, bool),
+    RfExplorer(rf_explorer::Window),
 }
 
 #[derive(Deserialize)]
@@ -1085,6 +1099,7 @@ impl Profile {
     fn read(stream: &DeviceStream) -> DeviceResult<Self> {
         let s = stream.settings.clone().unwrap_or_default();
         match s.get("adapter").and_then(Value::as_str) {
+            Some(rf_explorer::ADAPTER) => Ok(Self::RfExplorer(rf_explorer::window(stream, &s)?)),
             Some("tinysa-serial") => {
                 if s.get("receive_profile").is_some_and(|profile| {
                     profile.as_str() != Some(ori_instruments::RECEIVE_PROFILE)
@@ -1480,6 +1495,11 @@ impl Worker {
                 self.status.lock().map_err(|_| DeviceError::Closed)?.current = simulator.details();
                 Ok(())
             }
+            Adapter::Native(Native::RfExplorer(connection)) => {
+                connection
+                    .prepare(self.actor_gate(gate.clone(), false, None))
+                    .await
+            }
             Adapter::Native(Native::Analyzer(actor)) => {
                 let request = actor.enqueue_checked(
                     TinySaRequest::Prepare,
@@ -1573,6 +1593,19 @@ impl Worker {
                     simulator.select_window(window)?;
                 }
                 simulator.poll(&self.stream)
+            }
+            Adapter::Native(Native::RfExplorer(connection)) => {
+                let worker = self.clone();
+                let check = Arc::new(move || {
+                    // Graceful stop permits the current frame to finish. A force
+                    // stop cancels the read and prevents later publication.
+                    if worker.draining_poll() || worker.live().is_ok() {
+                        Ok(())
+                    } else {
+                        Err(ori_instruments::InstrumentError::PolicyDenied)
+                    }
+                });
+                connection.poll(&self.stream, check).await
             }
             Adapter::Native(Native::Analyzer(actor)) => {
                 let worker = self.clone();
@@ -1694,7 +1727,7 @@ impl Worker {
                 self.confirmed_tunes.fetch_add(1, Ordering::AcqRel);
                 self.snapshot().current
             }
-            Adapter::Native(Native::Analyzer(_)) => {
+            Adapter::Native(Native::Analyzer(_) | Native::RfExplorer(_)) => {
                 return Err(DeviceError::Worker(
                     "Перестройка доступна только потоку receiver".into(),
                 ));
@@ -1757,7 +1790,18 @@ impl Worker {
                         "{close_error} (could not archive the terminal device state: {archive_error})"
                     )));
                 }
-                return Err(close_error);
+                if !matches!(native, Native::RfExplorer(_)) || self.released.is_none() {
+                    return Err(close_error);
+                }
+                // RF Explorer has no cleanup command or output state to restore.
+                // The confirmed handle drop ends ownership even if an unplugged
+                // serial driver reports a write-side shutdown error.
+                let mut status = self.status.lock().map_err(|_| DeviceError::Closed)?;
+                let message = match &status.last_error {
+                    Some(previous) => format!("{previous} (transport shutdown: {close_error})"),
+                    None => close_error.to_string(),
+                };
+                status.last_error = Some(message);
             }
         }
         intent?;

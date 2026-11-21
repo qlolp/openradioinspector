@@ -1861,6 +1861,9 @@
     .workspace-note {
       max-width: 41%;
     }
+    .workspace-bar nav:has(> button:nth-child(3)) + .workspace-note {
+      display: none;
+    }
     .spectrum-metrics small {
       font-size: 9px;
     }

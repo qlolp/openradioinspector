@@ -138,7 +138,7 @@ struct RemoteUltraPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label("tinySA ULTRA", systemImage: "waveform.path").font(.headline)
+                Label(model.analyzer?.device ?? "Спектроанализатор", systemImage: "waveform.path").font(.headline)
                 Text(NativeDeviceStatus.title(model.worker(for: model.analyzer?.id)?.state ?? "disconnected"))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -153,8 +153,10 @@ struct RemoteUltraPane: View {
             }.controlSize(.small)
             if !compact {
                 NativeMeasurementStatus(model: model)
-                NativeAnalyzerControls(model: model)
-                    .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+                if let analyzer = model.tinySAAnalyzer {
+                    NativeAnalyzerControls(model: model)
+                        .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), analyzer.exactID])
+                }
             }
             if !scanBands.isEmpty || !model.availableScanBandIDs.isEmpty {
                 Picker("Поддиапазон графика", selection: Binding(get: { model.selectedScanBand }, set: model.selectScanBand)) {
@@ -171,6 +173,7 @@ struct RemoteUltraPane: View {
             NativeSpectrumInspector(sweeps: model.displayInspectorSweeps,
                                     scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
                                     client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
+                                    hasTinySAControls: model.tinySAAnalyzer != nil, rfExplorer: model.analyzer?.isRFExplorer3G == true,
                                     liveReceiving: model.worker(for: model.analyzer?.id)?.alive == true && model.coreReachable && !model.measurementsStale,
                                     measurementsStale: model.measurementsStale,
                                     presentationPaused: model.spectrumPresentation.paused,
@@ -204,7 +207,7 @@ struct RemoteUltraPane: View {
                     VStack(alignment: .leading, spacing: 12) {
                         if compact {
                             NativeMeasurementStatus(model: model)
-                            NativeAnalyzerControls(model: model)
+                            if model.tinySAAnalyzer != nil { NativeAnalyzerControls(model: model) }
                         }
                         NativeSpectrumReadout(points: model.displayCurrent)
                         DisclosureGroup("Порог и ручная шкала") {
@@ -230,7 +233,7 @@ struct RemoteUltraPane: View {
                                     Text("Свип: \(sweep.id)")
                                     Text("UTC: \(sweep.interval.startedAt) → \(sweep.interval.endedAt)")
                                 }
-                                Text("Показаны сохранённые ядром отсчёты в исходных единицах. Генератор из этой панели не включается.")
+                                Text("Показаны сохранённые ядром отсчёты в исходных единицах.")
                             }.font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                         }
                         if research {

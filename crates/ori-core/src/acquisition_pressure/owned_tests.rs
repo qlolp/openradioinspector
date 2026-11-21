@@ -295,7 +295,7 @@ async fn manager(root: &std::path::Path) -> (Archive, Arc<DeviceManager>, Arc<Fa
     };
     options.io_limits.scan_timeout = Duration::from_secs(5);
     options.io_limits.receiver_timeout = Duration::from_secs(5);
-    let manager = DeviceManager::new(archive.clone(), options);
+    let manager = DeviceManager::new(archive.clone(), options, crate::CoreMode::Replay);
     (archive, manager, factory)
 }
 async fn start(manager: &Arc<DeviceManager>, id: &str) {

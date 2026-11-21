@@ -23,7 +23,7 @@ struct NativeReceiveWorkbench: View {
     @State private var loaded = false
     @State private var recoverySupported = false
     @State private var operations: MonitoringValue = .null
-    private var running: Bool { model.worker(for: model.analyzer?.id)?.alive == true }
+    private var running: Bool { model.worker(for: model.tinySAAnalyzer?.id)?.alive == true }
     private var watching: Bool { status["watch"] != .null }
     private func supports(_ name: String) -> Bool {
         operations[name] != .null && operations[name]["available"].bool != false
@@ -41,12 +41,12 @@ struct NativeReceiveWorkbench: View {
                     .foregroundStyle(running ? .green : .orange)
                 Text("\(status["profile"].text) · ревизия \(status["revision"].scalar)").font(.caption)
             }
-            if let error = model.worker(for: model.analyzer?.id)?.lastError { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = model.worker(for: model.tinySAAnalyzer?.id)?.lastError { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
             DisclosureGroup("Диагностика обмена и восстановление") {
                 VStack(alignment: .leading, spacing: 6) {
                     if recoverySupported {
                         Button("Восстановить остановленный поток") { recover() }
-                            .disabled(running || busy || model.worker(for: model.analyzer?.id)?.stopping == true)
+                            .disabled(running || busy || model.worker(for: model.tinySAAnalyzer?.id)?.stopping == true)
                     }
                     Text("Новая попытка соединения сохраняет диагностику. Наблюдение и ручное управление нужно запускать заново; приём подтверждается новым измерением.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -80,17 +80,17 @@ struct NativeReceiveWorkbench: View {
             Text("При потере USB наблюдение останавливается. После нового соединения фон собирается заново. Генератор в этом сценарии не включается.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(18).frame(minWidth: 860, idealWidth: 940, minHeight: 620)
-            .task(id: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? ""].map { PlatformExactID($0) }) {
+            .task(id: [model.serverURL, model.selectedSessionID, model.tinySAAnalyzer?.id ?? ""].map { PlatformExactID($0) }) {
                 task?.cancel(); busy = false; loaded = false; status = .null; recoverySupported = false
                 operations = .null
                 if tab == 1 { tab = 0 }
                 if let client = model.client {
-                    let session = model.selectedSessionID, stream = model.analyzer?.id
+                    let session = model.selectedSessionID, stream = model.tinySAAnalyzer?.id
                     let features = try? await client.workbenchFeatures()
                     let available = if let stream {
                         try? await client.tinySAControlOperations(sessionID: session, streamID: stream)
                     } else { nil as MonitoringValue? }
-                    if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream {
+                    if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream {
                         recoverySupported = features?.contains("explicit_stream_recovery") == true
                         operations = available ?? .null
                     }
@@ -115,18 +115,18 @@ struct NativeReceiveWorkbench: View {
     }
 
     private func recover() {
-        guard recoverySupported, !running, !busy, let client = model.client, let stream = model.analyzer?.id else { return }
+        guard recoverySupported, !running, !busy, let client = model.client, let stream = model.tinySAAnalyzer?.id else { return }
         let session = model.selectedSessionID; busy = true; message = "Пересоздание соединения…"
         task = Task { @MainActor in
-            defer { if model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream { busy = false } }
+            defer { if model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream { busy = false } }
             do {
                 _ = try await client.recoverStream(sessionID: session, streamID: stream)
                 try Task.checkCancellation()
-                guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream else { return }
+                guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream else { return }
                 message = "Новая попытка запущена. Дождитесь нового измерения; наблюдение не возобновляется автоматически."
                 await refresh()
             } catch {
-                if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream { message = error.localizedDescription }
+                if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream { message = error.localizedDescription }
             }
         }
     }
@@ -317,7 +317,7 @@ struct NativeReceiveWorkbench: View {
     }
 
     private func run(_ operation: String, parameters: [String: MonitoringValue]) {
-        guard let client = model.client, let stream = model.analyzer, !busy else { return }
+        guard let client = model.client, let stream = model.tinySAAnalyzer, !busy else { return }
         let session = model.selectedSessionID
         busy = true; message = ""
         task = Task { @MainActor in
@@ -326,12 +326,12 @@ struct NativeReceiveWorkbench: View {
                 let current = try await client.tinySASettings(sessionID: session, streamID: stream.id)
                 let result = try await client.tinySAOperation(sessionID: session, streamID: stream.id, operation: operation, parameters: parameters, revision: current["revision"].integer)
                 try Task.checkCancellation()
-                guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream.id else { return }
+                guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream.id else { return }
                 if result["revision"].integer != nil { status = result }
                 if result["artifact"]["kind"].text == "zero_span" {
                     let data = try await client.tinySAArtifactJSON(sessionID: session, streamID: stream.id, id: result["artifact"]["id"].text)
                     try Task.checkCancellation()
-                    guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream.id else { return }
+                    guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream.id else { return }
                     zeroData = data
                 }
                 message = "Операция подтверждена ядром. Фактические измерения проверяйте по новым данным."
@@ -340,12 +340,12 @@ struct NativeReceiveWorkbench: View {
     }
 
     private func refresh(initialize: Bool = false) async {
-        guard let client = model.client, let stream = model.analyzer else { return }
+        guard let client = model.client, let stream = model.tinySAAnalyzer else { return }
         let session = model.selectedSessionID
         do {
             let value = try await client.tinySACachedStatus(sessionID: session, streamID: stream.id)
             try Task.checkCancellation()
-            guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream.id else { return }
+            guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream.id else { return }
             if status["connection_id"] != .null && status["connection_id"] != value["connection_id"] { message = "Соединение изменилось. Проверьте настройки; наблюдение нужно запустить заново." }
             status = value
             if initialize || !loaded {
@@ -357,12 +357,12 @@ struct NativeReceiveWorkbench: View {
             if tab == 2 || tab == 3 {
                 let page = try await client.tinySAArtifacts(sessionID: session, streamID: stream.id, offset: tab == 2 ? 0 : artifactOffset)
                 try Task.checkCancellation()
-                guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream.id else { return }
+                guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream.id else { return }
                 artifacts = page["items"].items
                 if tab == 2, let newest = artifacts.first(where: { $0["kind"].text == "zero_span" }) {
                     let data = try await client.tinySAArtifactJSON(sessionID: session, streamID: stream.id, id: newest["id"].text)
                     try Task.checkCancellation()
-                    guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream.id else { return }
+                    guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream.id else { return }
                     zeroData = data
                 }
             }
@@ -370,27 +370,27 @@ struct NativeReceiveWorkbench: View {
     }
 
     private func loadArtifact(_ artifact: MonitoringValue) {
-        guard let client = model.client, let stream = model.analyzer, !busy else { return }
+        guard let client = model.client, let stream = model.tinySAAnalyzer, !busy else { return }
         let session = model.selectedSessionID
         task?.cancel()
         task = Task { @MainActor in
             do {
                 let result = try await client.tinySAArtifactJSON(sessionID: session, streamID: stream.id, id: artifact["id"].text)
                 try Task.checkCancellation()
-                guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream.id else { return }
+                guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream.id else { return }
                 selectedArtifact = result
             } catch { if !Task.isCancelled { message = error.localizedDescription } }
         }
     }
     private func openSource(_ id: String) {
-        guard let client = model.client, let stream = model.analyzer, !busy else { return }
+        guard let client = model.client, let stream = model.tinySAAnalyzer, !busy else { return }
         let session = model.selectedSessionID
         task?.cancel()
         task = Task { @MainActor in
             do {
                 let result = try await client.archiveOriginalSweep(sessionID: session, streamID: stream.id, sweepID: id)
                 try Task.checkCancellation()
-                guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream.id else { return }
+                guard model.client === client, model.selectedSessionID == session, model.tinySAAnalyzer?.id == stream.id else { return }
                 model.reviewedSweep = result; model.reviewedSweepRequest = UUID(); dismiss()
             } catch { message = error.localizedDescription }
         }

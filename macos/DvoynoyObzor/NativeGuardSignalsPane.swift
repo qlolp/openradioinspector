@@ -371,7 +371,7 @@ struct NativeGuardOriginalPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Исходный свип tinySA").font(.headline)
+                Text("Исходный свип").font(.headline)
                 Spacer()
                 Button("Закрыть") { dismiss() }.keyboardShortcut(.cancelAction).accessibilityIdentifier("source-sheet.close")
             }

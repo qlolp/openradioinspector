@@ -569,51 +569,138 @@ func workflowFrequency(_ hertz: Int64) -> String {
 
 struct RemoteSerialSessionPane: View {
     @Bindable var model: RemoteDualModel
+    var onRFExplorerConnected: () -> Void = {}
+    @State private var rfExplorer = false
+    @State private var supported: Bool?
+    @State private var supportError: String?
+    @State private var port = ""
+    @State private var ports: [String] = []
+    @State private var customRange = false
+    @State private var startMHz = ""
+    @State private var stopMHz = ""
+
+    private var configuration: Result<PlatformRFExplorerConfiguration, any Error> {
+        Result {
+            try PlatformRFExplorerConfiguration(port: port,
+                startHz: customRange ? Int(try NativeHistoryFrequencyInput.hz(startMHz)) : nil,
+                stopHz: customRange ? Int(try NativeHistoryFrequencyInput.hz(stopMHz)) : nil)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Подключить приборы")
                 .font(.title2.weight(.semibold))
-            Text("Выберите tinySA. Приёмник AR-DV1 можно добавить, если он подключён. Создание сеанса не запускает измерения.")
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Порт tinySA:").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    if let modem = SerialPort.availablePaths().first(where: { $0.contains("usbmodem") }) {
-                        Button("Найдено: \(modem)") {
-                            model.tinySAPort = modem
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                    }
-                }
-                TextField("Порт tinySA (напр. /dev/cu.usbmodem4001)", text: $model.tinySAPort)
-                    .textFieldStyle(.roundedBorder)
+            Picker("Спектроанализатор", selection: $rfExplorer) {
+                Text("tinySA Ultra").tag(false)
+                Text(PlatformRFExplorerConfiguration.device).tag(true)
+            }.pickerStyle(.segmented).disabled(model.busy)
+            if rfExplorer {
+                explorerFields
+            } else {
+                tinySAFields
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Порт AR-DV1 (необязательно):").font(.caption).foregroundStyle(.secondary)
-                TextField("Порт AR-DV1 (оставьте пустым, если не подключён)", text: $model.receiverPort)
-                    .textFieldStyle(.roundedBorder)
-            }
-            Text("Порты компьютера ядра: COM3/COM4 на Windows или /dev/… на Linux/macOS. Если AR-DV1 не подключён, оставьте поле пустым — будет создан сеанс только со спектроанализатором tinySA. Приборы не должны использовать sim://.")
-                .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("Отмена") { model.showSerialForm = false }
+                Button("Отмена") { model.showSerialForm = false }.disabled(model.busy)
                 Spacer()
-                Button("Создать сеанс") { model.createSerialSession() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.busy)
+                if rfExplorer {
+                    Button("Подключить и начать приём") {
+                        if case .success(let selected) = configuration {
+                            Task {
+                                if await model.connectRFExplorer(selected) { onRFExplorerConnected() }
+                            }
+                        }
+                    }.buttonStyle(.borderedProminent)
+                        .disabled(model.busy || supported != true || (try? configuration.get()) == nil)
+                        .accessibilityIdentifier("rf-explorer.connect")
+                } else {
+                    Button("Создать сеанс") { model.createSerialSession() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.busy)
+                }
             }
-            if model.busy {
-                ProgressView().controlSize(.small)
-            }
+            if model.busy { ProgressView().controlSize(.small) }
             ErrorLine(text: model.errorText)
         }
         .padding(20)
-        .frame(width: 520)
-        .onAppear {
-            model.refreshSerialPorts()
+        .frame(width: 540)
+        .interactiveDismissDisabled(model.busy)
+        .onAppear { model.refreshSerialPorts() }
+        .task(id: model.connectionGeneration) {
+            supported = nil
+            supportError = nil
+            port = ""
+            guard let client = model.client else { return }
+            ports = client.baseURL.isLoopback ? SerialPort.availablePaths() : []
+            do {
+                let advertised = try await client.supportsRFExplorer3G()
+                guard !Task.isCancelled, model.client === client else { return }
+                supported = advertised
+            } catch {
+                guard !Task.isCancelled, model.client === client else { return }
+                supported = false
+                supportError = describeSession(error)
+            }
         }
+    }
+
+    @ViewBuilder private var explorerFields: some View {
+        Text("Один поток спектра в дБм · USB, 500 000 бод.")
+            .foregroundStyle(.secondary)
+        LabeledContent("Порт RF Explorer") {
+            TextField("Порт на компьютере ядра", text: $port)
+                .textFieldStyle(.roundedBorder).accessibilityIdentifier("rf-explorer.port")
+            if model.client?.baseURL.isLoopback == true {
+                Menu("Выбрать порт") {
+                    ForEach(ports, id: \.self) { path in Button(path) { port = path } }
+                    Button("Обновить список") { ports = SerialPort.availablePaths() }
+                }
+            }
+        }.disabled(model.busy)
+        Toggle("Задать диапазон при подключении", isOn: $customRange).disabled(model.busy)
+        if customRange {
+            HStack {
+                LabeledContent("Начало, МГц") { TextField("100", text: $startMHz) }
+                LabeledContent("Конец, МГц") { TextField("101,110", text: $stopMHz) }
+            }.textFieldStyle(.roundedBorder).disabled(model.busy)
+            Text("Обе границы — с шагом 1 кГц, в пределах активного модуля.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("Диапазон будет считан с прибора.").font(.caption).foregroundStyle(.secondary)
+        }
+        if supported == nil {
+            ProgressView("Проверка возможностей ядра…").controlSize(.small)
+        } else if supported == false {
+            ErrorLine(text: supportError ?? "Подключённое ядро не поддерживает RF Explorer 3G Combo.")
+        } else if !port.isEmpty, case .failure(let error) = configuration {
+            ErrorLine(text: describeSession(error))
+        }
+    }
+
+    @ViewBuilder private var tinySAFields: some View {
+        Text("Выберите tinySA. Приёмник AR-DV1 можно добавить, если он подключён. Создание сеанса не запускает измерения.")
+            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Порт tinySA:").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if let modem = SerialPort.availablePaths().first(where: { $0.contains("usbmodem") }) {
+                    Button("Найдено: \(modem)") {
+                        model.tinySAPort = modem
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            }
+            TextField("Порт tinySA (напр. /dev/cu.usbmodem4001)", text: $model.tinySAPort)
+                .textFieldStyle(.roundedBorder)
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Порт AR-DV1 (необязательно):").font(.caption).foregroundStyle(.secondary)
+            TextField("Порт AR-DV1 (оставьте пустым, если не подключён)", text: $model.receiverPort)
+                .textFieldStyle(.roundedBorder)
+        }
+        Text("Порты компьютера ядра: COM3/COM4 на Windows или /dev/… на Linux/macOS. Если AR-DV1 не подключён, оставьте поле пустым — будет создан сеанс только со спектроанализатором tinySA. Приборы не должны использовать sim://.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 }

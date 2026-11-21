@@ -19,7 +19,7 @@ impl SerialOptions {
         if self.path.trim().is_empty()
             || self.path.contains('\0')
             || self.path.contains("://")
-            || !matches!(self.baud, 9600 | 19200 | 38400 | 57600 | 115200)
+            || !matches!(self.baud, 9600 | 19200 | 38400 | 57600 | 115200 | 500_000)
         {
             return Err(InstrumentError::InvalidRequest(
                 "explicit native serial path and supported baud required".into(),

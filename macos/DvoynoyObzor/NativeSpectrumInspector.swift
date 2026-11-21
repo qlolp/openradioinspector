@@ -29,6 +29,8 @@ struct NativeSpectrumInspector: View {
     var client: PlatformClient? = nil
     var sessionID = ""
     var streamID = ""
+    var hasTinySAControls = false
+    var rfExplorer = false
     var liveReceiving = true
     var measurementsStale = false
     var presentationPaused = false
@@ -111,7 +113,7 @@ struct NativeSpectrumInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             NativeSpectrumViewportReader(viewport: viewport, fullRange: fullRange) { range in
                 HStack {
-                    NativeSpectrumRangeHeader(sweep: selected, range: range).layoutPriority(1)
+                    NativeSpectrumRangeHeader(sweep: selected, range: range, rfExplorer: rfExplorer).layoutPriority(1)
                     Spacer(minLength: 6)
                     if let bandPlanWorkspace {
                         NativeBandPlanButton(workspace: bandPlanWorkspace, range: source.isEmpty ? nil : range)
@@ -140,15 +142,17 @@ struct NativeSpectrumInspector: View {
                     Button("Следить за уровнем маркера") {
                         if let marker = markers.last ?? cursor { onFollowFrequency?(marker.frequency) }
                     }.disabled(onFollowFrequency == nil || (markers.isEmpty && cursor == nil))
-                    Menu("Перестроить прибор") {
-                        Button("Измерить видимый участок") { measureRange(self.range) }
-                        Button("Маркер → центр") {
-                            if let marker = markers.last ?? cursor {
-                                let half = (self.range.upperBound - self.range.lowerBound) / 2
-                                measureRange(max(100_000, Double(marker.frequency) - half)...min(6_000_000_000, Double(marker.frequency) + half))
-                            }
-                        }.disabled(markers.isEmpty && cursor == nil)
-                    }.disabled(client == nil || tuning || !liveReceiving || holdingPresentation)
+                    if hasTinySAControls {
+                        Menu("Перестроить прибор") {
+                            Button("Измерить видимый участок") { measureRange(self.range) }
+                            Button("Маркер → центр") {
+                                if let marker = markers.last ?? cursor {
+                                    let half = (self.range.upperBound - self.range.lowerBound) / 2
+                                    measureRange(max(100_000, Double(marker.frequency) - half)...min(6_000_000_000, Double(marker.frequency) + half))
+                                }
+                            }.disabled(markers.isEmpty && cursor == nil)
+                        }.disabled(client == nil || tuning || !liveReceiving || holdingPresentation)
+                    }
                 }
                 Spacer(minLength: 0)
                 Text(presentationStatus).foregroundStyle(!holdingPresentation && liveReceiving ? Color.green : Color.orange)
@@ -348,7 +352,7 @@ struct NativeSpectrumInspector: View {
     }
 
     private func measureRange(_ target: ClosedRange<Double>) {
-        guard let client, !tuning else { return }
+        guard hasTinySAControls, let client, !tuning else { return }
         let low = Int64(target.lowerBound.rounded()), high = Int64(target.upperBound.rounded())
         guard low < high else { return }
         tuning = true; tuneMessage = "Ожидание перестройки…"
@@ -460,6 +464,7 @@ struct NativeSpectrumViewportReader<Content: View>: View {
 struct NativeSpectrumRangeHeader: View {
     let sweep: PlatformSweep?
     let range: ClosedRange<Double>
+    var rfExplorer = false
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(NativeSpectrumInspection.frequency(range.lowerBound)) — \(NativeSpectrumInspection.frequency(range.upperBound))")
@@ -476,17 +481,40 @@ struct NativeSpectrumRangeHeader: View {
                     if let start = NativeSpectrumTimeline.date(sweep.interval.startedAt), let end = NativeSpectrumTimeline.date(sweep.interval.endedAt) {
                         Text(String(format: "· свип %.2f с", end.timeIntervalSince(start)))
                     }
-                    Text("· \(count) точек · шаг \(step) · RBW \(rbw(sweep))")
+                    Text("· \(count) точек · шаг \(step) · \(Self.acquisitionDetails(sweep, rfExplorer: rfExplorer))")
                 }.font(.caption2).foregroundStyle(.secondary)
             } else { Text("Нет сохранённых свипов").font(.caption) }
         }.textSelection(.enabled)
     }
-    private func rbw(_ sweep: PlatformSweep) -> String {
-        guard let settings = sweep.settings else { return "не подтверждена" }
+    static func acquisitionDetails(_ sweep: PlatformSweep, rfExplorer: Bool) -> String {
+        let settings = sweep.settings ?? [:]
+        if rfExplorer {
+            let detector: String
+            switch settings["detector"] {
+            case .string("normal"): detector = "Normal"
+            case .string("max"): detector = "Max"
+            case .string("avg"): detector = "Average"
+            case .string("overwrite"): detector = "Overwrite"
+            case .string("max_hold"): detector = "Max Hold"
+            case .string("max_historical"): detector = "Max Historical"
+            case .string(let value): detector = value
+            default: detector = "не указан"
+            }
+            let rbw: String
+            if case .number(let hz) = settings["rbw_hz"], hz > 0 { rbw = String(format: "%.0f Гц", hz) }
+            else { rbw = "не подтверждена" }
+            let input: String
+            switch settings["active_input"] {
+            case .string("left"): input = " · левый вход SMA"
+            case .string("right"): input = " · правый вход SMA"
+            default: input = ""
+            }
+            return "Детектор \(detector) · RBW \(rbw)\(input)"
+        }
         // Raw settings retain whether a value was requested or actually read back.
-        if case .number(let value) = settings["rbw_applied_hz"] { return String(format: "%.0f Гц (данные ядра)", value) }
-        if case .number(let value) = settings["rbw_requested_hz"] ?? settings["rbw_hz"] { return String(format: "%.0f Гц (задано)", value) }
-        return "не подтверждена"
+        if case .number(let value) = settings["rbw_applied_hz"] { return String(format: "RBW %.0f Гц (данные ядра)", value) }
+        if case .number(let value) = settings["rbw_requested_hz"] ?? settings["rbw_hz"] { return String(format: "RBW %.0f Гц (задано)", value) }
+        return "RBW не подтверждена"
     }
 }
 

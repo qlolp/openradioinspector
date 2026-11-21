@@ -196,6 +196,36 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn rf_explorer_detection_skips_held_levels_and_continues_with_fresh_levels() {
+    let f = Fixture::new().await;
+    f.automation
+        .configure(PolicyKind::Detection, SID, json!({"enabled": true}))
+        .await
+        .unwrap();
+    let mut fixture: Value = serde_json::from_str(include_str!(
+        "../../../contracts/fixtures/automation-domain-v1.json"
+    ))
+    .unwrap();
+    let mut sweep = fixture["regions"][0]["sweep"].take();
+    for (detector, kind, count) in [
+        ("max_hold", "processed_trace", 0),
+        ("normal", "raw_spectrum", 1),
+    ] {
+        sweep["id"] = json!(detector);
+        sweep["settings"] =
+            json!({"adapter":"rf-explorer-3g-serial","detector":detector,"artifact_kind":kind});
+        f.archive.append_sweeps(vec![sweep.clone()]).await.unwrap();
+        let candidates = f
+            .automation
+            .run_once(PolicyKind::Detection, SID)
+            .await
+            .unwrap();
+        assert_eq!(candidates.as_array().unwrap().len(), count, "{detector}");
+    }
+    f.close().await;
+}
+
+#[tokio::test]
 async fn disable_reenable_during_science_cannot_commit_under_new_policy_epoch() {
     let f = Fixture::new().await;
     f.automation

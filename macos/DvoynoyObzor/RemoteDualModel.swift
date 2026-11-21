@@ -50,6 +50,7 @@ final class RemoteDualModel {
     }
     var session: PlatformSession? {
         didSet {
+            if tinySAAnalyzer == nil { showTinySAControl = false }
             if !PlatformThreeSweepThresholds.sameID(session?.streams.first(where: { $0.isDbmAnalyzer })?.id,
                 oldValue?.streams.first(where: { $0.isDbmAnalyzer })?.id) {
                 if oldValue != nil { resetMeasurementHealth() }
@@ -270,6 +271,8 @@ final class RemoteDualModel {
     }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
+    var tinySAAnalyzer: PlatformStream? { analyzer.flatMap { $0.isTinySAAnalyzer ? $0 : nil } }
+    var isStandaloneRFExplorer: Bool { analyzer?.isRFExplorer3G == true && session?.streams.count == 1 }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
     var thresholdDbm: Double? { parseUserNumber(threshold) }
     var usesBundledLegacyHelper: Bool {
@@ -476,6 +479,66 @@ final class RemoteDualModel {
             guard requestGeneration == generation, self.client === client else { return }
             busy = false
         }
+    }
+
+    @discardableResult
+    func connectRFExplorer(_ configuration: PlatformRFExplorerConfiguration) async -> Bool {
+        guard let client, !busy, PlatformExactID.same(connectedServerURL, serverURL) else { return false }
+        var scope = generation
+        busy = true
+        errorText = nil
+        defer { if generation == scope, self.client === client { busy = false } }
+        do {
+            let created = try await client.createRFExplorerSession(configuration)
+            guard generation == scope, self.client === client, PlatformExactID.same(connectedServerURL, serverURL),
+                  let stream = created.streams.first else { return false }
+            generation += 1
+            scope = generation
+            selectedSessionID = created.id
+            clearMeasurements()
+            session = created
+            sessions.removeAll { PlatformExactID.same($0.id, created.id) }
+            sessions.append(created)
+            showSerialForm = false
+            status = "Сеанс RF Explorer создан."
+            _ = try await startRFExplorerWorker(client, sessionID: created.id, stream: stream, scope: scope)
+            guard generation == scope, self.client === client else { return false }
+            status = "Приём RF Explorer запущен."
+            await refresh()
+            return generation == scope && self.client === client
+        } catch {
+            guard generation == scope, self.client === client else { return false }
+            errorText = describeSession(error)
+            return false
+        }
+    }
+
+    private func startRFExplorerWorker(_ client: PlatformClient, sessionID: String, stream: PlatformStream,
+                                       scope: Int) async throws -> PlatformWorker {
+        func checkSelection() throws {
+            guard generation == scope, self.client === client, PlatformExactID.same(connectedServerURL, serverURL),
+                  PlatformExactID.same(selectedSessionID, sessionID),
+                  analyzer?.isRFExplorer3G == true, PlatformExactID.same(analyzer?.id, stream.id) else {
+                throw CancellationError()
+            }
+        }
+        try checkSelection()
+        if session?.state != "running" {
+            let started = try await client.startSession(sessionID)
+            try checkSelection()
+            guard PlatformExactID.same(started.id, sessionID), started.state == "running",
+                  started.streams.contains(where: { $0.isRFExplorer3G && PlatformExactID.same($0.id, stream.id) }) else {
+                throw PlatformError.invalidResponse("Ядро не подтвердило запуск выбранного сеанса RF Explorer.")
+            }
+            session = started
+            if let index = sessions.firstIndex(where: { PlatformExactID.same($0.id, sessionID) }) { sessions[index] = started }
+        }
+        let worker = try await client.startStream(sessionID: sessionID, streamID: stream.id)
+        try checkSelection()
+        guard PlatformExactID.same(worker.streamId, stream.id), worker.alive else {
+            throw PlatformError.invalidResponse(worker.lastError ?? "Ядро не подтвердило приём RF Explorer.")
+        }
+        return worker
     }
 
     func refresh() async {
@@ -813,6 +876,17 @@ final class RemoteDualModel {
 
     func startStream(_ stream: PlatformStream?) {
         guard let stream else { return }
+        if stream.isRFExplorer3G {
+            guard !busy else { return }
+            let scope = generation
+            performStreamAction(stream) { client, sessionID in
+                guard try await client.supportsRFExplorer3G() else {
+                    throw PlatformError.invalidCommand("Подключённое ядро не поддерживает RF Explorer 3G Combo.")
+                }
+                return try await self.startRFExplorerWorker(client, sessionID: sessionID, stream: stream, scope: scope)
+            }
+            return
+        }
         performStreamAction(stream) { try await $0.startStream(sessionID: $1, streamID: stream.id) }
     }
 

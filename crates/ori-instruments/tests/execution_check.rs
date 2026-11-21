@@ -404,3 +404,33 @@ async fn a_pending_checked_receiver_does_not_block_an_independent_checked_analyz
     closed_receiver(&first, &first_audit).await;
     closed_analyzer(&second, &audit).await;
 }
+
+#[tokio::test]
+async fn rf_explorer_cancellation_during_a_ready_read_discards_the_frame() {
+    let mut fixture = Fixture::new(8192);
+    let mut device = RfExplorer::new(fixture.wire, None, IoLimits::default()).unwrap();
+    let (prepared, ()) = tokio::join!(device.prepare(), async {
+        let mut query = [0; 4];
+        fixture.peer.read_exact(&mut query).await.unwrap();
+        assert_eq!(&query, b"#\x04C0");
+        fixture.peer.write_all(b"#C2-M:003,005,01.34\r\n#C2-F:0100000,0010000,0000,-118,0112,1,000,0015000,2700000,0600000,00015,0000,004\r\n").await.unwrap();
+    });
+    prepared.unwrap();
+    // Every byte is already buffered. Cancellation fires inside the first read,
+    // even if the asynchronous operation never yields Pending before returning.
+    fixture.peer.write_all(b"$Sp").await.unwrap();
+    fixture.peer.write_all(&[42; 112]).await.unwrap();
+    fixture.peer.write_all(b"\r\n").await.unwrap();
+    fixture.revoke_after_read.store(true, Ordering::SeqCst);
+    let handle = device.cancellation_handle();
+    let check = Arc::new(move || {
+        if !fixture.allowed.load(Ordering::SeqCst) {
+            handle.cancel();
+        }
+        Ok(())
+    });
+    assert!(matches!(
+        device.poll_checked(check).await,
+        Err(InstrumentError::Cancelled)
+    ));
+}

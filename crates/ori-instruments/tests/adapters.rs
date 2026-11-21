@@ -1800,6 +1800,12 @@ fn intervals_serialize_as_utc_microseconds_and_serial_validation_is_pure() {
             serial::validate_windows_com_port("\\\\.\\com12").unwrap(),
             "COM12"
         );
+        serial::SerialOptions {
+            path: "COM3".into(),
+            baud: 500_000,
+        }
+        .validate()
+        .expect("RF Explorer 3G Combo connector baud");
         for path in ["COM0", "COM01", "tcp://host", "COM3/other"] {
             assert!(serial::validate_windows_com_port(path).is_err());
         }

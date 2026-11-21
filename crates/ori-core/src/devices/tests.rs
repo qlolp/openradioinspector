@@ -226,6 +226,56 @@ async fn until(check: impl Fn() -> bool) {
 }
 
 #[tokio::test]
+async fn unplugged_rf_explorer_can_reopen_after_handshake_and_shutdown_both_fail() {
+    let directory = tempfile::tempdir().unwrap();
+    // This ASCII peer will not answer the RF Explorer's framed C0 request.
+    let factory = Factory::new(true);
+    let mut config = CoreConfig::live(directory.path());
+    config.devices.transport = Some(factory.clone());
+    config.devices.io_limits.text_timeout = Duration::from_millis(50);
+    let core = Core::open(config).await.unwrap();
+    let mut fixture = session("unplugged");
+    fixture["streams"][1]["settings"] = json!({"adapter":"rf-explorer-3g-serial"});
+    fixture["streams"][1]["port"] = json!("owned-duplex");
+    core.archive()
+        .unwrap()
+        .create_session(fixture)
+        .await
+        .unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    for attempt in 1..=2 {
+        let gate = manager.public_gate(Target::new("unplugged", "a"));
+        assert!(manager.start_stream("unplugged", "a", gate).await.is_err());
+        assert_eq!(factory.opens.load(Ordering::Acquire), attempt);
+        assert_eq!(factory.drops.load(Ordering::Acquire), attempt);
+    }
+    let status = manager.stop_stream("unplugged", "a").await.unwrap();
+    assert!(!status.alive);
+    assert_eq!(status.state, "error");
+    assert!(
+        status
+            .last_error
+            .unwrap()
+            .contains("owned synthetic cleanup failure")
+    );
+    core.close().await.unwrap();
+}
+
+#[test]
+fn rf_explorer_line_rate_is_scoped_to_its_own_native_profile() {
+    for (adapter, default) in [
+        ("tinysa-serial", 9600),
+        ("ardv1-serial", 115200),
+        ("rf-explorer-3g-serial", 500_000),
+    ] {
+        let mut settings = ori_contracts::JSONObject::from([("adapter".into(), json!(adapter))]);
+        assert_eq!(transport::baud(&settings).unwrap(), default);
+        settings.insert("baud".into(), json!(500_000));
+        assert_eq!(transport::baud(&settings).is_ok(), default == 500_000);
+    }
+}
+
+#[tokio::test]
 async fn receiver_scope_commits_the_final_point_before_releasing_its_port() {
     let directory = tempfile::tempdir().unwrap();
     let factory = Factory::new(false);

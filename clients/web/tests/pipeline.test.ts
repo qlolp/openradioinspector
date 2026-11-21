@@ -23,6 +23,19 @@ describe('display-only reduction', () => {
     expect(result.levels.length).toBeLessThanOrEqual(4);
     expect(sweep).toEqual(before);
   });
+  it('retains the RF Explorer acquisition detector and distinguishes reported RBW from bin spacing', () => {
+    const settings = {
+      adapter: 'rf-explorer-3g-serial',
+      detector: 'max_hold',
+      rbw_hz: 30000,
+      step_hz: 10000,
+    };
+    expect(decimate({ ...sweep, settings }, 4)).toMatchObject({
+      rf_explorer: { detector: 'max_hold', rbw_hz: 30000, step_hz: 10000 },
+    });
+    const other = decimate({ ...sweep, settings: { ...settings, adapter: 'tinysa-serial' } }, 4);
+    expect(other).not.toHaveProperty('rf_explorer');
+  });
   it('keeps a one-point trace and rejects non-finite or mismatched raw arrays', () => {
     expect(decimate({ ...sweep, frequencies_hz: [100], levels: [-50] }, 4).levels).toEqual([-50]);
     expect(() => decimate({ ...sweep, levels: [NaN] }, 4)).toThrow();

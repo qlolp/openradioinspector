@@ -40,7 +40,7 @@ struct NativeAnalyzerControls: View {
             }
         }
         .onDisappear { operation?.cancel() }
-        .onChange(of: model.worker(for: model.analyzer?.id)?.state) { old, new in
+        .onChange(of: model.worker(for: model.tinySAAnalyzer?.id)?.state) { old, new in
             if old != new && new == "running" && !applying { message = "" }
         }
         .sheet(isPresented: $receivePanel) { NativeReceiveWorkbench(model: model) }
@@ -67,9 +67,9 @@ struct NativeAnalyzerControls: View {
     private var actionButtons: some View {
         Group {
                 Button(applying ? "Применение…" : "Применить") { apply() }
-                    .disabled(applying || model.busy || model.worker(for: model.analyzer?.id)?.alive != true)
+                    .disabled(applying || model.busy || model.worker(for: model.tinySAAnalyzer?.id)?.alive != true)
                 Button("Тракт / Наблюдение") { receivePanel = true }
-                Button("Считать") { load() }.disabled(applying || model.analyzer == nil)
+                Button("Считать") { load() }.disabled(applying || model.tinySAAnalyzer == nil)
                 Button("Профиль") { profilePanel = true }
                     .popover(isPresented: $profilePanel) {
                         VStack(alignment: .leading, spacing: 10) {
@@ -123,7 +123,7 @@ struct NativeAnalyzerControls: View {
 
     private func changed(_ field: NativeAnalyzerDraft.Field) { lastEdited = field }
     private func load() {
-        guard let client = model.client, let stream = model.analyzer else { return }
+        guard let client = model.client, let stream = model.tinySAAnalyzer else { return }
         let session = model.selectedSessionID
         operation?.cancel(); applying = true
         operation = Task { @MainActor in
@@ -143,7 +143,7 @@ struct NativeAnalyzerControls: View {
         }
     }
     private func apply() {
-        guard let client = model.client, let stream = model.analyzer, !applying else { return }
+        guard let client = model.client, let stream = model.tinySAAnalyzer, !applying else { return }
         let original = draft, edited = lastEdited, session = model.selectedSessionID
         applying = true; message = "Ожидание подтверждения ядра…"
         operation = Task { @MainActor in
@@ -161,7 +161,7 @@ struct NativeAnalyzerControls: View {
                 let values: [String: MonitoringValue] = ["start_hz": .integer(start), "stop_hz": .integer(stop),
                     "rbw_hz": requested.rbw == "auto" ? .string("auto") : .integer(Int64(requested.rbw) ?? 10_000)]
                 try Task.checkCancellation()
-                guard client === model.client, session == model.selectedSessionID, stream.id == model.analyzer?.id else { return }
+                guard client === model.client, session == model.selectedSessionID, stream.id == model.tinySAAnalyzer?.id else { return }
                 draft = requested
                 _ = try await client.tinySAOperation(sessionID: session, streamID: stream.id, operation: "receive.configure", parameters: values, revision: status["revision"].integer)
                 try Task.checkCancellation()
