@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,16 +14,23 @@ SHARED_PATHS = (
     "tools/ci/pr_checks.py",
     "tests/test_pr_required_checks.py",
 )
+# Both native builds compile the workspace and embed the Vite client.
+NATIVE_INPUTS = (
+    ".gitattributes", ".cargo/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml",
+    "clients/web/**", "contracts/**", "crates/**", "tools/build_modern_web.py",
+)
+OPERATOR_GUIDE = "docs/operator-guide/**"
 PATHS = {
-    "clients": (
-        "clients/web", "clients/windows", ".github/workflows/modern-clients.yml",
-        "radioinspector", "contracts", "crates", "Cargo.lock", "deploy/windows",
+    "clients": NATIVE_INPUTS + (
+        ".github/workflows/modern-clients.yml", "clients/windows/**", "radioinspector/**", "deploy/windows/**",
+        ".gitignore", "pyproject.toml", "MANIFEST.in", "LICENSE", "rustfmt.toml", "tests/fixtures/field-strength-rms-v2.json",
         "tools/release/prepare_windows_node.py", "tools/release/native_notices.py",
-        "docs/operator-guide", "tools/release/operator_manual.py",
+        "tools/release/operator_manual.py", OPERATOR_GUIDE,
     ),
-    "reference": (
-        "benchmarks", "crates/ori-core/examples/benchmark_background.rs",
-        ".github/workflows/windows-load.yml",
+    "reference": NATIVE_INPUTS + (
+        "radioinspector/web/static/**", "radioinspector/web/modern/**", "radioinspector/monitoring/storage_window.sql",
+        ".github/workflows/windows-load.yml", "benchmarks/**", "tools/modernization/api_parity.py",
+        "tests/__init__.py", "tests/loopback_dns.py", "tests/release_process_ownership.py", "tests/run_release_checks.py",
     ),
 }
 REQUIRED_JOBS = {
@@ -40,16 +48,30 @@ def changed_suites(base, head):
     if len(ancestors) != 1:
         raise ValueError("PR revisions must have an unambiguous merge base")
 
-    selected = {}
-    for suite, paths in PATHS.items():
-        # Git compares complete trees. Disabling rename detection covers both the old and new names.
-        result = subprocess.run([
-            "git", "--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-renames",
-            "--ignore-submodules=none", ancestors[0], head, "--", *SHARED_PATHS, *paths,
-        ])
-        if result.returncode not in (0, 1):
-            result.check_returncode()
-        selected[suite] = result.returncode == 1
+    # Git returns every changed path, including both sides of a rename, without API pagination.
+    names = subprocess.check_output([
+        "git", "diff", "--name-only", "-z", "--no-ext-diff", "--no-renames",
+        "--ignore-submodules=none", ancestors[0], head, "--",
+    ])
+    if names and not names.endswith(b"\0"):
+        raise ValueError("Incomplete Git path list")
+    selected = dict.fromkeys(PATHS, False)
+    # Match literal file names and directory prefixes. Only the installed guide includes Markdown.
+    files = {
+        suite: set(SHARED_PATHS) | {p for p in paths if not p.endswith("/**")}
+        for suite, paths in PATHS.items()
+    }
+    directories = {
+        suite: tuple(p.removesuffix("**") for p in paths if p.endswith("/**"))
+        for suite, paths in PATHS.items()
+    }
+    for raw in names.split(b"\0")[:-1]:
+        path = os.fsdecode(raw)
+        if path.endswith(".md") and not path.startswith(OPERATOR_GUIDE.removesuffix("**")):
+            continue
+        for suite in PATHS:
+            if path in files[suite] or path.startswith(directories[suite]):
+                selected[suite] = True
     return selected
 
 

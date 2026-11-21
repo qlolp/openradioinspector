@@ -2,7 +2,28 @@ name: Native concurrent reference workload
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['benchmarks/**', 'crates/ori-core/examples/benchmark_background.rs', '.github/workflows/windows-load.yml']
+    paths: [
+      ".gitattributes",
+      ".cargo/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain.toml",
+      "clients/web/**",
+      "contracts/**",
+      "crates/**",
+      "tools/build_modern_web.py",
+      "radioinspector/web/static/**",
+      "radioinspector/web/modern/**",
+      "radioinspector/monitoring/storage_window.sql",
+      ".github/workflows/windows-load.yml",
+      "benchmarks/**",
+      "tools/modernization/api_parity.py",
+      "tests/__init__.py",
+      "tests/loopback_dns.py",
+      "tests/release_process_ownership.py",
+      "tests/run_release_checks.py",
+      "!**/*.md"
+    ]
   workflow_call:
     inputs:
       full:

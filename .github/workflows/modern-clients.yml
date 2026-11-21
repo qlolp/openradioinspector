@@ -2,7 +2,32 @@ name: Modern Web and Windows clients
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/**', 'Cargo.lock', 'deploy/windows/**', 'tools/release/prepare_windows_node.py', 'tools/release/native_notices.py', 'docs/operator-guide/**', 'tools/release/operator_manual.py']
+    paths: [
+      ".gitattributes",
+      ".cargo/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain.toml",
+      "clients/web/**",
+      "contracts/**",
+      "crates/**",
+      "tools/build_modern_web.py",
+      ".github/workflows/modern-clients.yml",
+      "clients/windows/**",
+      "radioinspector/**",
+      "deploy/windows/**",
+      ".gitignore",
+      "pyproject.toml",
+      "MANIFEST.in",
+      "LICENSE",
+      "rustfmt.toml",
+      "tests/fixtures/field-strength-rms-v2.json",
+      "tools/release/prepare_windows_node.py",
+      "tools/release/native_notices.py",
+      "tools/release/operator_manual.py",
+      "!**/*.md",
+      "docs/operator-guide/**"
+    ]
   workflow_call:
     outputs:
       web:
