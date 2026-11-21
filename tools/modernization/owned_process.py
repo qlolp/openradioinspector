@@ -91,6 +91,7 @@ class ManagedProcess:
         self.closed = False
         self._disposed = False
         self._code = self._pid = None
+        self._adapter_exit_ns = None
         self.stdin = _Lifeline(self) if stdin_pipe else None
         self.stdout_path = self.directory / "stdout.log"
         self.stderr_path = self.directory / "stderr.log"
@@ -239,6 +240,8 @@ class ManagedProcess:
                 code = self.bootstrap.poll()
                 completed = code is not None
             if completed:
+                if self._adapter_exit_ns is None:
+                    self._adapter_exit_ns = time.monotonic_ns()
                 if code != 0:
                     raise ManagedError("adapter_failed")
                 record = _record(self.directory / "complete.json", self.nonce)
@@ -304,6 +307,32 @@ class ManagedProcess:
         if any(len(value) > self.limit for value in values):
             raise ManagedError("output_budget")
         return values
+
+    def observed_ms(self, origin, events):
+        """Bounded monotonic observations for a probe, independent of cleanup."""
+        observed = dict(events, adapter_exit=self._adapter_exit_ns)
+        if self.owner is not None:
+            observed.update(self.owner.observed_ns)
+        for event, filename in (
+            ("target_exit", "exit.json"),
+            ("streams_closed", "complete.json"),
+        ):
+            try:
+                record = _record(self.directory / filename, self.nonce)
+            except (OSError, ManagedError, ValueError):
+                continue  # Diagnostics must preserve the original failure.
+            if record and (event == "target_exit" or record.get("streams_closed") is True):
+                observed[event] = record.get("observed_ns")
+        now = time.monotonic_ns()
+        return {
+            event: (when - origin) // 1_000_000
+            for event, when in observed.items()
+            if type(when) is int and origin <= when <= now
+        }
+
+    @property
+    def pending_phase(self):
+        return self.owner.pending_phase if self.owner is not None else None
 
     def dispose(self):
         if self._disposed:
@@ -386,14 +415,14 @@ def adapter(path, *, gate=False):
             code = child.poll()
             if code is not None:
                 if not published:
-                    record("exit.json", code=code)
+                    record("exit.json", code=code, observed_ns=time.monotonic_ns())
                     published = True
                 if not any(reader.is_alive() for reader in readers):
                     if failures:
                         raise ManagedError("bounded_output_io_failed")
                     if child.stdin is not None and not child.stdin.closed:
                         child.stdin.close()
-                    record("complete.json", streams_closed=True)
+                    record("complete.json", streams_closed=True, observed_ns=time.monotonic_ns())
                     return 0
             time.sleep(0.005)
     except Exception as error:  # noqa: BLE001 - publish failure; original owner retains cleanup

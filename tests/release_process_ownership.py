@@ -543,8 +543,8 @@ def _private_directory(path):
         raise OwnershipError("Ownership directory is not private")
 
 
-def write_record(path, value):
-    """Atomic bounded numeric/control records, never command arguments."""
+def write_record(path, value, *, durable=True):
+    """Atomically publish a bounded record. Sync ownership registrations to disk."""
     path = Path(path)
     _private_directory(path.parent)
     raw = json.dumps(value, allow_nan=False, separators=(",", ":")).encode("utf-8")
@@ -555,14 +555,16 @@ def write_record(path, value):
         with os.fdopen(descriptor, "wb") as output:
             os.fchmod(output.fileno(), 0o600)
             output.write(raw)
-            output.flush()
-            os.fsync(output.fileno())
+            if durable:
+                output.flush()
+                os.fsync(output.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if durable:
+            directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         try:
             os.unlink(temporary)
@@ -705,6 +707,8 @@ class OwnedCommand:
             process = retained.process
         self.process = process
         self._released = False
+        self.observed_ns = {}
+        self.pending_phase = None
 
     @classmethod
     def start(cls, command, *, environment, registry, root, log, shutdown_timeout):
@@ -824,6 +828,7 @@ class OwnedCommand:
                 ) from None
 
     def request(self, request, deadline):
+        self.pending_phase = request + "_publication"
         previous = read_record(self.directory / "control.json", optional=True)
         if previous is not None and (
             previous.get("owner") != self.meta["owner"]
@@ -841,7 +846,10 @@ class OwnedCommand:
                 "request": request,
                 "deadline": deadline,
             },
+            durable=False,
         )
+        self.observed_ns.setdefault(request + "_requested", time.monotonic_ns())
+        self.pending_phase = request + "_acknowledgement"
         # Normal and outer recovery paths both use the same private record.
         # The pipe provides immediate wakeup; EOF also owns parent-death cleanup.
         if self.process is not None and not self.process.stdin.closed:
@@ -856,30 +864,45 @@ class OwnedCommand:
         if getattr(self, "_released", False):
             return
         deadline = time.monotonic() + timeout
+        self.pending_phase = "release_check"
         value = self.status()
         if value is not None and value["phase"] == "released":
             self._finish_release(deadline)
             return
         if self.authority.members():
             raise OwnershipError("Cannot release an anchor with live members")
-        self.request("release", deadline)
+        serial = self.request("release", deadline)
         while True:
             value = self.status()
             # Terminal proof can precede this request when the original parent
             # died. A released anchor cannot acknowledge another serial.
             if value is not None and value["phase"] == "released":
                 break
+            if (
+                value is not None
+                and value["phase"] == "failed"
+                and value["control_serial"] >= serial
+            ):
+                raise OwnershipError("Owned session release failed; anchor ownership retained")
             _condition_wait(deadline)
         self._finish_release(deadline)
 
     def _finish_release(self, deadline):
+        self.observed_ns.setdefault("release_acknowledged", time.monotonic_ns())
+        self.pending_phase = "anchor_reap"
         if self.process is not None:
             if not self.process.stdin.closed:
                 try:
                     self.process.stdin.close()
                 except BrokenPipeError:
                     pass
-            self.process.wait(timeout=max(0.001, deadline - time.monotonic()))
+            remaining = max(0, deadline - time.monotonic())
+            try:
+                self.process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                # The Popen command line contains private launcher paths.
+                raise subprocess.TimeoutExpired("owned session anchor", remaining) from None
+            self.observed_ns.setdefault("anchor_reaped", time.monotonic_ns())
             if self.process.returncode != 0:
                 raise OwnershipError("Anchor exited unsuccessfully")
         else:
@@ -892,6 +915,7 @@ class OwnedCommand:
                 if not self.authority.anchor.same_process(identity):
                     break
                 _condition_wait(deadline)
+        self.pending_phase = "registry_retirement"
         (self.directory / "active.session.json").unlink(missing_ok=True)
         self._released = True
         _retained_commands.pop(self.directory, None)
@@ -908,11 +932,13 @@ class OwnedCommand:
                     link.unlink()
                 registration.rmdir()
             shutil.rmtree(self.directory)
+        self.pending_phase = None
 
     def stop(self, timeout):
         if getattr(self, "_released", False):
             return
         deadline = time.monotonic() + timeout
+        self.pending_phase = "cancel_check"
         value = self.status()
         if value is not None and value["phase"] == "released":
             self._finish_release(deadline)
@@ -1024,7 +1050,10 @@ def supervise_anchor(command, directory, shutdown_timeout, cleanup_nested):
     def save(phase):
         state["phase"] = phase
         state["control_serial"] = last_serial
-        write_record(directory / "status.json", state)
+        # Both peers and the held session share this boot. Atomic replacement
+        # publishes live IPC to peers, including after a controller crash.
+        # Only the independent ownership/recovery registration needs a disk sync.
+        write_record(directory / "status.json", state, durable=False)
 
     def collect():
         if child is not None and state["exit_code"] is None:

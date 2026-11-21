@@ -449,40 +449,73 @@ def probe_cli(argv, *, timeout=5.0, environment=None, cwd=None):
     from tools.modernization.owned_process import ManagedError, ManagedProcess
     if not argv or not (Path(argv[0]).is_file() or shutil.which(str(argv[0]),path=None if environment is None else environment.get("PATH"))):
         return {"state":"unavailable","successful":False,"error":"FileNotFoundError"}
-    process=ManagedProcess(argv,environment=environment,cwd=cwd,limit=MAX_OUTPUT_BYTES)
-    failure=cleanup_error=None
+    started = time.monotonic_ns()
+    events = {}
+    phase = "launch"
+    process = ManagedProcess(argv, environment=environment, cwd=cwd, limit=MAX_OUTPUT_BYTES)
+    failure = cleanup_error = None
+    cleanup = "unneeded"
     try:
         process.start()
+        events["launched"] = time.monotonic_ns()
+        phase = "command"
         process.wait(timeout)
+        events["release_started"] = time.monotonic_ns()
+        phase = "release"
         process.finish(2)
-    except subprocess.TimeoutExpired:
-        failure="command_deadline"
-    except (ManagedError,OSError) as error:
-        failure=str(error)
+        events["closed"] = time.monotonic_ns()
+    except (subprocess.TimeoutExpired, TimeoutError):
+        failure = phase + "_deadline"
+    except (ManagedError, OSError) as error:
+        failure = str(error)
     except Exception as error:  # noqa: BLE001 - tool failures remain explicit in the parity report
-        failure=type(error).__name__+": "+str(error)
+        failure = type(error).__name__ + ": " + str(error)
     except BaseException:
         process.stop(2)
         process.dispose()
         raise
+    if failure is not None:
+        events["failure"] = time.monotonic_ns()
+        phase = process.pending_phase or phase
     if not process.closed:
-        try:process.stop(2)
-        except BaseException as error:cleanup_error=type(error).__name__+": "+str(error)  # noqa: BLE001 - retain failure and original authority
-    outputs=process.outputs()
-    if process.output_exceeded:failure="output_budget"
-    code=process.returncode
-    recovery=None if process.closed else process.recovery
-    if process.closed:process.dispose()
+        events["cleanup_started"] = time.monotonic_ns()
+        try:
+            process.stop(2)
+        except subprocess.TimeoutExpired:
+            cleanup_error = "TimeoutExpired: owned cleanup deadline"
+        except BaseException as error:  # noqa: BLE001 - retain failure and original authority
+            cleanup_error = type(error).__name__ + ": " + str(error)
+        cleanup = "retained" if cleanup_error else "closed"
+        events["cleanup_failed" if cleanup_error else "cleanup_completed"] = time.monotonic_ns()
+    outputs = process.outputs()
+    if failure is None:
+        phase = "output"
+    if process.output_exceeded:
+        failure = "output_budget"
+    code = process.returncode
+    recovery = None if process.closed else process.recovery
     try:
-        stdout,stderr=(value.decode("utf-8",errors="strict") for value in outputs)
+        stdout, stderr = (value.decode("utf-8", errors="strict") for value in outputs)
     except UnicodeError:
-        stdout=stderr=""
-        failure="invalid_utf8_output"
-    passed=code==0 and failure is None and cleanup_error is None
-    result={"state":"pass" if passed else "mismatch","successful":passed,
-            "exit_code":code,"stdout":stdout,"stderr":stderr,"error":failure,
-            "stdout_sha256":hashlib.sha256(outputs[0]).hexdigest()}
-    if cleanup_error is not None:result.update(cleanup_error=cleanup_error,recovery=recovery)
+        stdout = stderr = ""
+        failure = "invalid_utf8_output"
+    if failure is not None:
+        events.setdefault("failure", time.monotonic_ns())
+    lifecycle = {"observed_ms": process.observed_ms(started, events), "cleanup": cleanup}
+    if failure is not None:
+        lifecycle["failed_phase"] = phase
+    elif code != 0:
+        lifecycle["failed_phase"] = "target_exit"
+    if cleanup_error is not None:
+        lifecycle["cleanup_failed_phase"] = process.pending_phase or "cleanup"
+    if process.closed:
+        process.dispose()
+    passed = code == 0 and failure is None and cleanup_error is None
+    result = {"state": "pass" if passed else "mismatch", "successful": passed,
+              "exit_code": code, "stdout": stdout, "stderr": stderr, "error": failure,
+              "stdout_sha256": hashlib.sha256(outputs[0]).hexdigest(), "lifecycle": lifecycle}
+    if cleanup_error is not None:
+        result.update(cleanup_error=cleanup_error, recovery=recovery)
     return result
 
 
