@@ -19,6 +19,39 @@ fn request(operation: &str) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({"version":1,"request_id":"job-1","operation":operation}))
         .unwrap()
 }
+
+fn descendant_exited(stat: std::io::Result<String>) -> std::io::Result<bool> {
+    match stat {
+        Ok(stat) => {
+            let state = stat
+                .rsplit_once(") ")
+                .and_then(|(_, fields)| fields.split_whitespace().next());
+            Ok(matches!(state, Some("X" | "Z")))
+        }
+        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => Ok(true),
+        Err(error) => Err(error),
+    }
+}
+
+#[test]
+fn only_terminal_linux_states_or_a_vanished_task_prove_exit() {
+    for (state, expected) in [
+        ("X", true),
+        ("Z", true),
+        ("R", false),
+        ("S", false),
+        ("T", false),
+        ("?", false),
+    ] {
+        let stat = format!("123 (worker) Z helper) {state} 1 2 3");
+        assert_eq!(descendant_exited(Ok(stat)).unwrap(), expected, "{state}");
+    }
+    assert!(!descendant_exited(Ok(String::new())).unwrap());
+    for errno in [libc::ENOENT, libc::ESRCH] {
+        assert!(descendant_exited(Err(std::io::Error::from_raw_os_error(errno))).unwrap());
+    }
+    assert!(descendant_exited(Err(std::io::Error::from_raw_os_error(libc::EACCES))).is_err());
+}
 #[tokio::test]
 async fn worker_gets_bounded_limits_and_reports_best_effort_enforcement_honestly() {
     let result = ResearchPool::default()
@@ -85,9 +118,10 @@ async fn deadline_terminates_owned_descendants_and_oversize_output_is_bounded() 
             .is_err()
     );
     let pid: usize = std::fs::read_to_string(pidfile).unwrap().parse().unwrap();
-    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-        assert_eq!(stat.split(") ").nth(1).unwrap().chars().next(), Some('Z'));
-    }
+    assert!(
+        descendant_exited(std::fs::read_to_string(format!("/proc/{pid}/stat"))).unwrap(),
+        "worker descendant {pid} is still live or its task state is unrecognized"
+    );
     assert!(
         ResearchPool::default()
             .run(spec(), request("huge"), Cancellation::default())
