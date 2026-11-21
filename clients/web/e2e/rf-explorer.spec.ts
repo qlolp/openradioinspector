@@ -206,5 +206,19 @@ test('keeps all three workspace tabs within a Russian phone viewport', async ({ 
   await openDesk(page);
   await page.getByTestId('locale-select').selectOption('ru');
   await expect(page.getByRole('button', { name: 'RF Explorer', exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  for (const family of ['DejaVu Sans', 'Liberation Sans']) {
+    const style = await page.addStyleTag({
+      content: `:root, body { font-family: "${family}", sans-serif !important; }`,
+    });
+    const sizes = await page.locator('.workspace-bar nav').evaluate((nav) => ({
+      page: document.documentElement.scrollWidth,
+      barBottom: nav.parentElement!.getBoundingClientRect().bottom,
+      lastTabBottom: nav.lastElementChild!.getBoundingClientRect().bottom,
+      lastTab: nav.lastElementChild!.getBoundingClientRect().right,
+    }));
+    expect(sizes.lastTab, family).toBeLessThanOrEqual(390);
+    expect(sizes.lastTabBottom, family).toBeLessThanOrEqual(sizes.barBottom);
+    expect(sizes.page, family).toBe(390);
+    await style.evaluate((element) => element.remove());
+  }
 });
