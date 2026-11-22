@@ -9,6 +9,7 @@ class FakeGitHub:
         self.immutable = False
         self.environments = {}
         self.branches = {}
+        self.rulesets = {}
         self.writes = []
 
     def __call__(self, method, path, body=None):
@@ -20,6 +21,14 @@ class FakeGitHub:
             if method == "PUT":
                 self.immutable = True
             return {"enabled": self.immutable}
+        if path.startswith("rulesets?"):
+            return list(self.rulesets.values())
+        if path == "rulesets" and method == "POST":
+            rule_id = len(self.rulesets) + 1
+            self.rulesets[rule_id] = dict(body, id=rule_id)
+            return self.rulesets[rule_id]
+        if path.startswith("rulesets/"):
+            return self.rulesets[int(path.split("/")[1])]
         if path.startswith("environments?"):
             return {"environments": list(self.environments.values())}
         _, name, *suffix = path.split("/")
@@ -54,4 +63,22 @@ class RepositorySettingsTests(unittest.TestCase):
         api.writes.clear()
         issues = policy.configure(api, 123, apply=True)
         self.assertTrue(any("release-publication" in item for item in issues))
+        self.assertEqual(api.writes, [])
+
+    def test_release_tag_updates_and_deletions_are_restricted_without_blocking_creation(self):
+        api = FakeGitHub()
+        policy.configure(api, 123, apply=True)
+        ruleset, = api.rulesets.values()
+        self.assertEqual(ruleset["target"], "tag")
+        self.assertEqual(ruleset["enforcement"], "active")
+        self.assertEqual(ruleset["bypass_actors"], [])
+        self.assertEqual({r["type"] for r in ruleset["rules"]}, {"update", "deletion"})
+        self.assertCountEqual(ruleset["conditions"]["ref_name"]["include"], [
+            "refs/tags/v0.4.0", "refs/tags/v0.4.0-macos.rc.*", "refs/tags/v0.4.0-windows.rc.*",
+            "refs/tags/v0.4.0-pi.rc.*", "refs/tags/linux-amd64-v0.4.0",
+            "refs/tags/linux-amd64-v0.4.0-rc.*", "refs/tags/android-field-v0.1.0",
+        ])
+        ruleset["rules"] = [{"type": "update"}]
+        api.writes.clear()
+        self.assertTrue(any("tag" in error for error in policy.configure(api, 123, apply=True)))
         self.assertEqual(api.writes, [])

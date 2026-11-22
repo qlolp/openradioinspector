@@ -20,17 +20,46 @@ ENVIRONMENTS = {
     "android-field-publication": True,
 }
 MAIN_ONLY = {"protected_branches": False, "custom_branch_policies": True}
+RELEASE_TAG_RULE = "OpenRadioInspector distribution tags"
+RELEASE_TAG_REFS = [
+    "refs/tags/v0.4.0", "refs/tags/v0.4.0-macos.rc.*", "refs/tags/v0.4.0-windows.rc.*",
+    "refs/tags/v0.4.0-pi.rc.*", "refs/tags/linux-amd64-v0.4.0",
+    "refs/tags/linux-amd64-v0.4.0-rc.*", "refs/tags/android-field-v0.1.0",
+]
 
 
-def pages(api, path, key):
+
+def pages(api, path, key=None):
     rows = []
     page = 1
     while True:
-        chunk = api("GET", f"{path}?per_page=100&page={page}")[key]
+        response = api("GET", f"{path}?per_page=100&page={page}")
+        chunk = response[key] if key else response
         rows.extend(chunk)
         if len(chunk) < 100:
             return rows
         page += 1
+
+
+def protect_release_tags(api, *, apply):
+    """Prevent a ref move between the publisher's last read and GitHub's publish operation."""
+    matches = [r for r in pages(api, "rulesets") if r["name"] == RELEASE_TAG_RULE]
+    if not matches and apply:
+        matches = [api("POST", "rulesets", {
+            "name": RELEASE_TAG_RULE, "target": "tag", "enforcement": "active", "bypass_actors": [],
+            "conditions": {"ref_name": {"include": RELEASE_TAG_REFS, "exclude": []}},
+            "rules": [{"type": "update"}, {"type": "deletion"}],
+        })]
+    if len(matches) != 1:
+        return ["expected a single release tag ruleset"]
+    rule = api("GET", f"rulesets/{matches[0]['id']}")
+    refs = rule.get("conditions", {}).get("ref_name", {})
+    if (rule.get("target") != "tag" or rule.get("enforcement") != "active"
+            or rule.get("bypass_actors") != [] or refs.get("exclude") != []
+            or set(refs.get("include", [])) != set(RELEASE_TAG_REFS)
+            or {r["type"] for r in rule.get("rules", [])} != {"update", "deletion"}):
+        return ["expected the release tag ruleset to restrict updates and deletions for distribution tags"]
+    return []
 
 
 def configure(api, reviewer_id, *, apply=False):
@@ -43,6 +72,7 @@ def configure(api, reviewer_id, *, apply=False):
         if not apply or api("GET", "immutable-releases").get("enabled") is not True:
             issues.append("immutable releases disabled")
 
+    issues.extend(protect_release_tags(api, apply=apply))
     existing = {row["name"] for row in pages(api, "environments", "environments")}
     for name, human_review in ENVIRONMENTS.items():
         path = f"environments/{name}"
@@ -87,7 +117,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, help="GitHub owner/repository")
     parser.add_argument("--reviewer", required=True, help="GitHub login of the bench operator")
-    parser.add_argument("--apply", action="store_true", help="Enable immutability and initialize missing environments")
+    parser.add_argument("--apply", action="store_true", help="Enable immutability and initialize missing distribution tag and environment rules")
     args = parser.parse_args()
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[\w-]+", args.reviewer):
         parser.error("invalid GitHub repository or reviewer")
@@ -107,7 +137,7 @@ def main():
     if issues:
         print("\n".join(issues), file=sys.stderr)
         return 1
-    print(f"{args.repo}: immutable releases and {len(ENVIRONMENTS)} main-only environments verified")
+    print(f"{args.repo}: immutable releases, distribution tag protection and {len(ENVIRONMENTS)} main-only environments verified")
     return 0
 
 
