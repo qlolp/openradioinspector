@@ -170,6 +170,29 @@ class PiReleaseTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 native_notices.collect(output, 'aarch64-unknown-linux-gnu')
 
+    def test_proc_macro_references_only_the_matching_upstream_workspace_licenses(self):
+        registry = 'registry+https://github.com/rust-lang/crates.io-index'
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            filenames = ['LICENSE-APACHE', 'LICENSE-MIT']
+            paths = ['cargo/asn1-rs-fixture/' + name for name in filenames]
+            expected = {}
+            for name, relative in zip(filenames, paths):
+                path = output / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(name.encode())
+                expected[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            proc_macro = {'notice_files': []}
+            crates = {('asn1-rs-impl', '0.2.0', registry): proc_macro,
+                      ('asn1-rs', 'fixture', registry): {'notice_files': paths}}
+            with patch.object(native_notices, 'ASN1_IMPL_LICENSES', expected):
+                native_notices.link_asn1_impl_licenses(crates, output)
+                self.assertEqual(proc_macro['notice_files'], paths)
+                self.assertEqual(proc_macro['notice_origin'], native_notices.ASN1_IMPL_LICENSE_ORIGIN)
+                (output / paths[0]).write_text('a different copyright holder')
+                with self.assertRaisesRegex(ValueError, 'exact upstream workspace licenses'):
+                    native_notices.link_asn1_impl_licenses(crates, output)
+
     def test_notices_include_the_vite_polyfill_and_rolldown_helpers_embedded_in_the_webui(self):
         with tempfile.TemporaryDirectory() as directory:
             web = Path(directory) / 'web'

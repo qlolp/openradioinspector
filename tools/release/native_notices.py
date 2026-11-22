@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Collect notices for the locked native binaries and the shared production WebUI."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -13,6 +14,13 @@ ROOT = Path(__file__).resolve().parents[2]
 WEB_RUNTIME_NOTICES = {
     'node_modules/vite': ('LICENSE.md',),
     'node_modules/rolldown': ('LICENSE', 'THIRD-PARTY-LICENSE'),
+}
+# The crates.io asn1-rs-impl 0.2.0 archive points at the impl/ directory of
+# this commit. Its two license files live at the upstream workspace root.
+ASN1_IMPL_LICENSE_ORIGIN = 'https://github.com/rusticata/asn1-rs/tree/a20e5f7319c896737ad0f2557037817b91ad854f'
+ASN1_IMPL_LICENSES = {
+    'LICENSE-APACHE': 'a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2',
+    'LICENSE-MIT': 'a5c61b93b6ee1d104af9920cf020ff3c7efe818e31fe562c72261847a728f513',
 }
 
 
@@ -59,6 +67,26 @@ def copy_notices(source, destination, output, *declared):
         shutil.copyfile(path, target)
         names.append(target.relative_to(output).as_posix())
     return names
+
+
+def link_asn1_impl_licenses(crates, output):
+    registry = 'registry+https://github.com/rust-lang/crates.io-index'
+    proc_macro = crates.get(('asn1-rs-impl', '0.2.0', registry))
+    if proc_macro is None:
+        return
+    matches = {}
+    for (name, _, source), crate in crates.items():
+        if (name, source) != ('asn1-rs', registry):
+            continue
+        for relative in crate['notice_files']:
+            filename = Path(relative).name
+            expected = ASN1_IMPL_LICENSES.get(filename)
+            if expected and hashlib.sha256((output / relative).read_bytes()).hexdigest() == expected:
+                matches[filename] = relative
+    if matches.keys() != ASN1_IMPL_LICENSES.keys():
+        raise ValueError('Missing exact upstream workspace licenses for asn1-rs-impl 0.2.0')
+    proc_macro['notice_files'] = sorted(matches.values())
+    proc_macro['notice_origin'] = ASN1_IMPL_LICENSE_ORIGIN
 
 
 def web_notices(web, output):
@@ -119,6 +147,7 @@ def write_notices(output, target, tauri, metadata):
                            license=package['license'] or ('MIT' if package['source'] is None else None),
                            notice_files=files)
 
+    link_asn1_impl_licenses(crates, output)
     npm = web_notices(ROOT / 'clients/web', output)
     sysroot = Path(subprocess.check_output(['rustc', '--print', 'sysroot'], text=True).strip())
     for name in ['COPYRIGHT-library.html', 'COPYRIGHT.html']:
