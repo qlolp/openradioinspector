@@ -11,10 +11,7 @@ permissions:
 jobs:
   pr:
     name: PR
-    # Only a base edit changes the PR comparison. Unrelated labels must not replace a prior verdict.
-    if: >-
-      (github.event.action != 'edited' || github.event.changes.base) &&
-      (github.event.label.name == '' || github.event.label.name == 'full-reference-load')
+    # GitHub requires the named verdicts from the latest run, including metadata edits.
     concurrency:
       group: required-conditional-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: true
