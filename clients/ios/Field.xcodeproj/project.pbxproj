@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>archiveVersion</key>
-	<integer>1</integer>
+	<string>1</string>
 	<key>classes</key>
 	<dict/>
 	<key>objectVersion</key>
-	<integer>60</integer>
+	<string>60</string>
 	<key>objects</key>
 	<dict>
 		<key>664CE93E3310B222C5C26E3D</key>
@@ -153,7 +153,7 @@
 			<key>explicitFileType</key>
 			<string>wrapper.application</string>
 			<key>includeInIndex</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>path</key>
 			<string>Field.app</string>
 			<key>sourceTree</key>
@@ -166,7 +166,7 @@
 			<key>explicitFileType</key>
 			<string>wrapper.cfbundle</string>
 			<key>includeInIndex</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>path</key>
 			<string>FieldTests.xctest</string>
 			<key>sourceTree</key>
@@ -179,7 +179,7 @@
 			<key>explicitFileType</key>
 			<string>wrapper.cfbundle</string>
 			<key>includeInIndex</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>path</key>
 			<string>FieldUITests.xctest</string>
 			<key>sourceTree</key>
@@ -360,7 +360,7 @@
 				<string>C415F836149C1574504CCB86</string>
 			</array>
 			<key>defaultConfigurationIsVisible</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>defaultConfigurationName</key>
 			<string>Release</string>
 		</dict>
@@ -420,7 +420,7 @@
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>25B02562165B123BB2A9720C</string>
@@ -430,20 +430,20 @@
 				<string>C6FA2F67523793B4880671C6</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>A8C2ECFC3B62FEC1D413BEBF</key>
 		<dict>
 			<key>isa</key>
 			<string>PBXFrameworksBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>D6513C91DF6B6885F629BC7F</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>78FDF7DF904968644233417E</key>
 		<dict>
@@ -471,7 +471,7 @@
 			<key>isa</key>
 			<string>PBXResourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>78FDF7DF904968644233417E</string>
@@ -479,7 +479,7 @@
 				<string>7658C6AD6CB7A4C9A99DA313</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>49C222B29E6854D293E50B7D</key>
 		<dict>
@@ -547,7 +547,7 @@
 				<string>33E56EC506545E82B8DED9BE</string>
 			</array>
 			<key>defaultConfigurationIsVisible</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>defaultConfigurationName</key>
 			<string>Release</string>
 		</dict>
@@ -603,7 +603,7 @@
 			<key>containerPortal</key>
 			<string>3C71389346ADE43A6F80F804</string>
 			<key>proxyType</key>
-			<integer>1</integer>
+			<string>1</string>
 			<key>remoteGlobalIDString</key>
 			<string>035878AF70B4331A7F642BFA</string>
 			<key>remoteInfo</key>
@@ -630,26 +630,26 @@
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>605802CC8F5BB966D92BEA57</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>848ECE68AD1321873AFC68AE</key>
 		<dict>
 			<key>isa</key>
 			<string>PBXFrameworksBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>E57FD8FF84AE6F11BCBA15E3</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>A6E49E3EDCA359C474E8D334</key>
 		<dict>
@@ -663,13 +663,13 @@
 			<key>isa</key>
 			<string>PBXResourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>A6E49E3EDCA359C474E8D334</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>06897EE72078ABB4BC0F2727</key>
 		<dict>
@@ -733,7 +733,7 @@
 				<string>117491924A83D8B484B5E0C2</string>
 			</array>
 			<key>defaultConfigurationIsVisible</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>defaultConfigurationName</key>
 			<string>Release</string>
 		</dict>
@@ -775,7 +775,7 @@
 			<key>containerPortal</key>
 			<string>3C71389346ADE43A6F80F804</string>
 			<key>proxyType</key>
-			<integer>1</integer>
+			<string>1</string>
 			<key>remoteGlobalIDString</key>
 			<string>035878AF70B4331A7F642BFA</string>
 			<key>remoteInfo</key>
@@ -802,35 +802,35 @@
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>9F3A0662198E5C25343D6DD3</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>16C2E741F4D6FAA10362F86F</key>
 		<dict>
 			<key>isa</key>
 			<string>PBXFrameworksBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array/>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>C02359C35FD9D628EA713A64</key>
 		<dict>
 			<key>isa</key>
 			<string>PBXResourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array/>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>752152DDC2B5C9718CEBB705</key>
 		<dict>
@@ -890,7 +890,7 @@
 				<string>58D0FA95FA082ACAC9534DC5</string>
 			</array>
 			<key>defaultConfigurationIsVisible</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>defaultConfigurationName</key>
 			<string>Release</string>
 		</dict>
@@ -961,7 +961,7 @@
 			<key>developmentRegion</key>
 			<string>ru</string>
 			<key>hasScannedForEncodings</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>knownRegions</key>
 			<array>
 				<string>ru</string>
