@@ -37,9 +37,12 @@ jobs:
         run: |
           xcrun swift test --package-path contracts/protobuf/swift-stream
           xcrun swift test --package-path macos/SpektrKomandy
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
-        with:
-          toolchain: '1.99.1'
+      - name: Install an isolated build-only Rust toolchain
+        run: |
+          export RUSTUP_HOME="$RUNNER_TEMP/ori-ios-rustup"
+          rustup toolchain install 1.99.1 --profile minimal --target aarch64-apple-darwin
+          echo "RUSTUP_HOME=$RUSTUP_HOME" >> "$GITHUB_ENV"
+          echo "RUSTUP_TOOLCHAIN=1.99.1" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - name: Build replay core for simulator TLS and reader checks
         run: |
