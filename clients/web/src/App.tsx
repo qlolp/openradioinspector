@@ -610,7 +610,13 @@ export function App({
           value={original.settings?.measurement_qualification}
         />
       </p>
-      {desk.rfActive && <RfExplorerSettings readback={rfExplorerReadback(original.settings)} />}
+      {desk.rfActive && (
+        <RfExplorerSettings
+          readback={rfExplorerReadback(original.settings)}
+          frequencies={original.frequencies_hz}
+          showPassId
+        />
+      )}
       {originalPlot ? (
         <div className="evidence-spectrum">
           <h3>{t('Source panorama')}</h3>

@@ -24,6 +24,7 @@ impl TransportFactory for DuplexFactory {
             self.opens.fetch_add(1, Ordering::AcqRel);
             let bad_identity = stream.port.as_deref() == Some("wrong-device");
             let tuned = stream.port.as_deref() == Some("owned-window");
+            let survey = stream.port.as_deref() == Some("owned-survey");
             let (host, mut peer) = tokio::io::duplex(4096);
             tokio::spawn(async move {
                 let mut command = [0; 4];
@@ -38,6 +39,30 @@ impl TransportFactory for DuplexFactory {
                 };
                 let banner = b"RF Explorer 01.34 27-Apr-22 01.04.05\r\n";
                 let mut reply = [banner.as_slice(), model, CONFIG].concat();
+                if survey {
+                    peer.write_all(&reply).await.unwrap();
+                    for (start, stop) in
+                        [(200_000, 201_110), (201_120, 202_230), (200_000, 201_110)]
+                    {
+                        let mut command = [0; 32];
+                        if peer.read_exact(&mut command).await.is_err() {
+                            return;
+                        }
+                        assert_eq!(
+                            &command,
+                            format!("#\x20C2-F:{start:07},{stop:07},0000,-118").as_bytes()
+                        );
+                        let mut frame = CONFIG.to_vec();
+                        frame[6..13].copy_from_slice(format!("{start:07}").as_bytes());
+                        frame.extend_from_slice(b"$S\x70");
+                        frame.extend(130..242);
+                        frame.extend_from_slice(b"\r\n");
+                        peer.write_all(&frame).await.unwrap();
+                    }
+                    let mut rest = Vec::new();
+                    let _ = peer.read_to_end(&mut rest).await;
+                    return;
+                }
                 if tuned {
                     peer.write_all(&reply).await.unwrap();
                     let mut command = [0; 32];
@@ -86,6 +111,10 @@ async fn capability_requires_a_live_core_with_a_native_connector() {
                 .as_bool()
                 .unwrap_or(false),
             expected,
+            "{mode:?}, connector={connector}"
+        );
+        assert_eq!(
+            capabilities["data"]["features"]["rf_explorer_10khz_survey"], expected,
             "{mode:?}, connector={connector}"
         );
         if mode == ori_core::CoreMode::Replay && connector {
@@ -142,6 +171,69 @@ async fn requested_window_is_forwarded_and_archived_on_its_reported_grid() {
             "status":"unverified","reason":"reference_not_verified","verified_through_hz":null
         })
     );
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn segmented_survey_archives_each_raw_window_with_a_distinct_pass_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = CoreConfig::live(directory.path());
+    let factory = Arc::new(DuplexFactory::default());
+    config.devices.transport = Some(factory.clone());
+    let server = Server::start(config).await;
+    let mut stream = explorer("owned-survey");
+    stream["settings"] = json!({"adapter":ADAPTER, "survey_step_hz":10_000,
+        "start_hz":200_000_000, "stop_hz":202_230_000});
+    setup(
+        &server,
+        json!({"id":"survey", "name":"survey", "streams":[stream]}),
+    )
+    .await;
+    let (code, response) = worker(&server, "survey", "rfe", "start").await;
+    assert_eq!(code, 200, "{response}");
+    let mut rows = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let (_, archived) = server
+                .request("GET", "/api/v1/sessions/survey/sweeps?stream_id=rfe", None)
+                .await;
+            let rows = archived["data"].as_array().unwrap();
+            if rows.len() == 3 {
+                break rows.clone();
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    rows.sort_by_key(|r| {
+        let s = &r["settings"]["survey"];
+        (s["pass"].as_u64().unwrap(), s["tile"].as_u64().unwrap())
+    });
+    let mut identities = Vec::new();
+    for (row, (pass, tile, start)) in rows.iter().zip([
+        (1, 1, 200_000_000),
+        (1, 2, 201_120_000),
+        (2, 1, 200_000_000),
+    ]) {
+        let s = &row["settings"]["survey"];
+        assert_eq!(
+            (s["pass"].as_u64(), s["tile"].as_u64(), s["tiles"].as_u64()),
+            (Some(pass), Some(tile), Some(2))
+        );
+        assert_eq!(s["start_hz"], 200_000_000);
+        assert_eq!(s["stop_hz"], 202_230_000);
+        assert_eq!(s["step_hz"], 10_000);
+        assert_eq!(row["frequencies_hz"].as_array().unwrap().len(), 112);
+        assert_eq!(row["frequencies_hz"][0], start);
+        assert_eq!(row["frequencies_hz"][111], start + 1_110_000);
+        assert_eq!(row["settings"]["detector"], "max_hold");
+        let id = s["pass_id"].as_str().unwrap();
+        assert!(!id.is_empty());
+        identities.push(id);
+    }
+    assert_eq!(identities[0], identities[1]);
+    assert_ne!(identities[0], identities[2]);
+    assert_eq!(factory.opens.load(Ordering::Acquire), 1);
     server.stop().await;
 }
 
@@ -291,6 +383,10 @@ async fn invalid_profiles_are_rejected_before_the_connector_runs() {
         json!({"stop_hz":null}),
         json!({"points":112}),
         json!({"rbw_hz":15000}),
+        json!({"survey_step_hz":10_001}),
+        json!({"survey_step_hz":"10000"}),
+        json!({"survey_step_hz":null}),
+        json!({"survey_step_hz":10_000,"start_hz":100_000_000,"stop_hz":102_231_000}),
         json!({"generator_output":"on"}),
         json!({"period_s":true}),
     ] {

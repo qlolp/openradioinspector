@@ -567,24 +567,39 @@ func workflowFrequency(_ hertz: Int64) -> String {
 }
 
 
+struct NativeRFExplorerDraft {
+    enum Mode { case instrument, window, survey }
+    var mode = Mode.instrument
+    var port = ""
+    var customSurveyRange = false
+    var startMHz = ""
+    var stopMHz = ""
+
+    var usesBounds: Bool { mode == .window || (mode == .survey && customSurveyRange) }
+    var needsPort: Bool { port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    func configuration() throws -> PlatformRFExplorerConfiguration {
+        try PlatformRFExplorerConfiguration(port: port,
+            startHz: usesBounds ? Int(try NativeHistoryFrequencyInput.hz(startMHz)) : nil,
+            stopHz: usesBounds ? Int(try NativeHistoryFrequencyInput.hz(stopMHz)) : nil,
+            surveyStepHz: mode == .survey ? PlatformRFExplorerConfiguration.surveySpacingHz : nil)
+    }
+}
+
 struct RemoteSerialSessionPane: View {
     @Bindable var model: RemoteDualModel
     var onRFExplorerConnected: () -> Void = {}
     @State private var rfExplorer = false
-    @State private var supported: Bool?
+    @State private var features: Set<String>?
     @State private var supportError: String?
-    @State private var port = ""
+    @State private var draft = NativeRFExplorerDraft()
     @State private var ports: [String] = []
-    @State private var customRange = false
-    @State private var startMHz = ""
-    @State private var stopMHz = ""
 
     private var configuration: Result<PlatformRFExplorerConfiguration, any Error> {
-        Result {
-            try PlatformRFExplorerConfiguration(port: port,
-                startHz: customRange ? Int(try NativeHistoryFrequencyInput.hz(startMHz)) : nil,
-                stopHz: customRange ? Int(try NativeHistoryFrequencyInput.hz(stopMHz)) : nil)
-        }
+        Result { try draft.configuration() }
+    }
+    private var supportIssue: String? {
+        supportError ?? features.flatMap { PlatformRFExplorerConfiguration.supportIssue(in: $0, survey: draft.mode == .survey) }
     }
 
     var body: some View {
@@ -604,14 +619,14 @@ struct RemoteSerialSessionPane: View {
                 Button("Отмена") { model.showSerialForm = false }.disabled(model.busy)
                 Spacer()
                 if rfExplorer {
-                    Button("Подключить и начать приём") {
+                    Button(draft.mode == .survey ? "Начать автообзор 10 кГц" : "Подключить и начать приём") {
                         if case .success(let selected) = configuration {
                             Task {
                                 if await model.connectRFExplorer(selected) { onRFExplorerConnected() }
                             }
                         }
                     }.buttonStyle(.borderedProminent)
-                        .disabled(model.busy || supported != true || (try? configuration.get()) == nil)
+                        .disabled(model.busy || features == nil || supportIssue != nil || (try? configuration.get()) == nil)
                         .accessibilityIdentifier("rf-explorer.connect")
                 } else {
                     Button("Создать сеанс") { model.createSerialSession() }
@@ -627,52 +642,78 @@ struct RemoteSerialSessionPane: View {
         .interactiveDismissDisabled(model.busy)
         .onAppear { model.refreshSerialPorts() }
         .task(id: model.connectionGeneration) {
-            supported = nil
+            features = nil
             supportError = nil
-            port = ""
-            guard let client = model.client else { return }
+            draft.port = ""
+            ports = []
+            guard let client = model.client else {
+                supportError = "Подключитесь к ядру, чтобы проверить доступные режимы приёма."
+                return
+            }
             ports = client.baseURL.isLoopback ? SerialPort.availablePaths() : []
             do {
-                let advertised = try await client.supportsRFExplorer3G()
+                let advertised = try await client.workbenchFeatures()
                 guard !Task.isCancelled, model.client === client else { return }
-                supported = advertised
+                features = advertised
             } catch {
                 guard !Task.isCancelled, model.client === client else { return }
-                supported = false
                 supportError = describeSession(error)
             }
         }
     }
 
     @ViewBuilder private var explorerFields: some View {
-        Text("Один поток спектра в дБм · USB, 500 000 бод.")
-            .foregroundStyle(.secondary)
+        Picker("Режим приёма", selection: $draft.mode) {
+            Text("Окно прибора").tag(NativeRFExplorerDraft.Mode.instrument)
+            Text("Задать окно").tag(NativeRFExplorerDraft.Mode.window)
+            Text("Автообзор 10 кГц").tag(NativeRFExplorerDraft.Mode.survey)
+        }.pickerStyle(.segmented).disabled(model.busy)
+        if draft.mode == .survey {
+            Text("Ядро автоматически перестраивает окна и сохраняет отсчёты через каждые 10 кГц. По завершении диапазона начинается следующий проход.")
+                .font(.callout)
+            Picker("Диапазон обзора", selection: $draft.customSurveyRange) {
+                Text("Весь активный вход").tag(false)
+                Text("Свои границы").tag(true)
+            }.pickerStyle(.segmented).disabled(model.busy)
+        } else if draft.mode == .instrument {
+            Text("Частотное окно будет считано с прибора.").font(.caption).foregroundStyle(.secondary)
+        }
+        if draft.usesBounds {
+            HStack {
+                LabeledContent("Начало, МГц") {
+                    TextField("100", text: $draft.startMHz).accessibilityIdentifier("rf-explorer.start-mhz")
+                }
+                LabeledContent("Конец, МГц") {
+                    TextField(draft.mode == .survey ? "400" : "101,110", text: $draft.stopMHz)
+                        .accessibilityIdentifier("rf-explorer.stop-mhz")
+                }
+            }.textFieldStyle(.roundedBorder).disabled(model.busy)
+            Text(draft.mode == .survey
+                 ? "Введите границы обзора включительно, например 100 и 400 МГц. Ядро само рассчитает окна внутри активного входа."
+                 : "Обе границы задаются с точностью до 1 кГц в пределах активного входа.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         LabeledContent("Порт RF Explorer") {
-            TextField("Порт на компьютере ядра", text: $port)
+            TextField("Порт на компьютере ядра", text: $draft.port)
                 .textFieldStyle(.roundedBorder).accessibilityIdentifier("rf-explorer.port")
             if model.client?.baseURL.isLoopback == true {
                 Menu("Выбрать порт") {
-                    ForEach(ports, id: \.self) { path in Button(path) { port = path } }
+                    ForEach(ports, id: \.self) { path in Button(path) { draft.port = path } }
                     Button("Обновить список") { ports = SerialPort.availablePaths() }
                 }
             }
         }.disabled(model.busy)
-        Toggle("Задать диапазон при подключении", isOn: $customRange).disabled(model.busy)
-        if customRange {
-            HStack {
-                LabeledContent("Начало, МГц") { TextField("100", text: $startMHz) }
-                LabeledContent("Конец, МГц") { TextField("101,110", text: $stopMHz) }
-            }.textFieldStyle(.roundedBorder).disabled(model.busy)
-            Text("Обе границы — с шагом 1 кГц, в пределах активного модуля.")
-                .font(.caption).foregroundStyle(.secondary)
-        } else {
-            Text("Диапазон будет считан с прибора.").font(.caption).foregroundStyle(.secondary)
+        if draft.needsPort {
+            Text(model.client?.baseURL.isLoopback == true
+                 ? "Для запуска выберите USB-порт RF Explorer в меню «Выбрать порт» или введите путь. Если порта нет в списке, подключите прибор и нажмите «Обновить список»."
+                 : "Для запуска введите USB-порт RF Explorer на компьютере ядра, например /dev/ttyUSB0 или COM3.")
+                .font(.callout).foregroundStyle(.secondary).accessibilityIdentifier("rf-explorer.port-hint")
         }
-        if supported == nil {
+        if let supportIssue {
+            ErrorLine(text: supportIssue)
+        } else if features == nil {
             ProgressView("Проверка возможностей ядра…").controlSize(.small)
-        } else if supported == false {
-            ErrorLine(text: supportError ?? "Подключённое ядро не поддерживает RF Explorer 3G Combo.")
-        } else if !port.isEmpty, case .failure(let error) = configuration {
+        } else if !draft.needsPort, case .failure(let error) = configuration {
             ErrorLine(text: describeSession(error))
         }
     }

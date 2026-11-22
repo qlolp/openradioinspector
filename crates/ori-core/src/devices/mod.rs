@@ -722,13 +722,9 @@ impl DeviceManager {
             gate.check(None)?;
             let (transport, released) = transport::OwnedTransport::new(transport);
             let native = match profile {
-                Profile::RfExplorer(window) => {
-                    Native::RfExplorer(Arc::new(rf_explorer::Connection::new(
-                        transport,
-                        window,
-                        self.options.io_limits.clone(),
-                    )?))
-                }
+                Profile::RfExplorer(plan) => Native::RfExplorer(Arc::new(
+                    rf_explorer::Connection::new(transport, plan, self.options.io_limits.clone())?,
+                )),
                 Profile::Analyzer(config) => Native::Analyzer(TinySaActor::spawn(
                     if let Some(plan) = scan_plan.as_ref().filter(|p| p.uses_grid()) {
                         TinySa::new_for_grid(
@@ -1083,7 +1079,7 @@ impl Drop for SessionStop {
 enum Profile {
     Analyzer(ReceiveConfig),
     Receiver(ReceiverConfig, Option<ReceiverScope>, bool),
-    RfExplorer(rf_explorer::Window),
+    RfExplorer(rf_explorer::ReceivePlan),
 }
 
 #[derive(Deserialize)]
@@ -1099,7 +1095,9 @@ impl Profile {
     fn read(stream: &DeviceStream) -> DeviceResult<Self> {
         let s = stream.settings.clone().unwrap_or_default();
         match s.get("adapter").and_then(Value::as_str) {
-            Some(rf_explorer::ADAPTER) => Ok(Self::RfExplorer(rf_explorer::window(stream, &s)?)),
+            Some(rf_explorer::ADAPTER) => {
+                Ok(Self::RfExplorer(rf_explorer::receive_plan(stream, &s)?))
+            }
             Some("tinysa-serial") => {
                 if s.get("receive_profile").is_some_and(|profile| {
                     profile.as_str() != Some(ori_instruments::RECEIVE_PROFILE)
@@ -1605,7 +1603,7 @@ impl Worker {
                         Err(ori_instruments::InstrumentError::PolicyDenied)
                     }
                 });
-                connection.poll(&self.stream, check).await
+                connection.poll(&self.stream, &self.instance, check).await
             }
             Adapter::Native(Native::Analyzer(actor)) => {
                 let worker = self.clone();

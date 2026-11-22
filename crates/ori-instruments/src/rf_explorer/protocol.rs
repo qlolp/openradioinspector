@@ -67,6 +67,7 @@ impl Detector {
     }
 }
 
+#[derive(PartialEq)]
 pub(super) struct Configuration {
     pub(super) start_hz: u64,
     pub(super) step_hz: u64,
@@ -160,6 +161,10 @@ impl Configuration {
             self.start_hz,
             self.start_hz + self.step_hz * (self.points as u64 - 1),
         )
+    }
+
+    pub(super) fn board_bounds(&self) -> (u64, u64) {
+        (self.min_hz, self.max_hz)
     }
 
     pub(super) fn contains(&self, (start, stop): (u64, u64)) -> bool {

@@ -5,9 +5,15 @@ use serde_json::{Value, json};
 use std::sync::Mutex;
 
 pub(super) const ADAPTER: &str = "rf-explorer-3g-serial";
-pub(super) type Window = Option<(u64, u64)>;
+pub(super) enum ReceivePlan {
+    Window(Option<(u64, u64)>),
+    Survey(Option<(u64, u64)>),
+}
 
-pub(super) fn window(stream: &DeviceStream, settings: &JSONObject) -> DeviceResult<Window> {
+pub(super) fn receive_plan(
+    stream: &DeviceStream,
+    settings: &JSONObject,
+) -> DeviceResult<ReceivePlan> {
     if stream.role != DeviceRole::SpectrumAnalyzer || stream.level_unit != "dBm" {
         return Err(DeviceError::Invalid(
             "RF Explorer requires a spectrum_analyzer stream in dBm".into(),
@@ -25,7 +31,13 @@ pub(super) fn window(stream: &DeviceStream, settings: &JSONObject) -> DeviceResu
     for key in settings.keys() {
         if !matches!(
             key.as_str(),
-            "adapter" | "baud" | "start_hz" | "stop_hz" | "period_s" | "max_consecutive_errors"
+            "adapter"
+                | "baud"
+                | "start_hz"
+                | "stop_hz"
+                | "survey_step_hz"
+                | "period_s"
+                | "max_consecutive_errors"
         ) {
             return Err(DeviceError::Invalid(format!(
                 "Unsupported RF Explorer setting: {key}"
@@ -48,9 +60,20 @@ pub(super) fn window(stream: &DeviceStream, settings: &JSONObject) -> DeviceResu
             ));
         }
     };
-    ori_instruments::validate_rf_explorer_window(window)
-        .map_err(|error| DeviceError::Invalid(error.to_string()))?;
-    Ok(window)
+    if let Some(step) = settings.get("survey_step_hz") {
+        if step.as_u64() != Some(10_000) {
+            return Err(DeviceError::Invalid(
+                "RF Explorer survey_step_hz must be 10000".into(),
+            ));
+        }
+        ori_instruments::validate_rf_explorer_survey_bounds(window)
+            .map_err(|error| DeviceError::Invalid(error.to_string()))?;
+        Ok(ReceivePlan::Survey(window))
+    } else {
+        ori_instruments::validate_rf_explorer_window(window)
+            .map_err(|error| DeviceError::Invalid(error.to_string()))?;
+        Ok(ReceivePlan::Window(window))
+    }
 }
 
 /// The stream worker owns acquisition. Other tasks can inspect its cached
@@ -61,8 +84,11 @@ pub(super) struct Connection {
     status: Mutex<Value>,
 }
 impl Connection {
-    pub fn new(io: OwnedTransport, window: Window, limits: IoLimits) -> DeviceResult<Self> {
-        let driver = RfExplorer::new(io, window, limits)?;
+    pub fn new(io: OwnedTransport, plan: ReceivePlan, limits: IoLimits) -> DeviceResult<Self> {
+        let driver = match plan {
+            ReceivePlan::Window(bounds) => RfExplorer::new(io, bounds, limits)?,
+            ReceivePlan::Survey(bounds) => RfExplorer::new_survey(io, bounds, limits)?,
+        };
         Ok(Self {
             cancel: driver.cancellation_handle(),
             status: Mutex::new(driver.status()),
@@ -85,12 +111,23 @@ impl Connection {
         self.cache(driver);
         Ok(result?)
     }
-    pub async fn poll(&self, stream: &DeviceStream, check: ExecutionCheck) -> DeviceResult<Value> {
+    pub async fn poll(
+        &self,
+        stream: &DeviceStream,
+        instance: &str,
+        check: ExecutionCheck,
+    ) -> DeviceResult<Value> {
         let mut slot = self.driver.lock().await;
         let driver = slot.as_mut().ok_or(DeviceError::Closed)?;
         let result = driver.poll_checked(check).await;
         self.cache(driver);
-        let sample = result?;
+        let mut sample = result?;
+        if let Some(survey) = sample.settings.get_mut("survey") {
+            let pass = survey["pass"].as_u64().ok_or_else(|| {
+                DeviceError::Worker("Missing RF Explorer survey pass number".into())
+            })?;
+            survey["pass_id"] = json!(format!("{instance}-{pass}"));
+        }
         Ok(
             json!({"id":crate::new_id(), "session_id":stream.session_id, "stream_id":stream.id,
             "frequencies_hz":sample.frequencies_hz, "levels":sample.levels, "level_unit":sample.level_unit,

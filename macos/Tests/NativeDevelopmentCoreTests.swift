@@ -33,7 +33,8 @@ struct NativeDevelopmentCoreTests {
         #expect(NativeDevelopmentCoreConfiguration.defaultDataDirectory.path.hasSuffix("OpenRadioInspector/macOS-Development"))
     }
 
-    @Test func bundledRustPrecedesCompatibilityHelpersAndKeepsItsOwnArchive() throws {
+    @Test(arguments: [nil, "RFExplorerSurvey"] as [String?])
+    func bundledRustPrecedesCompatibilityHelpersAndKeepsItsOwnArchive(namespace: String?) throws {
         let files = FileManager.default
         let root = files.temporaryDirectory.appendingPathComponent("ori-launcher-" + UUID().uuidString)
         let bundleURL = root.appendingPathComponent("Spectrum Test.app")
@@ -45,7 +46,8 @@ struct NativeDevelopmentCoreTests {
         let python = URL(fileURLWithPath: "/usr/bin/true")
         try files.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? files.removeItem(at: root) }
-        let info = ["CFBundleIdentifier": "org.example.ori-launcher-fixture", "CFBundlePackageType": "APPL"]
+        var info = ["CFBundleIdentifier": "org.example.ori-launcher-" + UUID().uuidString, "CFBundlePackageType": "APPL"]
+        info["ORIDevelopmentArchiveNamespace"] = namespace
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: contents.appendingPathComponent("Info.plist"))
         for helper in [rust, legacy] {
@@ -62,7 +64,7 @@ struct NativeDevelopmentCoreTests {
 
         let selected = try discover()
         let development = NativeDevelopmentCoreConfiguration.defaultDataDirectory
-        let archive = development.appendingPathComponent("Rust", isDirectory: true)
+        let archive = development.appendingPathComponent(namespace == nil ? "Rust" : "Rust-RFExplorerSurvey", isDirectory: true)
         let ready = root.appendingPathComponent("ready")
         #expect(selected.executable.resolvingSymlinksInPath() == rust.resolvingSymlinksInPath())
         #expect(selected.checkout == nil)
@@ -80,6 +82,19 @@ struct NativeDevelopmentCoreTests {
         #expect(interpreter.executable == python)
         #expect(interpreter.dataDirectory == development)
         #expect(interpreter.prefixArguments == ["-m", "radioinspector.launcher"])
+    }
+
+    @Test func archiveNamespaceRequiresASingleSafeDirectoryName() throws {
+        let valid = try NativeDevelopmentCoreConfiguration.rustDataDirectory(namespace: "rf-survey_10kHz")
+        #expect(valid.deletingLastPathComponent() == NativeDevelopmentCoreConfiguration.defaultDataDirectory)
+        #expect(valid.lastPathComponent == "Rust-rf-survey_10kHz")
+        let invalid: [Any] = ["", ".", "..", "../Rust", "/tmp/other", "one/two", "one\\two",
+                              "%2e%2e", ".hidden", "-start", "end\n", "a\0b", String(repeating: "a", count: 65), 42]
+        for value in invalid {
+            #expect(throws: NativeDevelopmentCoreError.self) {
+                try NativeDevelopmentCoreConfiguration.rustDataDirectory(namespace: value)
+            }
+        }
     }
 
     @Test func personalRCNeverResolvesOrLaunchesCompatibilityCore() async {

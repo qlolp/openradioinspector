@@ -21,6 +21,9 @@ struct NativeConnectionPane: View {
                 Spacer()
                 Label(model.coreReachable ? "Ядро доступно" : (model.connected ? "Связь с ядром потеряна" : "Нет подключения"), systemImage: model.coreReachable ? "network" : "network.slash")
                     .foregroundStyle(model.coreReachable ? Color.green : Color.secondary)
+                Button("Подключить приборы…") { model.showSerialForm = true }
+                    .accessibilityIdentifier("connection.open-devices")
+                    .disabled(!model.connected || model.busy)
             }
             HStack {
                 TextField("Адрес ядра", text: $model.serverURL).textFieldStyle(.roundedBorder).disabled(localServiceRequired || model.connected || connection.isBusy)
@@ -51,7 +54,6 @@ struct NativeConnectionPane: View {
                 HStack {
                     Button("Пустой сеанс") { model.createSession(simulated: false) }
                     Button("Учебный сеанс") { model.createSession(simulated: true) }
-                    Button("Подключить приборы…") { model.showSerialForm = true }
                     Spacer()
                     if model.tinySAAnalyzer != nil {
                         Button("Экран и управление tinySA") { model.showTinySAControl = true }

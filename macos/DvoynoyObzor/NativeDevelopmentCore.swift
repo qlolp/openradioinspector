@@ -14,6 +14,15 @@ struct NativeDevelopmentCoreConfiguration: Sendable {
             .appendingPathComponent("Library/Application Support/OpenRadioInspector/macOS-Development", isDirectory: true)
     }
 
+    static func rustDataDirectory(namespace: Any?) throws -> URL {
+        guard let namespace else { return defaultDataDirectory.appendingPathComponent("Rust", isDirectory: true) }
+        guard let name = namespace as? String,
+              name.range(of: #"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z"#, options: .regularExpression) != nil else {
+            throw NativeDevelopmentCoreError.unavailable("Некорректный ORIDevelopmentArchiveNamespace в Info.plist приложения.")
+        }
+        return defaultDataDirectory.appendingPathComponent("Rust-" + name, isDirectory: true)
+    }
+
     static var sourceCheckout: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     }
@@ -34,7 +43,7 @@ struct NativeDevelopmentCoreConfiguration: Sendable {
         if let file = try? rust.resourceValues(forKeys: [.isRegularFileKey, .isExecutableKey]),
            file.isRegularFile == true, file.isExecutable == true {
             return Self(executable: rust, prefixArguments: ["--mode", "live", "--allow-serial"], checkout: nil,
-                        dataDirectory: defaultDataDirectory.appendingPathComponent("Rust", isDirectory: true))
+                        dataDirectory: try rustDataDirectory(namespace: bundle.infoDictionary?["ORIDevelopmentArchiveNamespace"]))
         }
         let helper = helpers.appendingPathComponent("openradioinspector-core/openradioinspector-core")
         if FileManager.default.isExecutableFile(atPath: helper.path) {

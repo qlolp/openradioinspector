@@ -61,6 +61,38 @@ describe('v1 client boundary', () => {
     ])
       expect(() => rfExplorerSession('RF', 'COM3', window)).toThrow(/whole kHz/i);
   });
+  it('requests the full active module or an inclusive survey range with 10 kHz spacing', () => {
+    const settings = (bounds?: { start: string; stop: string }) =>
+      rfExplorerSession('RF', 'COM3', { survey: true, ...bounds }).streams[0].settings;
+    expect(settings()).toEqual({
+      adapter: 'rf-explorer-3g-serial',
+      baud: 500000,
+      survey_step_hz: 10000,
+    });
+    for (const [start, stop] of [
+      ['100001000', '101111000'],
+      ['15000000', '2700000000'],
+    ]) {
+      expect(settings({ start, stop })).toMatchObject({
+        survey_step_hz: 10000,
+        start_hz: Number(start),
+        stop_hz: Number(stop),
+      });
+    }
+  });
+  it('rejects a survey with missing bounds, fewer than 112 bins, or frequencies outside the supported grid', () => {
+    for (const [start, stop] of [
+      ['', '101110000'],
+      ['100000000', ''],
+      ['100000000', '101100000'],
+      ['100001000', '101120000'],
+      ['100001001', '101111001'],
+      ['14999000', '16109000'],
+      ['2698891000', '2700001000'],
+    ]) {
+      expect(() => rfExplorerSession('RF', 'COM3', { survey: true, start, stop })).toThrow();
+    }
+  });
   it('creates only explicit simulated or conservative receive profiles without generator capabilities', () => {
     const session = receiveSession({
       name: 'Room',

@@ -49,6 +49,11 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual((settings['adapter'], settings['baud']), ('rf-explorer-3g-serial', 500000))
         self.assertEqual(settings['stop_hz'] - settings['start_hz'], 111 * 10000)
         self.assertNotIn('rfExplorer3G', session_media(baseline).get('examples', {}))
+        survey = session_media(document)['examples']['rfExplorer10kHzSurvey']
+        self.assertIn('rf_explorer_10khz_survey', survey['description'])
+        self.assertEqual(survey['value']['streams'][0]['settings'], {
+            'adapter': 'rf-explorer-3g-serial', 'baud': 500000, 'survey_step_hz': 10000})
+
 
     def test_composition_keeps_baseline_schemas_paths_and_rendered_bytes_unchanged(self):
         from tools.contracts.generate import render
