@@ -283,16 +283,16 @@
     {
       "client": "OpenRadioInspector Field, native Kotlin/Compose",
       "host": "Android 12 (API 31) emulator with ARM64 ABI translation",
-      "source_revision": "fc23e5b0164a8ba19d7709016b7b04e05cd87967",
+      "source_revision": "4dcd0ea948f435671dd207066bdaaae987166c8a",
       "release_version": "0.1.0, code 1 (engineering)",
-      "installed_apk_sha256": "ab33863f2c4aa0e66935c237709ac1a2a119c74d814d5524b20d234fbc7102e5",
-      "github_run_id": 45041301657,
-      "github_artifact_id": 14761863412,
+      "installed_apk_sha256": "4cf2fb0263ad474d1d36fb6c3c64ba2982965292ab662223074eb08452ba6836",
+      "github_run_id": 45061401605,
+      "github_artifact_id": 14769583593,
       "capture": "adb screencap after verification of native USB setup controls. No physical USB device.",
       "captures": [
         {
           "file": "images/android-field-usb.png",
-          "sha256": "632d778c0f8a0c2b44ca8c56840176eed794a912512b0ce17d8584051099a870",
+          "sha256": "6e4c0c0889f54eec94cc5498773e9772a6338a064791c8090bbd20b811c08681",
           "pixels": [
             320,
             640
