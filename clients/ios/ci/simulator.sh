@@ -49,3 +49,4 @@ fi
 xcodebuild -project clients/ios/Field.xcodeproj -scheme Field -configuration Release \
     -destination 'generic/platform=iOS' -derivedDataPath "$output/DerivedData" \
     CODE_SIGNING_ALLOWED=NO build
+cmp LICENSE "$output/DerivedData/Build/Products/Release-iphoneos/Field.app/LICENSE"

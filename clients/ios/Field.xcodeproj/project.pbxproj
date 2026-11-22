@@ -257,6 +257,7 @@
 				<string>7CF29441E8C293FAFCB77A0E</string>
 				<string>CD47EA37CEBB6EBD5ADB5ED4</string>
 				<string>D2DEFE2C115420025698F5D5</string>
+				<string>86E0D23CE1963E148E764454</string>
 				<string>1D1674F30BC47BB3EC5517E8</string>
 			</array>
 			<key>sourceTree</key>
@@ -477,6 +478,7 @@
 				<string>78FDF7DF904968644233417E</string>
 				<string>D0869782085E042A5CA93FFC</string>
 				<string>7658C6AD6CB7A4C9A99DA313</string>
+				<string>8F43D5ACE707816512DB3776</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -986,6 +988,26 @@
 				<string>4DD1DAAF0D92B34A8FB5B938</string>
 				<string>0C781144C484109AB2DDF613</string>
 			</array>
+		</dict>
+		<key>86E0D23CE1963E148E764454</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>text</string>
+			<key>name</key>
+			<string>LICENSE</string>
+			<key>path</key>
+			<string>../../LICENSE</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>8F43D5ACE707816512DB3776</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>86E0D23CE1963E148E764454</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>
