@@ -80,3 +80,13 @@ In environments that prohibit SwiftPM's nested sandbox, add `--disable-sandbox`
 to the test commands. Some integration tests skip when their optional fixtures
 are not configured. Hardware validation is separate; the package reorganization
 does not establish device compatibility or measurement accuracy.
+
+## Полевой выезд с Android
+
+Дважды нажмите файл `.orifield` в Finder или выберите **Файл → Открыть полевой выезд…**.
+Откроется отдельное окно только для чтения. Просмотр работает локально, без запуска службы,
+подключения приборов и импорта в рабочую базу. При открытии приложение проверяет CRC,
+SHA-256, количество записей, трек и ссылки. Во вкладках доступны исходные свипы,
+наблюдения приёмника, точки GPS, заметки и разрывы. Кнопка в заметке ведёт к записанному
+источнику. Для просмотра всех отсчётов и настроек раскройте **Исходная запись**.
+Учебный файл прилагается к [описанию формата](../docs/field-archive.md).

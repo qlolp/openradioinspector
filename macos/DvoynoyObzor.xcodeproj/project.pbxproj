@@ -317,6 +317,8 @@
 				<string>YES</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
+				<key>INFOPLIST_FILE</key>
+				<string>FieldDocuments.plist</string>
 				<key>INFOPLIST_KEY_CFBundleDisplayName</key>
 				<string>Двойной обзор</string>
 				<key>INFOPLIST_KEY_CFBundleName</key>
@@ -375,6 +377,8 @@
 				<string>YES</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
+				<key>INFOPLIST_FILE</key>
+				<string>FieldDocuments.plist</string>
 				<key>INFOPLIST_KEY_CFBundleDisplayName</key>
 				<string>Двойной обзор</string>
 				<key>INFOPLIST_KEY_CFBundleName</key>

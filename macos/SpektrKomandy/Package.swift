@@ -14,7 +14,8 @@ let package = Package(
         .package(path: "../../contracts/generated/swift"),
     ],
     targets: [
-        .target(name: "SpektrKomandy", dependencies: [
+        .target(name: "CFieldDigest", linkerSettings: [.linkedLibrary("z"), .linkedLibrary("crypto", .when(platforms: [.linux]))]),
+        .target(name: "SpektrKomandy", dependencies: ["CFieldDigest",
             .product(name: "ORIMeasurementStream", package: "swift-stream"),
             .product(name: "ORIContracts", package: "swift"),
         ], swiftSettings: [.swiftLanguageMode(.v6)]),

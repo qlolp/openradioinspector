@@ -21,6 +21,10 @@ extension FocusedValues {
 struct NativeConsoleCommands: Commands {
     @FocusedValue(\.nativeConsoleActions) private var actions
     var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Открыть полевой выезд…") { NativeFieldOpenDelegate.chooseDocument() }
+                .keyboardShortcut("o")
+        }
         CommandGroup(replacing: .appSettings) {
             Button("Настройки наблюдения…") { actions?.settings() }
                 .keyboardShortcut(",").disabled(actions == nil)
