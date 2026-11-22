@@ -154,6 +154,7 @@ func platformAwaitResponse(_ delegate: any PlatformCompletingResponse,
 
 final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, PlatformCompletingResponse, @unchecked Sendable {
     private let maximumBytes: Int
+    private let readerTrust: PlatformReaderTrust?
     private var response: URLResponse?
     private var body = Data()
     private let completionLock = NSLock()
@@ -178,8 +179,15 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, Platform
         }
     }
 
-    init(maximumBytes: Int) {
+    init(maximumBytes: Int, readerTrust: PlatformReaderTrust? = nil) {
         self.maximumBytes = maximumBytes
+        self.readerTrust = readerTrust
+    }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let result = readerTrust?.evaluate(challenge) ?? (.performDefaultHandling, nil)
+        completionHandler(result.0, result.1)
     }
 
     func urlSession(
@@ -902,12 +910,19 @@ public final class PlatformClient: Sendable {
     private let transport: PlatformClientTransport
     private var session: URLSession { transport.session }
     private let credential: PlatformBearerCredential?
+    private let readerTrust: PlatformReaderTrust?
     private var usesInjectedSession: Bool { transport.usesInjectedSession }
     var eventSessionConfiguration: URLSessionConfiguration { Self.cookieFreeConfiguration(session.configuration) }
     public var hasBearerCredential: Bool { credential != nil }
     private let maximumResponseBytes = 2_000_000
 
-    public init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil, runtimeInstanceID: String? = nil) throws {
+    public convenience init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil, runtimeInstanceID: String? = nil) throws {
+        try self.init(baseURL: baseURL, session: session, credential: credential, runtimeInstanceID: runtimeInstanceID, readerTrust: nil)
+    }
+
+    init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil,
+         runtimeInstanceID: String? = nil, readerTrust: PlatformReaderTrust?) throws {
+        self.readerTrust = readerTrust
         self.baseURL = try PlatformBaseURL(baseURL, runtimeInstanceID: runtimeInstanceID)
         guard credential == nil || self.baseURL.root.scheme == "https" else {
             throw PlatformError.invalidURL("Сопряжённый клиент требует HTTPS")
@@ -926,7 +941,7 @@ public final class PlatformClient: Sendable {
 
     private init(cloning client: PlatformClient, runtimeInstanceID owner: String) throws {
         baseURL = try PlatformBaseURL(client.baseURL.root.absoluteString, runtimeInstanceID: owner)
-        transport = client.transport; credential = client.credential
+        transport = client.transport; credential = client.credential; readerTrust = client.readerTrust
     }
     public func scoped(toRuntimeInstance owner: String) throws -> PlatformClient {
         try PlatformClient(cloning: self, runtimeInstanceID: owner)
@@ -1423,8 +1438,9 @@ public final class PlatformClient: Sendable {
         method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?,
         timeoutInterval: TimeInterval = 5, validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
-        let responseLimit = path.hasPrefix("/security/") ? 4096 : (method == "GET" && path.hasSuffix("/sweeps")
-            ? 16 * 1024 * 1024 : maximumResponseBytes)
+        let sourceResponse = path.hasSuffix("/sweeps") || path.contains("/sweeps/") || path == "/events/history"
+        let responseLimit = path.hasPrefix("/security/") ? 4096
+            : (method == "GET" && sourceResponse ? 16 * 1024 * 1024 : maximumResponseBytes)
         var request = URLRequest(url: try baseURL.endpoint(path: path, query: query))
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
@@ -1489,10 +1505,14 @@ public final class PlatformClient: Sendable {
 
     private func receiveWithDelegate(_ request: URLRequest, maximumBytes: Int) async throws -> (Data, URLResponse) {
         if Task.isCancelled { throw CancellationError() }
-        let delegate = PlatformResponseDelegate(maximumBytes: maximumBytes)
-        let session = URLSession(
-            configuration: Self.cookieFreeConfiguration(.ephemeral), delegate: delegate, delegateQueue: nil
-        )
+        let delegate = PlatformResponseDelegate(maximumBytes: maximumBytes, readerTrust: readerTrust)
+        let configuration = Self.cookieFreeConfiguration(.ephemeral)
+        if readerTrust != nil {
+            configuration.allowsCellularAccess = false
+            configuration.urlCredentialStorage = nil
+            configuration.urlCache = nil
+        }
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         let task = session.dataTask(with: request)
         return try await platformAwaitResponse(delegate,

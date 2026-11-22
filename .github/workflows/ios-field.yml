@@ -1,0 +1,40 @@
+name: iPhone Field
+on:
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'macos/SpektrKomandy/**'
+      - 'contracts/**'
+      - '.github/workflows/ios-field.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-field-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    runs-on: xcode-27
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run shared decoder and reader tests
+        run: |
+          xcrun swift test --package-path contracts/protobuf/swift-stream
+          xcrun swift test --package-path macos/SpektrKomandy
+      - name: Test the iPhone app on the simulator and compile for devices
+        run: bash clients/ios/ci/simulator.sh "$RUNNER_TEMP/ori-ios-field"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: ios-field-simulator
+          path: ${{ runner.temp }}/ori-ios-field/Field.xcresult
+          if-no-files-found: warn

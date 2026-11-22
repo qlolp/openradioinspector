@@ -84,6 +84,68 @@ final class SecurityClientTests: XCTestCase {
         }
     }
 
+    func testReaderRequiresScopedNodeGrantAndChecksSavedScope() async throws {
+        let reader = try PlatformFieldReader(client: api())
+        Stub.handle = { stub, request in
+            if request.url?.path == "/api/v1/security/status" {
+                try stub.reply(["mode": "lan_tls", "pairing_required": true, "reader_pairing": true])
+            } else {
+                XCTAssertEqual(request.url?.path, "/api/v1/security/pair")
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: String])
+                XCTAssertEqual(body["required_scope"], "reader")
+                try stub.reply(["paired": true, "credential": "bearer", "access_scope": "reader", "token": "fixture"])
+            }
+        }
+        let token = try await reader.pair(code: "example")
+        XCTAssertEqual(token.dataRepresentation, Data("fixture".utf8))
+        let paired = try PlatformFieldReader(client: api(credential: token))
+        for scope in ["operator", "reader"] {
+            Stub.handle = { stub, request in
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture")
+                try stub.reply(["mode": "lan_tls", "pairing_required": false, "reader_pairing": true, "access_scope": scope])
+            }
+            if scope == "reader" { try await paired.verify() }
+            else {
+                do { try await paired.verify(); XCTFail("Unscoped saved credential") } catch is PlatformError {}
+            }
+        }
+        Stub.handle = { stub, request in
+            XCTAssertEqual(request.url?.path, "/api/v1/security/status")
+            try stub.reply(["mode": "lan_tls", "pairing_required": true])
+        }
+        do { _ = try await reader.pair(code: "example"); XCTFail("Paired with an old core") } catch is PlatformError {}
+        for scope in ["operator", ""] {
+            Stub.handle = { stub, request in
+                if request.url?.path == "/api/v1/security/status" {
+                    try stub.reply(["mode": "lan_tls", "pairing_required": true, "reader_pairing": true])
+                } else {
+                    try stub.reply(["paired": true, "credential": "bearer", "access_scope": scope, "token": "fixture"])
+                }
+            }
+            do { _ = try await reader.pair(code: "example"); XCTFail("Accepted a broader grant") } catch is PlatformError {}
+        }
+    }
+
+    func testReaderArchiveCursorReplaysAndRejectsPartialGaps() throws {
+        func event(_ sequence: Int64) -> PlatformCommittedEvent {
+            .init(sequence: sequence, eventType: "fixture", occurredAt: "2026-01-01T00:00:00Z",
+                  sessionId: "s", sweep: nil, observation: nil)
+        }
+        var journal = PlatformFieldJournal(watermark: 40)
+        XCTAssertEqual(journal.cursor, 8)
+        try journal.append([event(9), event(10)])
+        try journal.append([event(9), event(10)])
+        XCTAssertThrowsError(try journal.append([event(11), event(13)]))
+        XCTAssertEqual(journal.cursor, 10)
+        try journal.append([event(11), event(12), event(13)])
+        XCTAssertEqual(journal.recent.map(\.id), [9, 10, 11, 12, 13])
+        for url in ["http://localhost", "https://example.local/other", "https://user@example.local"] {
+            XCTAssertThrowsError(try PlatformFieldReader.origin(url))
+        }
+        XCTAssertEqual(try PlatformFieldReader.origin("https://example.local:8443").port, 8443)
+    }
+
     func testMalformedPairingResponseNeverBecomesACredentialOrLeaksServerToken() async throws {
         for body: [String: Any] in [["paired": false, "credential": "bearer", "token": "synthetic-server-secret"],
                                     ["paired": true, "credential": "browser_cookie", "token": "synthetic-server-secret"],

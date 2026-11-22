@@ -234,11 +234,21 @@ def swift_write(prop, expr, model="", field=""):
     return {"string": f".string({expr})", "integer": f".integer(String({expr}))", "number": f".number({expr})", "boolean": f".bool({expr})", "object": f".object({expr})"}.get(kind(prop), expr)
 
 
+SWIFT_RESERVED = set("""associatedtype class deinit enum extension fileprivate func import init inout internal
+let open operator private precedencegroup protocol public rethrows static struct subscript typealias var
+break case catch continue default defer do else fallthrough for guard if in repeat return switch where while
+as Any false is nil self Self super throw throws true try _""".split())
+
+
 def swift_models(schemas, include_common=True):
     lines = ["// " + HEADER, "import Foundation", ""]
     for name, values in enums(schemas).items():
         lines += [f"public enum {name}: String, Sendable, Codable, CaseIterable {{"]
-        for value in values: lines += [f'    case {re.sub("[^a-zA-Z0-9_]", "_", value)} = "{value}"']
+        for value in values:
+            case = re.sub("[^a-zA-Z0-9_]", "_", value)
+            if case in SWIFT_RESERVED:
+                case = f"`{case}`"
+            lines += [f'    case {case} = "{value}"']
         lines += ["    public init(json: JSONValue) throws {", '        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }', "        self = value", "    }", "    public var json: JSONValue { .string(rawValue) }", "}", ""]
     common = {"PlatformError": {"properties": {"code": {"type": "string"}, "message": {"type": "string"}}, "required": ["code", "message"]}} if include_common else {}
     for name, schema in {**schemas, **common}.items():
@@ -332,7 +342,7 @@ def render(document):
         "contracts/generated/typescript/index.ts": "// " + HEADER + "\nexport * from './models.ts';\nexport * from './codec.ts';\nexport {operations} from './schema.ts';\nimport type {JSONValue} from './codec.ts';\nimport {decodeModel, encodeModel} from './codec.ts';\nimport type {" + ", ".join(n for n in schemas if n != 'JSONObject') + "} from './models.ts';\n" + ts_decoders + "\n",
         "contracts/generated/typescript/package.json": json.dumps({"name": "@openradioinspector/contracts", "version": "1.0.0", "private": True, "type": "module", "exports": "./index.ts", "devDependencies": {"typescript": "7.0.2"}, "scripts": {"check": "tsc -p tsconfig.json"}}, indent=2) + "\n",
         "contracts/generated/typescript/tsconfig.json": json.dumps({"compilerOptions": {"target": "ES2024", "module": "NodeNext", "moduleResolution": "NodeNext", "strict": True, "noEmit": True, "allowImportingTsExtensions": True, "skipLibCheck": False, "lib": ["ES2024", "DOM"]}, "include": ["*.ts"]}, indent=2) + "\n",
-        "contracts/generated/swift/Package.swift": '// swift-tools-version: 6.4\n// ' + HEADER + '\nimport PackageDescription\nlet package = Package(name: "ORIContracts", platforms: [.macOS(.v14)], products: [.library(name: "ORIContracts", targets: ["ORIContracts"])], targets: [.target(name: "ORIContracts")])\n',
+        "contracts/generated/swift/Package.swift": '// swift-tools-version: 6.4\n// ' + HEADER + '\nimport PackageDescription\nlet package = Package(name: "ORIContracts", platforms: [.macOS(.v14), .iOS(.v17)], products: [.library(name: "ORIContracts", targets: ["ORIContracts"])], targets: [.target(name: "ORIContracts")])\n',
         "contracts/generated/swift/Sources/ORIContracts/Models.swift": swift_models(schemas),
     }
     for name, target in [("typescript.ts", "contracts/generated/typescript/codec.ts"), ("swift.swift", "contracts/generated/swift/Sources/ORIContracts/Codec.swift")]:
