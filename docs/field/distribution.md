@@ -2,7 +2,7 @@
 
 Google Play устанавливает `org.openradioinspector.field` из подписанного пакета приложения. Для работы без доступа к магазину GitHub Releases выдаёт универсальный APK, полученный от Google Play для того же `versionCode`. Play может установить набор APK для конкретного телефона. Универсальный файл содержит всё приложение для ARM64 с Android 12 и новее. SHA-256 файла на GitHub должен совпадать с SHA-256 универсального APK Google до последнего байта.
 
-Поставка использует Play App Signing. Google хранит закрытый ключ подписи приложения. Издатель хранит отдельный ключ загрузки AAB. Поддержка и обращения по конфиденциальности — 9218907903@mail.ru. Издатель указывает в консоли публичный адрес политики после появления файла в основной ветке. [Политика](https://github.com/qlolp/openradioinspector/blob/main/docs/field/privacy.md) · [Карточка приложения](play-listing.md)
+Поставка использует Play App Signing. Google хранит закрытый ключ подписи приложения. Издатель хранит отдельный ключ загрузки AAB. Поддержка и обращения по конфиденциальности — 9218907903@mail.ru. Для консоли доступны закреплённые редакции документов, которые открываются без входа. [Политика](https://github.com/qlolp/openradioinspector/blob/612f8b7faa16ee3cf5dbbd2c324ffdd65fbef39c/docs/field/privacy.md) · [Сайт поддержки](https://github.com/qlolp/openradioinspector/blob/612f8b7faa16ee3cf5dbbd2c324ffdd65fbef39c/docs/field/support.md) · [Карточка приложения](play-listing.md)
 
 ## Сохранение выездов со старой инженерной установки
 
