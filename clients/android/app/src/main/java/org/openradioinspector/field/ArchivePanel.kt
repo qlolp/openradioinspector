@@ -86,7 +86,9 @@ private fun ArchiveDetail(id: String, export: (String) -> Unit) {
     })
     else {
         val entries = current.items
-        val index = entries.indexOfFirst { it.json.getString("id") == selectedId }.coerceAtLeast(0)
+        val index = entries.indexOfFirst { it.json.getString("id") == selectedId }.let {
+            if (it >= 0) it else if (backwards) entries.lastIndex else 0
+        }
         val entry = entries[index]
         val json = entry.json
         if (kind == ReviewKind.TRACK) {

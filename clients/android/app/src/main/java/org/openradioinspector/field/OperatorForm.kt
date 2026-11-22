@@ -66,16 +66,16 @@ internal data class ScanForm(
             requireNotNull(step.toLongOrNull()?.takeIf { it > 0 }) { "Укажите положительный шаг в Гц" }
         } else 10000L
         val count = if (profile == "tinysa") {
-            requireNotNull(points.toIntOrNull()?.takeIf { it >= 2 }) { "Укажите число точек спектра" }
+            requireNotNull(points.toIntOrNull()?.takeIf { it in 2..290 }) { "Допустимо от 2 до 290 точек спектра" }
         } else 101
         val bandwidth = if (profile == "tinysa") {
             requireNotNull(rbw.toIntOrNull()?.takeIf { it > 0 }) { "Укажите полосу разрешения в Гц" }
         } else 10000
         val settling = if (profile == "ardv1") {
-            requireNotNull(settle.toIntOrNull()?.takeIf { it >= 0 }) { "Укажите время установления в мс" }
+            requireNotNull(settle.toIntOrNull()?.takeIf { it in 0..1000 }) { "Время установления — от 0 до 1000 мс" }
         } else 200
         return FieldConfig(deviceId = deviceId, profile = profile, startHz = first, stopHz = last,
             stepHz = spacing, gps = gps, points = count, kind = kind, frequenciesHz = frequencies,
-            mode = mode, settleMs = settling, rbwHz = bandwidth, continuous = continuous)
+            mode = if (kind == "ardv1_range") "FM" else mode, settleMs = settling, rbwHz = bandwidth, continuous = continuous)
     }
 }

@@ -85,6 +85,7 @@ private fun OperatorConsole(service: FieldService?) {
             Column(Modifier.safeDrawingPadding().imePadding()) {
                 Text("Полевой приём", style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
+                val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
                 val consoleState = service?.state?.collectAsStateWithLifecycle()?.value
                 if (service == null || consoleState == null) {
                     Text("Подключение к службе записи…", Modifier.padding(16.dp))
@@ -97,7 +98,6 @@ private fun OperatorConsole(service: FieldService?) {
                     }
                     // The activity can return after rotation or a system permission dialog.
                     // Save form state independently of the currently displayed tab.
-                    val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
                     holder.SaveableStateProvider(tab) {
                         when (tab) {
                             0 -> SetupPanel(service, consoleState) { tab = 1 }
@@ -127,6 +127,7 @@ private fun SetupPanel(service: FieldService, state: FieldState, onStarted: () -
     var step by rememberSaveable { mutableStateOf("10000") }
     var frequencies by rememberSaveable { mutableStateOf("") }
     var points by rememberSaveable { mutableStateOf("101") }
+    var baud by rememberSaveable { mutableIntStateOf(115200) }
     var rbw by rememberSaveable { mutableStateOf("10000") }
     var settle by rememberSaveable { mutableStateOf("200") }
     var mode by rememberSaveable { mutableStateOf("FM") }
@@ -178,14 +179,16 @@ private fun SetupPanel(service: FieldService, state: FieldState, onStarted: () -
             if (kind == "rf_explorer_survey") Text("Сетка 10 кГц · окно 112 точек")
             if (kind == "ardv1_range") NumberField("Шаг, Гц", step, { step = it }, enabled)
             if (profile == "tinysa") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NumberField("Точки спектра", points, { points = it }, enabled, Modifier.weight(1f))
-                    NumberField("RBW, Гц", rbw, { rbw = it }, enabled, Modifier.weight(1f))
-                }
+                NumberField("Точки спектра (2–290)", points, { points = it }, enabled)
+                Choice("Полоса разрешения", "${rbw.toInt() / 1000} кГц",
+                    listOf("10000" to "10 кГц", "30000" to "30 кГц"), enabled) { rbw = it }
             }
             if (profile == "ardv1") {
                 val modes = listOf("FM", "AM", "AUTO", "DSTAR", "YSF", "ALINCO", "NXDN", "P25", "DPMR", "DMR")
-                Choice("Демодуляция", mode, modes.map { it to it }, enabled) { mode = it }
+                val rates = listOf(9600, 19200, 38400, 57600, 115200)
+                Choice("Скорость порта", "$baud бод", rates.map { it to "$it бод" }, enabled) { baud = it }
+                if (kind == "ardv1_range") Text("Демодуляция FM")
+                else Choice("Демодуляция", mode, modes.map { it to it }, enabled) { mode = it }
                 NumberField("Установление частоты, мс", settle, { settle = it }, enabled)
             }
             Toggle("Повторять проходы", continuous, enabled) { continuous = it }
@@ -204,7 +207,7 @@ private fun SetupPanel(service: FieldService, state: FieldState, onStarted: () -
                 try {
                     val config = ScanForm(deviceId, profile, kind, start, end, step, frequencies,
                         points, rbw, settle, mode, continuous, gps).config()
-                    service.start(config)
+                    service.start(if (profile == "ardv1") config.copy(baud = baud) else config)
                     error = ""
                     onStarted()
                 } catch (e: IllegalArgumentException) {
@@ -267,7 +270,7 @@ private fun LivePanel(service: FieldService, state: FieldState) {
             if (state.running) Button(onClick = service::stop) { Text("Стоп") }
         }
         if (state.total > 0) LinearProgressIndicator(
-            progress = (state.progress.toDouble() / state.total).coerceIn(0.0, 1.0).toFloat(),
+            progress = { (state.progress.toDouble() / state.total).coerceIn(0.0, 1.0).toFloat() },
             modifier = Modifier.fillMaxWidth())
         if (state.receiverSamples.isNotEmpty()) {
             val samples = state.receiverSamples
@@ -288,8 +291,9 @@ private fun LivePanel(service: FieldService, state: FieldState) {
         }
         if (state.running && state.sessionId != null) {
             OutlinedTextField(note, { note = it }, label = { Text("Заметка оператора") },
+                isError = note.length > 4096, supportingText = { if (note.length > 4096) Text("Максимум 4096 символов") },
                 modifier = Modifier.fillMaxWidth())
-            OutlinedButton(enabled = note.isNotBlank(), onClick = {
+            OutlinedButton(enabled = note.isNotBlank() && note.length <= 4096, onClick = {
                 service.addNote(note.trim())
                 note = ""
             }) { Text("Добавить заметку") }

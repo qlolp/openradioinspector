@@ -3,7 +3,6 @@ package org.openradioinspector.field
 import android.database.sqlite.SQLiteDatabase
 import org.json.JSONObject
 import java.io.File
-import java.util.UUID
 
 internal enum class ReviewKind(val title: String) {
     TRACK("Трек GPS"), DATA("Измерения"), NOTES("Заметки"), GAPS("Пропуски"),
@@ -15,7 +14,7 @@ internal data class ReviewPage(val items: List<ReviewEntry>, val older: Boolean,
 internal data class SessionInfo(val profile: String, val started: String)
 
 internal class SessionReview(root: File, id: String) {
-    private val file = File(root, "field/${UUID.fromString(id)}/capture.sqlite")
+    private val file = FieldArchive.database(File(root, "field"), id)
     private fun <T> read(block: (SQLiteDatabase) -> T): T =
         SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use(block)
 
