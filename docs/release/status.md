@@ -12,6 +12,12 @@
 
 Текущая ревизия меняется при слиянии PR. По первой ссылке виден полный SHA коммита, по второй — прогоны для ветки и их фактический исход. Протокол установленного пакета следует искать по SHA исходников **и** хешу установочного файла из таблицы. [Последний коммит main](https://github.com/qlolp/openradioinspector/commits/main/) · [Прогоны main](https://github.com/qlolp/openradioinspector/actions?query=branch%3Amain)
 
+### Узкий поиск на объединённой версии `1e6f128e`
+
+В повторном прогоне Windows с Python 3.15 один запрос статуса во время запуска узкого обзора оставил в проекте ошибочную паузу. Исполнитель затем запускался и сохранял панорамы. Сценарий воспроизведён с опросом статуса между регистрацией исполнителя и стартом его потока. В регрессии отдельно проверяются состояние при запуске и результат после его завершения. [Исходный отказ Windows](https://github.com/qlolp/openradioinspector/actions/runs/45082038259/job/137392127754) · [Поведение интерфейса](../monitoring-modes.md#ручное-исследование-и-поиск-источника)
+
+На `1e6f128e` отдельно зафиксированы пакеты для стендов Raspberry Pi и Debian amd64. Пакет Debian побайтно совпал с установочным файлом, прошедшим по шесть этапов проверки на Debian 12 и 13. Для удобства проверки каждый комплект содержит собственные манифест и SHA-256. [Пакет Raspberry Pi](https://github.com/qlolp/openradioinspector/actions/runs/45082063265/artifacts/14777613376) · [Пакет Debian](https://github.com/qlolp/openradioinspector/actions/runs/45082735434/artifacts/14777437524) · [Протоколы установки](https://github.com/qlolp/openradioinspector/actions/runs/45082038240)
+
 ### Нагрузка ядра перед интеграцией RF Explorer · 22 ноября
 
 Перед слиянием PR #224 на `c26bb773` отдельно прошли два 30-минутных синтетических прогона, на ARM64 и Windows x64. Каждый подтвердил 18 000 из 18 000 предложенных панорам, 18 000 из 18 000 наблюдений и сохранность всех 86 400 000 аудиоотсчётов. В обоих исходных отчётах указано `hardware_tested=false`. [Интеграция RF Explorer](https://github.com/qlolp/openradioinspector/pull/224) · [Протокол ARM64](https://github.com/qlolp/openradioinspector/actions/runs/45057591689/artifacts/14769254109) · [Протокол Windows](https://github.com/qlolp/openradioinspector/actions/runs/45057591689/artifacts/14769514007)
