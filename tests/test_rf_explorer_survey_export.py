@@ -2,7 +2,6 @@
 
 import csv
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -197,7 +196,7 @@ class SurveyExportTests(unittest.TestCase):
 
     def test_failure_to_publish_either_output_preserves_the_previous_pair(self):
         self.write_archive([sweep(1, total=112)])
-        replace = os.replace
+        replace = Path.replace
         for target in (self.csv, self.svg):
             with self.subTest(target=target.name):
                 self.csv.write_bytes(b"previous CSV")
@@ -208,7 +207,7 @@ class SurveyExportTests(unittest.TestCase):
                         raise PermissionError("destination is locked")
                     return replace(source, destination)
 
-                with patch("os.replace", side_effect=fail_destination), self.assertRaises(PermissionError):
+                with patch.object(Path, "replace", new=fail_destination), self.assertRaises(PermissionError):
                     export(self.source, PASS_ID, self.csv, self.svg)
                 self.assertEqual(self.csv.read_bytes(), b"previous CSV")
                 self.assertEqual(self.svg.read_bytes(), b"previous SVG")
