@@ -83,7 +83,7 @@ class FieldArchiveTests(unittest.TestCase):
 
     def test_corrupt_archive_never_publishes(self):
         for problem in ("truncated", "digest", "count", "scope", "dangling", "duplicate",
-                        "coordinates", "feature", "extra", "version", "boolean", "newline"):
+                        "coordinates", "feature", "extra", "version", "boolean", "newline", "track_boolean"):
             with self.subTest(problem=problem):
                 self.check_corrupt(problem)
 
@@ -103,6 +103,9 @@ class FieldArchiveTests(unittest.TestCase):
             manifest["files"][e]["records"] += 1
         elif problem == "coordinates":
             payload[e] = payload[e].replace(b'"latitude":-0.25', b'"latitude":91')
+        elif problem == "track_boolean":
+            payload[e] = payload[e].replace(b'"accuracy_m":5.5', b'"accuracy_m":1')
+            payload[t] = payload[t].replace(b'"accuracy_m":5.5', b'"accuracy_m":true')
         elif problem == "feature":
             payload[t] = payload[t].replace(b"[0.125,-0.25]", b"[-0.25,0.125]")
         elif problem == "version":

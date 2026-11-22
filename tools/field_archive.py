@@ -251,6 +251,15 @@ def events(db, lines, manifest):
     return total
 
 
+def same_json(left, right):
+    # JSON distinguishes booleans from numbers, and permits 1.0 and 1 to denote the same number.
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(same_json(left[k], right[k]) for k in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(same_json(a, b) for a, b in zip(left, right))
+    return (type(left) is bool) == (type(right) is bool) and left == right
+
+
 def track(db, lines):
     require(next(lines, None) == TRACK_START, "invalid track header")
     total = 0
@@ -263,7 +272,7 @@ def track(db, lines):
         coords = obj(feature.get("geometry"), "geometry").get("coordinates")
         require(isinstance(coords, list) and all(type(x) in (float, int) for x in coords),
                 "invalid track coordinates")
-        require(feature == json.loads(expected), "track differs from GPS event")
+        require(same_json(feature, json.loads(expected)), "track differs from GPS event")
         total += 1
     require(next(lines, None) == b"]}\n" and next(lines, None) is None, "invalid track trailer")
     return total
