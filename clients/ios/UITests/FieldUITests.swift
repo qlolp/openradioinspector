@@ -4,6 +4,7 @@ final class FieldUITests: XCTestCase {
     @MainActor func testOfflineDemoNavigatesFromNoteToOriginalValuesAndGPS() throws {
         let app = XCUIApplication()
         app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["privacy-policy"].firstMatch.waitForExistence(timeout: 8))
         app.buttons["open-demo"].tap()
         let note = app.buttons["row-note"]
         XCTAssertTrue(note.waitForExistence(timeout: 15))

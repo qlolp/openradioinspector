@@ -77,6 +77,11 @@ struct FieldHome: View {
                             } footer: {
                                 Text("Учебный выезд содержит синтетические измерения, заметку и точку GPS. Доступ к сети не требуется.")
                             }
+                            Section("О приложении") {
+                                Link("Конфиденциальность", destination: URL(string: "https://github.com/qlolp/openradioinspector/blob/612f8b7faa16ee3cf5dbbd2c324ffdd65fbef39c/docs/field/privacy.md")!)
+                                    .accessibilityIdentifier("privacy-policy")
+                                Link("Поддержка", destination: URL(string: "https://github.com/qlolp/openradioinspector/blob/612f8b7faa16ee3cf5dbbd2c324ffdd65fbef39c/docs/field/support.md")!)
+                            }
                             if let error { Text(error).foregroundStyle(.red) }
                         }
                     }
