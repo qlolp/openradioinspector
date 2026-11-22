@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import release_acceptance as gate
 from .macos_rc_package import digest, read_json
-from .publish_release import BUILDER, Repository, collect_dispatch_file, verify_software_runs
+from .publish_release import BUILDER, Repository, collect_dispatch_file, require_environment_approval, verify_software_runs
 from .release_artifacts import ARTIFACTS, check_manifest, require, verify_sums
 
 
@@ -19,9 +19,7 @@ def main():
     args = parser.parse_args()
     repo = Repository()
     if args.operation == 'approval':
-        reviews = repo.api(f"actions/runs/{int(os.environ['GITHUB_RUN_ID'])}/approvals")
-        require(any(row['state'] == 'approved' and any(e['name'] == 'release-acceptance' for e in row['environments'])
-                    for row in reviews), 'an actual GitHub environment reviewer must approve the bench evidence')
+        require_environment_approval(repo, 'release-acceptance')
         require(args.out.is_file() and digest(args.out) == os.environ['REVIEWED_DIGEST'], 'reviewed receipt changed')
         return
     repo.run(args.run_id, BUILDER, args.platform)

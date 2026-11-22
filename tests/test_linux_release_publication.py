@@ -1,6 +1,7 @@
 """Linux publication fixtures use local files and mocked GitHub responses."""
 import copy
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -187,12 +188,13 @@ class LinuxPublicationPolicyTests(unittest.TestCase):
         repo.repo, repo.revision, repo.base = 'owner/project', REV, 'repos/owner/project/'
         repo.immutable = Mock()
         repo.tag_ref = Mock(return_value={'object': {'type': 'commit', 'sha': REV}})
-        with tempfile.TemporaryDirectory() as temp:
+        approval = [{'state': 'approved', 'user': {'type': 'User'}, 'environments': [{'name': 'release-publication'}]}]
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, GITHUB_RUN_ID='123'):
             folder = Path(temp)
             sums = folder / 'SHA256SUMS'
             sums.write_bytes(b'fixture')
             asset = dict(name='SHA256SUMS', size=sums.stat().st_size, state='uploaded', digest='sha256:' + bundles.digest(sums))
-            repo.api = Mock(return_value={'assets': [asset]})
+            repo.api = Mock(side_effect={'actions/runs/123/approvals': approval, 'releases/7': {'assets': [asset]}}.__getitem__)
             for tag, prerelease, latest in [('linux-amd64-v0.4.0-rc.2', True, 'false'), ('linux-amd64-v0.4.0', False, 'false'),
                                             ('v0.4.0', False, 'true')]:
                 with self.subTest(tag=tag):

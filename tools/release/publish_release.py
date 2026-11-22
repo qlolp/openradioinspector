@@ -63,6 +63,13 @@ def github(*args, data=None, optional=False, token=None, output=None):
     return None if output else json.loads(proc.stdout)
 
 
+def require_environment_approval(repo, environment):
+    reviews = repo.api(f"actions/runs/{int(os.environ['GITHUB_RUN_ID'])}/approvals")
+    require(any(review.get('state') == 'approved' and (review.get('user') or {}).get('type') == 'User'
+                and any(entry.get('name') == environment for entry in review.get('environments', []))
+                for review in reviews), f'a recorded human review approving {environment} is required')
+
+
 class Repository:
     def __init__(self):
         self.repo = os.environ['GITHUB_REPOSITORY']
@@ -109,6 +116,22 @@ class Repository:
             obj = self.api('git/tags/' + obj['sha'])['object']
         raise ValueError('release tag chain is too deep')
 
+    def require_tag(self, tag, revision):
+        ref = self.tag_ref(tag, optional=True)
+        require(ref is not None and ref['object']['sha'] == revision,
+                f'release tag {tag} is missing or points to another commit')
+
+    def reserve_tag(self, tag, revision):
+        # Create only. An interrupted POST or a concurrent publisher may have
+        # won the create. In either case the remote ref must resolve to our SHA.
+        if self.tag_ref(tag, optional=True) is None:
+            try:
+                self.api('git/refs', data={'ref': 'refs/tags/' + tag, 'sha': revision})
+            except ValueError:
+                if self.tag_ref(tag, optional=True) is None:
+                    raise
+        self.require_tag(tag, revision)
+
     def published(self, platform, number, destination):
         tag = platform_tag(platform, number)
         release = self.api('releases/tags/' + tag)
@@ -129,6 +152,7 @@ class Repository:
         return row
 
     def publish(self, folder, tag, prerelease):
+        require_environment_approval(self, 'release-publication')
         self.immutable()
         body = f'OpenRadioInspector 0.4.0\n\nSource commit `{self.revision}`\n\nSHA256SUMS `{digest(folder / "SHA256SUMS")}`'
         expected = dict(tag_name=tag, name=tag, body=body, target_commitish=self.revision, prerelease=prerelease)
@@ -151,16 +175,16 @@ class Repository:
         for asset in existing:
             compare_remote(asset, paths[asset['name']])
         if release['draft']:
-            ref = self.tag_ref(tag, optional=True)
-            require(ref is None or ref['object']['sha'] == self.revision, 'tag moved before publication')
+            self.reserve_tag(tag, self.revision)
             for name in sorted(paths.keys() - {a['name'] for a in existing}):
                 subprocess.run(['gh', 'release', 'upload', tag, str(paths[name]), '--repo', self.repo], check=True)
             verify_remote_assets(self.api(endpoint), paths)
             self.immutable()
+            self.require_tag(tag, self.revision)
             release = github('-X', 'PATCH', self.base + endpoint,
                              data={'draft': False, 'make_latest': 'true' if tag == 'v0.4.0' and not prerelease else 'false'})
-        require(release.get('immutable') is True and release['draft'] is False
-                and self.tag_ref(tag)['object']['sha'] == self.revision, 'published release identity is unconfirmed')
+        require(release.get('immutable') is True and release['draft'] is False, 'published release identity is unconfirmed')
+        self.require_tag(tag, self.revision)
         verify_remote_assets(self.api(endpoint), paths)
         print(release['html_url'])
 

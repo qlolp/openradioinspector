@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from tools.field.android_release import (PACKAGE, PLAY_URL, fingerprint, signing_pins, validate_receipt,
                                          verify_apk, version)
 from tools.release.macos_rc_package import digest, read_json, write_json
-from tools.release.publish_release import (Repository, collect_dispatch_file, compare_remote, github,
+from tools.release.publish_release import (Repository, collect_dispatch_file, compare_remote, github, require_environment_approval,
                                           verify_github_attestation, verify_remote_assets)
 from tools.release.release_artifacts import require, sha, verify_sums, write_sums
 
@@ -159,9 +159,7 @@ def review(build, candidate, out, play):
 
 
 def approved(repo):
-    reviews = repo.api(f"actions/runs/{int(os.environ['GITHUB_RUN_ID'])}/approvals")
-    require(any(r.get("state") == "approved" and any(e["name"] == "android-field-publication" for e in r["environments"])
-                for r in reviews), "a recorded Field publication environment review is required")
+    require_environment_approval(repo, "android-field-publication")
 
 
 def reviewed_files(repo, out, expected_sums):
@@ -245,8 +243,7 @@ def publish(repo, out, expected_sums, play, proof=None):
     paths = {path.name: path for path in out.iterdir()}
     endpoint = f"releases/{release['id']}"
     if release["draft"]:
-        ref = repo.tag_ref(tag, optional=True)
-        require(ref is None or ref["object"]["sha"] == revision, "Field tag already points elsewhere")
+        repo.reserve_tag(tag, revision)
         present = set()
         for asset in release["assets"]:
             require(asset["name"] in paths and asset["name"] not in present, "unexpected release draft asset")
@@ -258,9 +255,10 @@ def publish(repo, out, expected_sums, play, proof=None):
             subprocess.run(["gh", "release", "upload", tag, str(paths[name]), "--repo", repo.repo], check=True)
         verify_remote_assets(repo.api(endpoint), paths)
         repo.immutable()
+        repo.require_tag(tag, revision)
         release = github("-X", "PATCH", repo.base + endpoint, data={"draft": False, "make_latest": "false"})
-    require(release.get("immutable") is True and not release["draft"]
-            and repo.tag_ref(tag)["object"]["sha"] == revision, "public Field release or tag identity unconfirmed")
+    require(release.get("immutable") is True and not release["draft"], "public Field release identity unconfirmed")
+    repo.require_tag(tag, revision)
     verify_remote_assets(repo.api(endpoint), paths)
     print(release["html_url"])
 

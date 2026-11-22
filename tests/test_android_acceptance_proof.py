@@ -30,18 +30,29 @@ class AndroidWitnessTests(unittest.TestCase):
             self.assertIn('--deny-self-hosted-runners', args)
 
     def test_missing_or_invalid_proof_cannot_create_a_draft_and_reruns_reuse_the_verified_first_proof(self):
-        repo, play = Mock(), Mock()
+        repo, play = shared.Repository.__new__(shared.Repository), Mock()
         repo.repo, repo.base, repo.revision = 'owner/project', 'repos/owner/project/', 'b' * 40
+        repo.immutable = Mock()
         build, receipt = sample_receipt()
         build.update(version_name='0.1.0', review_revision=repo.revision, application_id=release.PACKAGE,
                      play_cert_sha256=PIN, upload_cert_sha256=UPLOAD)
         state = {}
         contents = {}
         uploads = []
-        approval = [{'state': 'approved', 'environments': [{'name': 'android-field-publication'}]}]
-        repo.api.side_effect = lambda path: approval if path == 'actions/runs/123/approvals' else state
-        repo.tag_ref.side_effect = lambda tag, optional=False: (
-            {'object': {'type': 'commit', 'sha': build['source_revision']}} if state and not state['draft'] else None)
+        tag_sha = [None]
+        move_during_upload = [True]
+        approval = [{'state': 'approved', 'user': {'type': 'User'}, 'environments': [{'name': 'android-field-publication'}]}]
+        def repo_api(path, **options):
+            if path == 'actions/runs/123/approvals':
+                return approval
+            if path == 'git/refs':
+                self.assertIsNone(tag_sha[0])
+                self.assertEqual(options['data'], {'ref': 'refs/tags/android-field-v0.1.0', 'sha': build['source_revision']})
+                tag_sha[0] = options['data']['sha']
+                return
+            return state
+        repo.api = repo_api
+        repo.tag_ref = lambda tag, optional=False: {'object': {'type': 'commit', 'sha': tag_sha[0]}} if tag_sha[0] else None
 
         def api(*args, data=None, output=None):
             if args[0] == '--paginate':
@@ -51,6 +62,7 @@ class AndroidWitnessTests(unittest.TestCase):
                 state.update(data, id=7, assets=[])
                 return state
             if args[:2] == ('-X', 'PATCH'):
+                self.assertEqual(tag_sha[0], build['source_revision'])
                 self.assertEqual(data, {'draft': False, 'make_latest': 'false'})
                 state.update(draft=False, immutable=True, html_url='https://example.invalid/tag')
                 return state
@@ -67,6 +79,8 @@ class AndroidWitnessTests(unittest.TestCase):
             state['assets'].append(dict(name=path.name, size=path.stat().st_size, id=len(contents),
                                         state='uploaded', digest='sha256:' + digest(path)))
             uploads.append(path.name)
+            if move_during_upload[0]:
+                tag_sha[0] = 'f' * 40
 
         def verify(repo_, receipt_file, proof_file, **constraints):
             self.assertIs(repo_, repo)
@@ -103,12 +117,19 @@ class AndroidWitnessTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'unverified proof'):
                 publish(2, b'signature from a different workflow')
             self.assertFalse(state)
-            publish(3, b'proof of this reviewed receipt')
+            with self.assertRaisesRegex(ValueError, 'another commit'):
+                publish(3, b'proof of this reviewed receipt')
+            self.assertTrue(state['draft'])
+            self.assertNotIn('immutable', state)
+            # A later attempt can resume only once the fixture ref again matches.
+            move_during_upload[0] = False
+            tag_sha[0] = build['source_revision']
+            publish(4, b'different bundle issued on retry')
             self.assertTrue(state['immutable'])
             self.assertEqual(uploads[0], release.PROOF)
             self.assertEqual(set(contents), {release.PROOF, release.RECEIPT, release.RECORD, release.apk_name(build), 'SHA256SUMS'})
             self.assertIn(release.PROOF.encode(), contents['SHA256SUMS'])
-            publish(4, b'different bundle issued on retry')
+            publish(5, b'different bundle issued on retry')
             self.assertEqual(uploads.count(release.PROOF), 1)
             self.assertEqual(contents[release.PROOF], b'proof of this reviewed receipt')
 

@@ -231,7 +231,8 @@ class FieldReleaseTests(unittest.TestCase):
                     release.publish(repo, out, accepted, play)
                 play.check.assert_not_called()
                 github.assert_not_called()
-                repo.api.return_value = [{"state": "approved", "environments": [{"name": "android-field-publication"}]}]
+                repo.api.return_value = [{"state": "approved", "user": {"type": "User"},
+                                         "environments": [{"name": "android-field-publication"}]}]
                 play.check.side_effect = ValueError("not public")
                 with self.assertRaisesRegex(ValueError, "not public"):
                     release.publish(repo, out, accepted, play)
