@@ -12,6 +12,12 @@
 
 Текущая ревизия меняется при слиянии PR. По первой ссылке виден полный SHA коммита, по второй — прогоны для ветки и их фактический исход. Протокол установленного пакета следует искать по SHA исходников **и** хешу установочного файла из таблицы. [Последний коммит main](https://github.com/qlolp/openradioinspector/commits/main/) · [Прогоны main](https://github.com/qlolp/openradioinspector/actions?query=branch%3Amain)
 
+### Debian amd64 и Raspberry Pi · 22 ноября
+
+На `babdaa9c` файл `openradioinspector-linux_0.4.0-1_amd64.deb` имеет размер 9 693 276 байт и SHA-256 `6aa99092b2636a3e23e6b58670da9ccc98a84d614f6695603ee8939f12264168`. В изолированных гостевых Debian 12 и 13 прошли чистая установка без сети, обновление, откат, перезапуск службы и чтение восстановленного архива схемы 6. На каждом этапе проверены пять ресурсов WebUI. Испытания USB-приборов на физическом Linux-ПК ещё предстоят. [Скачать инженерный DEB и манифест](https://github.com/qlolp/openradioinspector/actions/runs/45060277173/artifacts/14769566194) · [Журналы Debian 12 и 13](https://github.com/qlolp/openradioinspector/actions/runs/45060277173)
+
+В предшествующем кандидате `612f8b7f` установка на обеих системах обнаружила ошибку запуска TLS-клиента вебхуков при отсутствии системных корневых сертификатов. Пакеты Debian и Pi теперь объявляют зависимость от `ca-certificates`. Сборка и проверка ARM64-пакета Pi прошли на том же `babdaa9c`; восьмичасовой прогон на Raspberry Pi 5 учитывается отдельно. [Первоначальный отказ](https://github.com/qlolp/openradioinspector/actions/runs/45058617874) · [Проверка ARM64](https://github.com/qlolp/openradioinspector/actions/runs/45060277136)
+
 ## Инженерные сборки 0.4.0
 
 Все три установочных файла собраны из `4721bc6150de77f5de62edfdc53c2df38286b5c9`. Установка на MacBook Air дала стендовую проверку приложения с учебным архивом. Для пакетов Pi и Windows использованы виртуальные хосты. [Исходники пакетов](https://github.com/qlolp/openradioinspector/commit/4721bc6150de77f5de62edfdc53c2df38286b5c9) · [Интеграция #220](https://github.com/qlolp/openradioinspector/pull/220) · [Порядок публикации](public-distribution.md)
