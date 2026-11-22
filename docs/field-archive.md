@@ -13,7 +13,7 @@ Use classic ZIP with exactly four flat, unencrypted, STORED entries. Sizes and C
 | `track.geojson` | GeoJSON FeatureCollection of WGS84 Points in GPS event order | GPS events |
 | `manifest.json` | Version, session, source inventory, counts and hashes | No self-hash |
 
-The manifest object has `format: "openradioinspector-field"`, integer `format_version: 1`, `session_id`, `stream_ids` (1–256 unique nonempty strings), `streams` (one descriptor per stream with `id`, `device`, `profile` and `settings`), integer `sweep_count` and `observation_count`. `files` maps the three exact payload names to `{bytes, records, sha256}`. Counts are nonnegative integers. Hashes are lowercase hexadecimal over the exact uncompressed payload bytes, including all line terminators. Limit the manifest to 64 KiB, each NDJSON or GeoJSON feature line to 16 MiB + 1024 bytes including LF. Writers must fail before delivering an oversized archive. Readers can ignore added object properties within this version.
+The manifest object has `format: "openradioinspector-field"`, integer `format_version: 1`, `session_id`, `stream_ids` (1–256 unique nonempty strings), `streams` (one descriptor per stream with `id`, `device`, `profile` and `settings`), integer `sweep_count` and `observation_count`. `files` maps the three exact payload names to `{bytes, records, sha256}`. Counts are nonnegative integers. Hashes are lowercase hexadecimal over the exact uncompressed payload bytes, including all line terminators. Limit the manifest to 256 KiB, each NDJSON or GeoJSON feature line to 16 MiB + 1024 bytes including LF. Writers must fail before delivering an oversized archive. Readers can ignore added object properties within this version.
 
 ## Measurements and field log
 

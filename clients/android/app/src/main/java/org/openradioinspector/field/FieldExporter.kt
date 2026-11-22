@@ -125,7 +125,7 @@ object FieldExporter {
             val files = JSONObject()
             members.forEach { files.put(it.file.name, it.receipt()) }
             manifest.file.outputStream().buffered().use { manifest.line(it, header.put("files", files).toString()) }
-            require(manifest.bytes <= 65536) { "Manifest exceeds the V1 size limit" }
+            require(manifest.bytes <= 256 * 1024) { "Manifest exceeds the V1 size limit" }
         }
 
         val archive = File(work, "session.orifield")

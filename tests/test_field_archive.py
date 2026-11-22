@@ -133,6 +133,21 @@ class FieldArchiveTests(unittest.TestCase):
         assert not (tmp_path / "private").exists()
 
 
+    def test_full_receiver_list_fits_stream_descriptor(self):
+        manifest, payload = fixture_contents()
+        descriptor = manifest["streams"][1]
+        descriptor["settings"] = {"kind": "ardv1_list", "frequencies_hz": list(range(100000000, 100010000))}
+        self.assertGreater(len(line(manifest)), 65536)
+        path = self.root / "full-list.orifield"
+        pack(path, manifest, payload)
+        self.assertEqual(archive.validate(path)["streams"][1], descriptor)
+
+    def test_android_nanosecond_intervals(self):
+        self.assertLess(archive.utc("2026-11-22T21:30:00.123456781Z"),
+                        archive.utc("2026-11-23T00:30:00.123456782+03:00"))
+        self.assertEqual(archive.utc("2026-11-22T21:30:00.1Z"),
+                         archive.utc("2026-11-22T21:30:00.100000000+00:00"))
+
     def test_empty_capture_with_no_location(self):
         tmp_path = self.root
         manifest, payload = fixture_contents()

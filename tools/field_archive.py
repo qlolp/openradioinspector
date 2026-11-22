@@ -19,7 +19,7 @@ from pathlib import Path
 MEASUREMENTS, EVENTS, TRACK = PAYLOADS = ("measurements.ndjson", "events.ndjson", "track.geojson")
 MANIFEST = "manifest.json"
 MAX_LINE = 16 * 1024 * 1024 + 1024
-MAX_MANIFEST = 65536
+MAX_MANIFEST = 256 * 1024
 TRACK_START = b'{"type":"FeatureCollection","features":[\n'
 
 
@@ -50,9 +50,12 @@ def count(value, label):
 
 def utc(value):
     string(value, "timestamp")
-    require(re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                         r"(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})", value), "invalid timestamp")
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    match = re.fullmatch(r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})"
+                         r"(?:\.([0-9]+))?(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])", value)
+    require(match, "invalid timestamp")
+    whole, fraction, offset = match.groups()
+    # Validate the calendar and retain sub-microsecond ordering on Python 3.10+.
+    return datetime.fromisoformat(whole + offset.replace("Z", "+00:00")), (fraction or "").rstrip("0")
 
 
 def unique_fields(pairs):
@@ -79,16 +82,22 @@ def open_zip(source):
     source.seek(-22, 2)
     end = struct.unpack("<4s4H2LH", source.read(22))
     require(end[:5] == (b"PK\x05\x06", 0, 0, 4, 4) and end[-1] == 0
-            and end[5] <= MAX_MANIFEST and end[5] + end[6] + 22 == size,
+            and end[5] <= 65536 and end[5] + end[6] + 22 == size,
             "expected four entries in a classic field ZIP")
+    require(size >= 42, "truncated ZIP")
+    source.seek(-42, 2)
+    require(source.read(4) != b"PK\x06\x07", "ZIP64 locator outside classic field format")
     archive = zipfile.ZipFile(source)
     try:
         names = archive.namelist()
         require(len(names) == 4 and set(names) == {*PAYLOADS, MANIFEST}
                 and names[-1] == MANIFEST, "unexpected field archive entries or manifest order")
+        ranges = []
         for info in archive.infolist():
             require(info.compress_type == zipfile.ZIP_STORED and info.compress_size == info.file_size
-                    and info.flag_bits & ~0x800 == 0, f"unsupported ZIP encoding for {info.filename}")
+                    and info.flag_bits & ~0x800 == 0 and info.volume == 0
+                    and (info.external_attr >> 16) & 0o170000 in (0, 0o100000)
+                    and not info.external_attr & 0x10, f"unsupported ZIP encoding for {info.filename}")
             source.seek(info.header_offset)
             header = source.read(30)
             require(len(header) == 30, "truncated local ZIP header")
@@ -96,6 +105,13 @@ def open_zip(source):
             require(fields[0] == b"PK\x03\x04" and fields[2:4] == (info.flag_bits, zipfile.ZIP_STORED)
                     and fields[6:9] == (info.CRC, info.file_size, info.file_size),
                     f"inconsistent local ZIP header for {info.filename}")
+            require(source.read(fields[9]) == info.filename.encode("ascii"), "inconsistent ZIP member name")
+            data_end = source.tell() + fields[10] + info.file_size
+            ranges.append((info.header_offset, data_end, info.filename))
+        ordered = sorted(ranges)
+        require(ordered[0][0] == 0 and ordered[-1][1:] == (end[6], MANIFEST)
+                and all(a[1] == b[0] for a, b in zip(ordered, ordered[1:])),
+                "invalid field archive boundaries")
         return archive
     except BaseException:
         archive.close()
@@ -270,11 +286,16 @@ def validate(source: Path, destination: Path | None = None):
         if stage:
             stage.mkdir()
             (stage / MANIFEST).write_bytes(raw)
-        for name, parse_records in ((MEASUREMENTS, measurements), (EVENTS, events), (TRACK, track)):
+        for name in PAYLOADS:
             receipt = manifest["files"][name]
             lines = payload_lines(archive, name, receipt, stage)
             with closing(lines):
-                recorded = track(db, lines) if name == TRACK else parse_records(db, lines, manifest)
+                if name == MEASUREMENTS:
+                    recorded = measurements(db, lines, manifest)
+                elif name == EVENTS:
+                    recorded = events(db, lines, manifest)
+                else:
+                    recorded = track(db, lines)
             require(recorded == receipt["records"], f"{name} record count mismatch")
         missing = db.execute("""SELECT 1 FROM refs LEFT JOIN ids USING(stream,kind,id)
                                 WHERE ids.id IS NULL LIMIT 1""").fetchone()
