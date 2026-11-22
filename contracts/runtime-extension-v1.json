@@ -401,6 +401,26 @@
         "sessions"
       ],
       "request_examples": {
+        "rfExplorer10kHzSurvey": {
+          "description": "Requires features.rf_explorer_10khz_survey on a live Rust core. Omitting start_hz and stop_hz surveys the whole active input. Supply both to choose an inclusive range on a 10 kHz grid. The core archives individual measured windows; settings.survey identifies their pass and position.",
+          "summary": "Cycle across the active RF Explorer input at 10 kHz sample spacing",
+          "value": {
+            "name": "RF Explorer 10 kHz survey",
+            "streams": [
+              {
+                "device": "RF Explorer 3G Combo",
+                "role": "spectrum_analyzer",
+                "level_unit": "dBm",
+                "port": "/dev/ttyUSB0",
+                "settings": {
+                  "adapter": "rf-explorer-3g-serial",
+                  "baud": 500000,
+                  "survey_step_hz": 10000
+                }
+              }
+            ]
+          }
+        },
         "rfExplorer3G": {
           "description": "Requires features.rf_explorer_3g_spectrum on a live Rust core and the port chosen by the operator. Omit both bounds to follow the active input. The example requests a 10 kHz grid on the WSUB3G input.",
           "summary": "Receive a 112-point spectrum from an RF Explorer 3G Combo",

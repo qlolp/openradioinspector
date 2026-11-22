@@ -398,12 +398,18 @@ public struct PlatformInterval: Codable, Equatable, Sendable {
 public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
     private struct Settings: Decodable, Equatable, Sendable {
         let adapter: String?
-        private enum Keys: CodingKey { case adapter }
-        init(adapter: String) { self.adapter = adapter }
+        let surveyStepHz: Int?
+        private enum Keys: CodingKey { case adapter, surveyStepHz }
+        init(adapter: String) { self.adapter = adapter; surveyStepHz = nil }
         init(from decoder: Decoder) throws {
             // Other adapters can store their own JSON. Keep those sessions browsable.
-            guard let fields = try? decoder.container(keyedBy: Keys.self) else { adapter = ""; return }
+            guard let fields = try? decoder.container(keyedBy: Keys.self) else {
+                adapter = ""
+                surveyStepHz = nil
+                return
+            }
             adapter = fields.contains(.adapter) ? (try? fields.decode(String.self, forKey: .adapter)) ?? "" : nil
+            surveyStepHz = try? fields.decode(Int.self, forKey: .surveyStepHz)
         }
     }
     private let settings: Settings?
@@ -437,6 +443,7 @@ public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
         if let adapter { return adapter == PlatformRFExplorerConfiguration.adapter }
         return device == PlatformRFExplorerConfiguration.device
     }
+    public var rfExplorerSurveyStepHz: Int? { isRFExplorer3G ? settings?.surveyStepHz : nil }
     public var isTinySAAnalyzer: Bool {
         guard isDbmAnalyzer else { return false }
         if let adapter { return adapter == "tinysa-serial" || adapter == "tinysa-sim" }
@@ -728,29 +735,50 @@ private struct StreamDraft: Encodable, Sendable {
     let settings: [String: PlatformSettingValue]?
 }
 
-/// Omitting both endpoints asks the core to follow the analyzer's current RF configuration.
+/// Without endpoints a single window follows the analyzer; a survey scans the active input's full range.
 public struct PlatformRFExplorerConfiguration: Equatable, Sendable {
     public static let device = "RF Explorer 3G Combo"
+    public static let surveySpacingHz = 10_000
     static let adapter = "rf-explorer-3g-serial"
+    static let spectrumFeature = "rf_explorer_3g_spectrum"
     public let port: String
-    public let startHz, stopHz: Int?
+    public let startHz, stopHz, surveyStepHz: Int?
 
-    public init(port: String, startHz: Int? = nil, stopHz: Int? = nil) throws {
+    public init(port: String, startHz: Int? = nil, stopHz: Int? = nil, surveyStepHz: Int? = nil) throws {
         let path = port.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty, !path.contains("://"), !path.contains("\0") else {
             throw PlatformError.invalidCommand("Выберите физический последовательный порт RF Explorer.")
         }
+        if let surveyStepHz, surveyStepHz != Self.surveySpacingHz {
+            throw PlatformError.invalidCommand("Для автообзора RF Explorer доступен шаг 10 кГц.")
+        }
         switch (startHz, stopHz) {
         case (nil, nil): break
         case let (start?, stop?) where start >= 15_000_000 && start < stop && stop <= 2_700_000_000
-            && (112_000...600_000_000).contains(stop - start)
-            && start.isMultiple(of: 1000) && stop.isMultiple(of: 1000): break
+            && start.isMultiple(of: 1_000) && stop.isMultiple(of: 1_000):
+            let span = stop - start
+            if let surveyStepHz {
+                guard span >= 1_110_000, span.isMultiple(of: surveyStepHz) else {
+                    throw PlatformError.invalidCommand("Укажите не менее 1,110 МГц для обзора. Разность границ должна быть кратна 10 кГц.")
+                }
+            } else if !(112_000...600_000_000).contains(span) {
+                throw PlatformError.invalidCommand("Одно окно RF Explorer должно охватывать от 0,112 до 600 МГц.")
+            }
         default:
-            throw PlatformError.invalidCommand("Диапазон RF Explorer — 15…2700 МГц, ширина 0,112…600 МГц. Обе границы задаются в целых кГц в пределах активного модуля.")
+            throw PlatformError.invalidCommand("Введите обе границы в пределах 15…2700 МГц с точностью до 1 кГц. Конец должен быть выше начала.")
         }
         self.port = path
         self.startHz = startHz
         self.stopHz = stopHz
+        self.surveyStepHz = surveyStepHz
+    }
+
+    public static func supportIssue(in features: Set<String>, survey: Bool) -> String? {
+        guard features.contains(spectrumFeature) else { return "Подключённое ядро не поддерживает RF Explorer 3G Combo." }
+        if survey && !features.contains("rf_explorer_10khz_survey") {
+            return "Для автообзора 10 кГц обновите подключённое ядро. На этом ядре доступно измерение в одном окне."
+        }
+        return nil
     }
 }
 
@@ -1024,12 +1052,13 @@ public final class PlatformClient: Sendable {
     }
 
     public func supportsRFExplorer3G() async throws -> Bool {
-        try await workbenchFeatures().contains("rf_explorer_3g_spectrum")
+        try await workbenchFeatures().contains(PlatformRFExplorerConfiguration.spectrumFeature)
     }
 
     public func createRFExplorerSession(_ configuration: PlatformRFExplorerConfiguration) async throws -> PlatformSession {
-        guard try await supportsRFExplorer3G() else {
-            throw PlatformError.invalidCommand("Подключённое ядро не поддерживает RF Explorer 3G Combo.")
+        if let issue = PlatformRFExplorerConfiguration.supportIssue(in: try await workbenchFeatures(),
+                                                                   survey: configuration.surveyStepHz != nil) {
+            throw PlatformError.invalidCommand(issue)
         }
         try Task.checkCancellation()
         var settings: [String: PlatformSettingValue] = [
@@ -1039,12 +1068,14 @@ public final class PlatformClient: Sendable {
             settings["start_hz"] = .integer(start)
             settings["stop_hz"] = .integer(stop)
         }
+        if let step = configuration.surveyStepHz { settings["survey_step_hz"] = .integer(step) }
         let device = PlatformRFExplorerConfiguration.device
         let analyzer = StreamDraft(device: device, role: "spectrum_analyzer", levelUnit: "dBm",
             port: configuration.port, capabilities: ["sweep", "waterfall"], settings: settings)
         let created: PlatformSession = try await post("/sessions", body: SessionDraft(name: device, streams: [analyzer]))
         guard !created.id.isEmpty, created.streams.count == 1, let stream = created.streams.first,
               !stream.id.isEmpty, stream.isDbmAnalyzer, stream.adapter == PlatformRFExplorerConfiguration.adapter,
+              stream.rfExplorerSurveyStepHz == configuration.surveyStepHz,
               PlatformExactID.same(stream.port, configuration.port) else {
             throw PlatformError.invalidResponse("Ядро вернуло неожиданный поток для RF Explorer.")
         }

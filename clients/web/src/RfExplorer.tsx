@@ -7,9 +7,44 @@ import { type Desk, message } from './useDesk';
 import type { Session, Sweep, WorkerStatus } from './types';
 import { encodePathSegment } from './wire';
 
-export function RfExplorerSettings({ readback }: { readback?: RfExplorerReadback }) {
+export function RfExplorerSettings({
+  readback,
+  frequencies,
+  showPassId = false,
+}: {
+  readback?: RfExplorerReadback;
+  frequencies: ArrayLike<number | bigint>;
+  showPassId?: boolean;
+}) {
+  const survey = readback?.survey;
   return (
     <dl className="status-list">
+      {survey && (
+        <>
+          <div>
+            <dt>{t('10 kHz survey')}</dt>
+            <dd>{t('Pass {pass} · segment {tile} of {tiles}', survey)}</dd>
+          </div>
+          <div>
+            <dt>{t('Planned survey range')}</dt>
+            <dd>
+              {hz(survey.start_hz)} – {hz(survey.stop_hz)}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Measured segment')}</dt>
+            <dd>
+              {hz(frequencies[0])} – {hz(frequencies[frequencies.length - 1])}
+            </dd>
+          </div>
+          {showPassId && (
+            <div>
+              <dt>{t('Pass ID')}</dt>
+              <dd className="mono break">{survey.pass_id}</dd>
+            </div>
+          )}
+        </>
+      )}
       <div>
         <dt>{t('Reported detector')}</dt>
         <dd>{readback?.detector ?? t('Unavailable')}</dd>
@@ -37,13 +72,21 @@ function NewSession({
 }) {
   const [name, setName] = useState('');
   const [port, setPort] = useState('');
-  const [customWindow, setCustomWindow] = useState(false);
+  const [selection, setSelection] = useState('follow');
   const [start, setStart] = useState('');
   const [stop, setStop] = useState('');
   const [error, setError] = useState('');
+  const supportsSurvey = desk.capabilities?.features.rf_explorer_10khz_survey === true;
+  const mode = supportsSurvey || selection === 'fixed' ? selection : 'follow';
+  const survey = mode === 'survey-module' || mode === 'survey-range';
+  const customWindow = mode === 'fixed' || mode === 'survey-range';
+  function chooseMode(next: string) {
+    setSelection(next);
+    setError('');
+  }
   function create() {
     try {
-      const body = rfExplorerSession(name, port, customWindow ? { start, stop } : undefined);
+      const body = rfExplorerSession(name, port, { survey, ...(customWindow && { start, stop }) });
       setError('');
       void desk.run(
         'Create session',
@@ -81,15 +124,27 @@ function NewSession({
             onChange={(e) => setPort(e.target.value)}
           />
         </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={customWindow}
-            onChange={(e) => setCustomWindow(e.target.checked)}
-          />
-          {t('Set a sweep window')}
-        </label>
-        {customWindow ? (
+        {supportsSurvey ? (
+          <label>
+            {t('Acquisition mode')}
+            <select value={mode} onChange={(e) => chooseMode(e.target.value)}>
+              <option value="follow">{t('Follow analyzer window')}</option>
+              <option value="fixed">{t('Set a sweep window')}</option>
+              <option value="survey-module">{t('10 kHz survey · full active module')}</option>
+              <option value="survey-range">{t('10 kHz survey · selected range')}</option>
+            </select>
+          </label>
+        ) : (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={customWindow}
+              onChange={(e) => chooseMode(e.target.checked ? 'fixed' : 'follow')}
+            />
+            {t('Set a sweep window')}
+          </label>
+        )}
+        {customWindow && (
           <div className="form-grid">
             <label>
               {t('Start frequency (Hz)')}
@@ -114,8 +169,23 @@ function NewSession({
               />
             </label>
           </div>
-        ) : (
+        )}
+        {mode === 'follow' && (
           <p className="muted">{t('Acquisition follows the active window on the analyzer.')}</p>
+        )}
+        {mode === 'survey-module' && (
+          <p className="muted">
+            {t(
+              'The analyzer reports the active module’s limits. Each pass measures this range one segment at a time.',
+            )}
+          </p>
+        )}
+        {mode === 'survey-range' && (
+          <p className="muted">
+            {t(
+              'Both endpoints are included. Enter multiples of 1,000 Hz with a span of at least 1.11 MHz in 10 kHz steps.',
+            )}
+          </p>
         )}
         {error && (
           <p className="error-text" role="alert">
@@ -150,6 +220,9 @@ function Acquisition({
   openOriginal: (sweep: Sweep) => void;
 }) {
   const [stream] = session.streams;
+  const surveyUnsupported =
+    stream.settings?.survey_step_hz === 10_000 &&
+    desk.capabilities?.features.rf_explorer_10khz_survey !== true;
   const path = '/sessions/' + encodePathSegment(session.id);
   const [worker, setWorker] = useState<WorkerStatus>();
   const [workerError, setWorkerError] = useState('');
@@ -240,6 +313,7 @@ function Acquisition({
     [desk.live.rows, session.id, stream.id],
   );
   const latest = rows.at(-1);
+  const survey = latest?.rf_explorer?.survey;
   const acquisitionError = workerError || worker?.last_error;
   return (
     <>
@@ -254,7 +328,11 @@ function Acquisition({
           <button
             className="primary"
             disabled={
-              desk.busy || !worker || worker.alive || !['draft', 'running'].includes(session.state)
+              desk.busy ||
+              surveyUnsupported ||
+              !worker ||
+              worker.alive ||
+              !['draft', 'running'].includes(session.state)
             }
             onClick={() => void command('start')}
           >
@@ -271,6 +349,11 @@ function Acquisition({
           </button>
         </div>
       </div>
+      {surveyUnsupported && (
+        <p className="muted">
+          {t('Starting this survey requires a core with 10 kHz survey support.')}
+        </p>
+      )}
       {acquisitionError && (
         <p className="error-text" role="alert">
           {t(acquisitionError)}
@@ -284,18 +367,30 @@ function Acquisition({
         >
           {latest && (
             <p className="muted">
+              {survey && t('Segment peak') + ' '}
               {hz(latest.peak.frequency_hz)} · {latest.peak.level} {latest.level_unit} ·{' '}
               {latest.original_point_count} {t('original points')}
             </p>
           )}
-          {latest && <RfExplorerSettings readback={latest.rf_explorer} />}
+          {latest && (
+            <RfExplorerSettings readback={latest.rf_explorer} frequencies={latest.frequencies_hz} />
+          )}
           <Spectrum
             sweep={latest}
             liveSources={{ rows, presentation: desk.live.presentation }}
             belowPlot={
               <>
-                <h3>{t('Waterfall')}</h3>
-                <Waterfall rows={rows} />
+                <h3>{t(survey ? 'Waterfall across the planned range' : 'Waterfall')}</h3>
+                {survey && (
+                  <p className="muted">
+                    {hz(survey.start_hz)} – {hz(survey.stop_hz)} ·{' '}
+                    {t('Unmeasured frequencies are black in each row.')}
+                  </p>
+                )}
+                <Waterfall
+                  rows={rows}
+                  band={survey && { low: survey.start_hz, high: survey.stop_hz }}
+                />
               </>
             }
           />

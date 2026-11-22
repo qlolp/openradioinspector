@@ -880,8 +880,9 @@ final class RemoteDualModel {
             guard !busy else { return }
             let scope = generation
             performStreamAction(stream) { client, sessionID in
-                guard try await client.supportsRFExplorer3G() else {
-                    throw PlatformError.invalidCommand("Подключённое ядро не поддерживает RF Explorer 3G Combo.")
+                if let issue = PlatformRFExplorerConfiguration.supportIssue(in: try await client.workbenchFeatures(),
+                                                                           survey: stream.rfExplorerSurveyStepHz != nil) {
+                    throw PlatformError.invalidCommand(issue)
                 }
                 return try await self.startRFExplorerWorker(client, sessionID: sessionID, stream: stream, scope: scope)
             }

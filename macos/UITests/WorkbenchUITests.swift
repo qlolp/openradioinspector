@@ -182,6 +182,36 @@ final class WorkbenchUITests: XCTestCase {
         XCTAssertFalse(app.buttons["preparation.create"].isEnabled)
         replace(app.textFields["preparation.start-mhz"], with: "88")
         XCTAssertTrue(app.buttons["preparation.create"].isEnabled)
+
+        app.buttons["Закрыть"].click()
+        app.buttons["workbench.settings"].click()
+        let open = app.buttons["Подключить приборы…"]
+        if !open.exists {
+            let triangle = app.disclosureTriangles["Сеанс и приборы"]
+            let toggle = triangle.exists ? triangle : app.staticTexts["Сеанс и приборы"]
+            XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+            toggle.click()
+        }
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        open.click()
+        choose("RF Explorer 3G Combo", in: app)
+        choose("Автообзор 10 кГц", in: app)
+        let start = app.textFields["rf-explorer.start-mhz"], stop = app.textFields["rf-explorer.stop-mhz"]
+        let hint = app.staticTexts["rf-explorer.port-hint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["rf-explorer.connect"].isEnabled)
+        XCTAssertFalse(start.exists)
+        XCTAssertFalse(stop.exists)
+        choose("Свои границы", in: app)
+        replace(start, with: "100")
+        replace(stop, with: "400")
+        XCTAssertEqual(start.value as? String, "100")
+        XCTAssertEqual(stop.value as? String, "400")
+        choose("Весь активный вход", in: app)
+        XCTAssertFalse(start.exists)
+        XCTAssertFalse(stop.exists)
+        replace(app.textFields["rf-explorer.port"], with: "/dev/cu.ui-fixture")
+        XCTAssertFalse(hint.exists)
     }
 
     @MainActor func testReplayFixtureCannotBePresentedAsLiveHardwarePreparation() throws {

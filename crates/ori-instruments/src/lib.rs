@@ -4,7 +4,9 @@ mod rf_explorer;
 mod settings;
 pub use provenance::{TinySaProvenanceContext, legacy_monitoring_settings};
 mod types;
-pub use rf_explorer::{RfExplorer, validate_rf_explorer_window};
+pub use rf_explorer::{
+    RfExplorer, validate_rf_explorer_survey_bounds, validate_rf_explorer_window,
+};
 pub use settings::setting_command;
 mod actor;
 mod ardv1;

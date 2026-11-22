@@ -1,5 +1,8 @@
 //! Receive-only RF Explorer 3G Combo Standard on a single Core-owned transport.
 mod protocol;
+mod survey;
+
+pub use survey::validate_rf_explorer_survey_bounds;
 
 use crate::{
     CancellationHandle, ExecutionCheck, InstrumentError, IoLimits, Result, SpectrumSample,
@@ -9,6 +12,7 @@ use protocol::{
     Configuration, Frame, MAX_HZ, MAX_SPAN_HZ, MIN_HZ, MIN_SPAN_HZ, next_frame, send, synchronize,
 };
 use serde_json::{Value, json};
+use survey::Survey;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 // Also stop when an always-readable stream supplies only unrelated frames.
@@ -38,11 +42,42 @@ pub fn validate_rf_explorer_window(window: Option<(u64, u64)>) -> Result<()> {
     Ok(())
 }
 
+enum Acquisition {
+    Window(Option<(u64, u64)>),
+    Survey {
+        requested: Option<(u64, u64)>,
+        position: Option<Survey>,
+    },
+}
+
+impl Acquisition {
+    fn prepare(&mut self, original: &Configuration) -> Result<()> {
+        if let Self::Survey {
+            requested,
+            position,
+        } = self
+        {
+            *position = Some(Survey::new(*requested, original)?);
+        }
+        if let Some(window) = self.window() {
+            validate_active_window(original, window)?;
+        }
+        Ok(())
+    }
+
+    fn window(&self) -> Option<(u64, u64)> {
+        match self {
+            Self::Window(window) => *window,
+            Self::Survey { position, .. } => position.as_ref().map(Survey::window),
+        }
+    }
+}
+
 /// A pushed stream of length-delimited sweeps. In follow-device mode the sole
 /// outgoing command is the C0 readback request.
 pub struct RfExplorer<T> {
     connection: Connection<T>,
-    requested: Option<(u64, u64)>,
+    acquisition: Acquisition,
     config: Option<Configuration>,
 }
 
@@ -51,7 +86,21 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
         validate_rf_explorer_window(window)?;
         Ok(Self {
             connection: Connection::new(io, limits)?,
-            requested: window,
+            acquisition: Acquisition::Window(window),
+            config: None,
+        })
+    }
+
+    /// Cycle over full 112-point windows at 10 kHz spacing on the verified active input.
+    /// Omit both bounds to use that board's reported frequency range.
+    pub fn new_survey(io: T, bounds: Option<(u64, u64)>, limits: IoLimits) -> Result<Self> {
+        validate_rf_explorer_survey_bounds(bounds)?;
+        Ok(Self {
+            connection: Connection::new(io, limits)?,
+            acquisition: Acquisition::Survey {
+                requested: bounds,
+                position: None,
+            },
             config: None,
         })
     }
@@ -86,30 +135,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
             return Ok(());
         }
         let limits = self.connection.limits.clone();
-        let requested = self.requested;
+        let acquisition = &mut self.acquisition;
         let mut config = self
             .connection
             .streaming(limits.text_timeout, async |io| {
                 send(io, b"#\x04C0", &limits).await?;
                 let original = read_profile(io, &limits).await?;
-                if let Some(window) = requested {
-                    validate_active_window(&original, window)?;
-                }
+                acquisition.prepare(&original)?;
                 Ok(original)
             })
             .await?;
-        if let Some(window) = requested
-            && window != config.window()
-        {
-            // A second physical request can wait for a second hardware sweep.
-            let cancel = self.cancellation_handle();
-            config = self
-                .connection
-                .streaming(limits.text_timeout, async |io| {
-                    tune_window(io, &limits, &cancel, &config, window).await
-                })
-                .await
-                .inspect_err(|_| self.connection.taint())?;
+        if let Some(window) = acquisition.window() {
+            tune_if_needed(&mut self.connection, &mut config, window).await?;
         }
         self.config = Some(config);
         Ok(())
@@ -127,7 +164,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
                 "RF Explorer identity and receive configuration required before acquisition".into(),
             )
         })?;
-        let requested = self.requested;
+        let (fixed_window, survey) = match &mut self.acquisition {
+            Acquisition::Window(window) => (*window, None),
+            Acquisition::Survey { position, .. } => (None, position.as_mut()),
+        };
+        if let Some(survey) = &survey {
+            tune_if_needed(&mut self.connection, config, survey.window()).await?;
+        }
+        let surveying = survey.is_some();
         let limits = self.connection.limits.clone();
         let (counts, interval) = self
             .connection
@@ -143,8 +187,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
                             }
                             return Ok((counts, interval));
                         }
+                        Frame::Configuration(updated) if surveying && updated != *config => {
+                            return Err(InstrumentError::UnsafeState(
+                                "RF Explorer receive configuration changed during the survey"
+                                    .into(),
+                            ));
+                        }
                         Frame::Configuration(updated) => {
-                            if requested.is_some_and(|window| {
+                            if fixed_window.is_some_and(|window| {
                                 updated.window() != window || !updated.same_board(config)
                             }) {
                                 return Err(InstrumentError::UnsafeState(
@@ -152,6 +202,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
                                 ));
                             }
                             *config = updated;
+                        }
+                        Frame::Detector(mode) if surveying && mode != config.detector => {
+                            return Err(InstrumentError::UnsafeState(
+                                "RF Explorer detector changed during the survey".into(),
+                            ));
                         }
                         Frame::Detector(mode) => config.detector = mode,
                         Frame::Reset => return Err(reset_error()),
@@ -161,6 +216,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
                 Err(missing_frame())
             })
             .await?;
+        let mut settings = config.settings();
+        if let Some(survey) = survey {
+            settings["survey"] = survey.settings();
+            survey.advance();
+        }
         Ok(SpectrumSample {
             kind: config.detector.kind(),
             frequencies_hz: (0..config.points as u64)
@@ -172,7 +232,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> RfExplorer<T> {
                 .collect(),
             level_unit: "dBm".into(),
             interval,
-            settings: config.settings(),
+            settings,
         })
     }
 
@@ -233,6 +293,25 @@ fn validate_active_window(original: &Configuration, window: (u64, u64)) -> Resul
         return Err(InstrumentError::InvalidRequest(
             "requested RF Explorer span cannot produce an exact integer-Hz bin step".into(),
         ));
+    }
+    Ok(())
+}
+
+async fn tune_if_needed<T: AsyncRead + AsyncWrite + Unpin + Send>(
+    connection: &mut Connection<T>,
+    config: &mut Configuration,
+    window: (u64, u64),
+) -> Result<()> {
+    if config.window() != window {
+        // Each physical tuning request has its own response deadline.
+        let limits = connection.limits.clone();
+        let cancel = connection.cancellation_handle();
+        *config = connection
+            .streaming(limits.text_timeout, async |io| {
+                tune_window(io, &limits, &cancel, config, window).await
+            })
+            .await
+            .inspect_err(|_| connection.taint())?;
     }
     Ok(())
 }

@@ -36,6 +36,40 @@ describe('display-only reduction', () => {
     const other = decimate({ ...sweep, settings: { ...settings, adapter: 'tinysa-serial' } }, 4);
     expect(other).not.toHaveProperty('rf_explorer');
   });
+  it('carries the archived survey pass and its planned range with a measured segment', () => {
+    const survey = {
+      start_hz: 200_000_000,
+      stop_hz: 202_230_000,
+      step_hz: 10_000,
+      pass: 3,
+      tile: 2,
+      tiles: 2,
+      pass_id: 'survey-run-3',
+    };
+    const source = {
+      ...sweep,
+      frequencies_hz: [201_120_000, 202_230_000],
+      levels: [-90, -65],
+      settings: { adapter: 'rf-explorer-3g-serial', survey: { ...survey, extra: 'private' } },
+    };
+    const plotted = decimate(source);
+    expect(plotted.rf_explorer?.survey).toEqual(survey);
+    expect(plotted.frequencies_hz).toEqual([201_120_000, 202_230_000]);
+    for (const change of [
+      { pass: 0 },
+      { tile: 0 },
+      { tile: 3 },
+      { tiles: 1.5 },
+      { pass_id: '' },
+      { stop_hz: 200_000_000 },
+      { step_hz: 1_000 },
+    ]) {
+      expect(
+        decimate({ ...source, settings: { ...source.settings, survey: { ...survey, ...change } } })
+          .rf_explorer?.survey,
+      ).toBeUndefined();
+    }
+  });
   it('keeps a one-point trace and rejects non-finite or mismatched raw arrays', () => {
     expect(decimate({ ...sweep, frequencies_hz: [100], levels: [-50] }, 4).levels).toEqual([-50]);
     expect(() => decimate({ ...sweep, levels: [NaN] }, 4)).toThrow();

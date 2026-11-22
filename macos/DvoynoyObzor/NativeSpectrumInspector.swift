@@ -90,8 +90,9 @@ struct NativeSpectrumInspector: View {
     private var timeline: NativeSpectrumTimeline { NativeSpectrumTimeline(displayed, window: window) }
     private var selected: PlatformSweep? { NativeSpectrumInspection.selectedSweep(selectedID, in: displayed) }
     private var fullRange: ClosedRange<Double> {
-        let first = Double(source.last?.frequenciesHz.first ?? 0)
-        return first...max(first + 1, Double(source.last?.frequenciesHz.last ?? 1))
+        let sweep = NativeSpectrumInspection.selectedSweep(selectedID, in: source)
+        let first = Double(sweep?.frequenciesHz.first ?? 0)
+        return first...max(first + 1, Double(sweep?.frequenciesHz.last ?? 1))
     }
     private var zoom: ClosedRange<Double>? {
         get { viewport.zoom }
@@ -109,11 +110,12 @@ struct NativeSpectrumInspector: View {
         let window = time.window
         let displayed = time.sweeps
         let selected = NativeSpectrumInspection.selectedSweep(selectedID, in: displayed)
+        let survey = rfExplorer ? NativeRFExplorerSurveyProgress(selected?.settings?["survey"]) : nil
         let bounds = inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels))
         VStack(alignment: .leading, spacing: 6) {
             NativeSpectrumViewportReader(viewport: viewport, fullRange: fullRange) { range in
                 HStack {
-                    NativeSpectrumRangeHeader(sweep: selected, range: range, rfExplorer: rfExplorer).layoutPriority(1)
+                    NativeSpectrumRangeHeader(sweep: selected, range: range, rfExplorer: rfExplorer, survey: survey).layoutPriority(1)
                     Spacer(minLength: 6)
                     if let bandPlanWorkspace {
                         NativeBandPlanButton(workspace: bandPlanWorkspace, range: source.isEmpty ? nil : range)
@@ -125,7 +127,7 @@ struct NativeSpectrumInspector: View {
                 Button("−") { magnify(2) }.accessibilityLabel("Уменьшить масштаб")
                 Button("←") { pan(-0.25) }.accessibilityLabel("Сдвинуть диапазон влево")
                 Button("→") { pan(0.25) }.accessibilityLabel("Сдвинуть диапазон вправо")
-                Button("Весь диапазон") { zoom = nil }
+                Button(survey == nil ? "Весь диапазон" : "Окно целиком") { zoom = nil }
                 Menu("Инструменты") {
                     Toggle("Трёхмерный водопад", isOn: $threeDimensional)
                     Toggle("Выделение полосы", isOn: $selectBand).disabled(threeDimensional)
@@ -461,16 +463,57 @@ struct NativeSpectrumViewportReader<Content: View>: View {
     var body: Content { content(viewport.zoom ?? fullRange) }
 }
 
+/// The core records the survey plan and the position of this individual sweep in that plan.
+struct NativeRFExplorerSurveyProgress: Equatable {
+    let startHz, stopHz, stepHz, pass, tile, tiles: Int
+    let passID: String
+
+    init?(_ setting: PlatformComparisonSetting?) {
+        guard case .object(let fields) = setting else { return nil }
+        func positiveInteger(_ key: String) -> Int? {
+            guard case .number(let value) = fields[key], let integer = Int(exactly: value), integer > 0 else { return nil }
+            return integer
+        }
+        guard let startHz = positiveInteger("start_hz"), let stopHz = positiveInteger("stop_hz"), startHz < stopHz,
+              let stepHz = positiveInteger("step_hz"), let pass = positiveInteger("pass"),
+              let tile = positiveInteger("tile"), let tiles = positiveInteger("tiles"), tile <= tiles,
+              case .string(let passID) = fields["pass_id"], !passID.isEmpty else { return nil }
+        self.startHz = startHz
+        self.stopHz = stopHz
+        self.stepHz = stepHz
+        self.pass = pass
+        self.tile = tile
+        self.tiles = tiles
+        self.passID = passID
+    }
+
+    var planLabel: String {
+        let step = stepHz.isMultiple(of: 1000) ? "\(stepHz / 1000) кГц" : "\(stepHz) Гц"
+        return "План обзора · \(NativeSpectrumInspection.frequency(Double(startHz))) — \(NativeSpectrumInspection.frequency(Double(stopHz))) · шаг \(step)"
+    }
+    var tileLabel: String { "Проход \(pass) · окно \(tile) из \(tiles)" }
+}
+
 struct NativeSpectrumRangeHeader: View {
     let sweep: PlatformSweep?
     let range: ClosedRange<Double>
     var rfExplorer = false
+    var survey: NativeRFExplorerSurveyProgress?
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(NativeSpectrumInspection.frequency(range.lowerBound)) — \(NativeSpectrumInspection.frequency(range.upperBound))")
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
-                .accessibilityIdentifier("spectrum.range")
-                .accessibilityValue(sweep?.id ?? "Нет исходника")
+            let visible = "\(NativeSpectrumInspection.frequency(range.lowerBound)) — \(NativeSpectrumInspection.frequency(range.upperBound))"
+            if let survey, let first = sweep?.frequenciesHz.first, let last = sweep?.frequenciesHz.last {
+                Text(survey.planLabel).font(.headline).accessibilityIdentifier("rf-explorer.survey-plan")
+                HStack(spacing: 5) {
+                    Text(survey.tileLabel).font(.callout).accessibilityIdentifier("rf-explorer.survey-progress")
+                    rangeText("· \(NativeSpectrumInspection.frequency(Double(first))) — \(NativeSpectrumInspection.frequency(Double(last)))")
+                }.help("ID прохода · \(survey.passID)")
+                if range.lowerBound != Double(first) || range.upperBound != Double(last) {
+                    Text("На графике · \(visible)").font(.caption)
+                }
+            } else {
+                rangeText(visible)
+            }
             if let sweep {
                 let count = sweep.frequenciesHz.count
                 let firstStep = count > 1 ? sweep.frequenciesHz[1] - sweep.frequenciesHz[0] : 0
@@ -486,22 +529,28 @@ struct NativeSpectrumRangeHeader: View {
             } else { Text("Нет сохранённых свипов").font(.caption) }
         }.textSelection(.enabled)
     }
+
+    private func rangeText(_ label: String) -> some View {
+        Text(label).font(.system(.callout, design: .monospaced, weight: .semibold))
+            .accessibilityIdentifier("spectrum.range").accessibilityValue(sweep?.id ?? "Нет исходника")
+    }
+
     static func acquisitionDetails(_ sweep: PlatformSweep, rfExplorer: Bool) -> String {
         let settings = sweep.settings ?? [:]
         if rfExplorer {
             let detector: String
             switch settings["detector"] {
-            case .string("normal"): detector = "Normal"
+            case .string("normal"): detector = "Normal (текущий уровень)"
             case .string("max"): detector = "Max"
             case .string("avg"): detector = "Average"
             case .string("overwrite"): detector = "Overwrite"
-            case .string("max_hold"): detector = "Max Hold"
+            case .string("max_hold"): detector = "Max Hold (удержанный максимум)"
             case .string("max_historical"): detector = "Max Historical"
             case .string(let value): detector = value
             default: detector = "не указан"
             }
             let rbw: String
-            if case .number(let hz) = settings["rbw_hz"], hz > 0 { rbw = String(format: "%.0f Гц", hz) }
+            if case .number(let hz) = settings["rbw_hz"], hz > 0 { rbw = String(format: "%.0f Гц по данным прибора", hz) }
             else { rbw = "не подтверждена" }
             let input: String
             switch settings["active_input"] {

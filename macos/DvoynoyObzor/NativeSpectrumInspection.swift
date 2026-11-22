@@ -102,7 +102,8 @@ struct NativeSpectrumTimeline {
 
 enum NativeSpectrumInspection {
     static func selectedSweep(_ id: PlatformExactID?, in sweeps: [PlatformSweep]) -> PlatformSweep? {
-        sweeps.first { $0.exactID == id } ?? sweeps.last
+        guard let id else { return sweeps.last }
+        return sweeps.first { $0.exactID == id } ?? sweeps.last
     }
 
     static func visibleBins(in sweep: PlatformSweep, range: ClosedRange<Double>) -> Range<Int> {

@@ -25,22 +25,38 @@ app identity, signing, Info.plist generation, and app bundle packaging.
 With the bundled Rust development core, first open **Подключение → Локальное
 ядро на этом Mac → Запустить локальное ядро**. Once connected, open
 **Сеанс и приборы → Подключить приборы…**.
-Select **RF Explorer 3G Combo** and choose its USB serial port on the computer
-running the live core. The local port menu lists the Mac's ports. For a remote
-core, type the port path on that host. The core must advertise
-`features.rf_explorer_3g_spectrum`.
+Select **RF Explorer 3G Combo**. For an automatic survey with 10 kHz between bins:
 
-**Подключить и начать приём** creates a spectrum session and starts its
-receiver at 500,000 baud. By default, it reads the range from the analyzer.
-To request a range on its active module, enable **Задать диапазон при подключении**
-and enter both endpoints in MHz with whole-kHz precision. For example,
-100 to 101.110 MHz spans 111 intervals of 10 kHz on a 112-point sweep.
-The plot shows the spacing from the received frequencies and the RBW, detector
-and active SMA input reported for the selected sweep.
+1. Choose **Автообзор 10 кГц**.
+2. Keep **Весь активный вход** to scan the full range reported by the active SMA
+   input. To survey **100–400 MHz**, choose **Свои границы** and enter **100**
+   and **400**. Both endpoints are included. The core calculates the windows.
+3. Enter the RF Explorer port on the computer running the core. For a local core,
+   **Выбрать порт → Обновить список** refreshes the Mac's port list after plugging
+   in the analyzer. Multiple USB serial names can refer to the same device.
+4. Click **Начать автообзор 10 кГц**. Each window is recorded as a separate sweep.
+   The core repeats the survey until you click **Завершить приём**.
+
+The spectrum header shows the planned range, pass number and window number,
+followed by the frequencies from the selected window. The detector and RBW come
+from the instrument readback. **Normal** shows current levels and **Max Hold**
+shows retained maxima. A 10 kHz bin spacing can have a different RBW.
+
+For repeated measurements in one window, choose **Окно прибора** to follow the
+current instrument settings or **Задать окно** to enter the endpoints in MHz
+with whole-kHz precision. Click **Подключить и начать приём**. Both modes use
+500,000 baud and require `features.rf_explorer_3g_spectrum`. Automatic surveys
+also require `features.rf_explorer_10khz_survey`.
 
 **Наблюдение** shows the spectrum and waterfall in dBm. **Завершить приём**
 stops this stream. Open **Архив** in the same session to find and reopen
 its recorded sweeps.
+
+Side-by-side development app bundles can set the Info.plist string
+`ORIDevelopmentArchiveNamespace` for their bundled Rust core. For example,
+`RFExplorerSurvey` selects `~/Library/Application Support/OpenRadioInspector/macOS-Development/Rust-RFExplorerSurvey`.
+The default directory is `macOS-Development/Rust`. Use 1–64 ASCII letters,
+digits, hyphens or underscores, starting with a letter or digit.
 
 ## Validation
 

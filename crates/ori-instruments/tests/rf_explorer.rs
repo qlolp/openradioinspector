@@ -13,6 +13,9 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
 
+#[path = "rf_explorer/survey.rs"]
+mod survey;
+
 const BANNER: &[u8] = b"RF Explorer 01.34 27-Apr-22 01.04.05\r\n";
 const MODEL: &[u8] = b"#C2-M:003,005,01.34\r\n";
 const CONFIG: &str =
@@ -88,6 +91,7 @@ async fn fragmented_frames_follow_device_and_preserve_raw_counts_detector_and_ti
     );
     assert_eq!(sample.frequencies_hz[111], 101_110_000);
     let settings = &sample.settings;
+    assert!(settings.get("survey").is_none());
     assert_eq!(settings["level_encoding"], "dBm = offset_db - u8 / 2");
     assert!(settings.get("wire_counts").is_none());
     assert_eq!(settings["device_identity"]["firmware"], "01.34");

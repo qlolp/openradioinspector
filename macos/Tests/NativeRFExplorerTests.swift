@@ -13,14 +13,16 @@ import SpektrKomandy
         private var acquiring = false
         private var holdSessionStart: Bool
         private var failNextWorker: Bool
+        let survey: Bool
         private var pendingStart: NativeNodeConnectionTests.Stub?
         var startIsPending: Bool { lock.withLock { pendingStart != nil } }
         var posted: [String] { lock.withLock { actions } }
         let timestamp = ISO8601DateFormatter().string(from: Date())
 
-        init(holdSessionStart: Bool = false, failNextWorker: Bool = false) {
+        init(holdSessionStart: Bool = false, failNextWorker: Bool = false, survey: Bool = false) {
             self.holdSessionStart = holdSessionStart
             self.failNextWorker = failNextWorker
+            self.survey = survey
         }
 
         func releaseSessionStart() throws {
@@ -33,9 +35,15 @@ import SpektrKomandy
         }
 
         private var sweep: [String: Any] {
-            ["id": "captured", "session_id": "rf", "stream_id": "source", "level_unit": "dBm",
+            var settings: [String: Any] = ["detector": survey ? "normal" : "max_hold",
+                "rbw_hz": survey ? 15_000 : 10_000, "active_input": "right"]
+            if survey {
+                settings["survey"] = ["start_hz": 100_000_000, "stop_hz": 400_000_000, "step_hz": 10_000,
+                    "pass": 2, "tile": 1, "tiles": 268, "pass_id": "run-2"] as [String: Any]
+            }
+            return ["id": "captured", "session_id": "rf", "stream_id": "source", "level_unit": "dBm",
              "interval": ["started_at": timestamp, "ended_at": timestamp],
-             "settings": ["detector": "max_hold", "rbw_hz": 10_000, "active_input": "right"],
+             "settings": settings,
              "frequencies_hz": (0..<112).map { 100_000_000 + $0 * 10_000 },
              "levels": (0..<112).map { -100.0 + Double($0 % 9) / 2 }]
         }
@@ -64,14 +72,17 @@ import SpektrKomandy
                     default: break
                     }
                 }
+                var streamSettings: [String: Any] = ["adapter": "rf-explorer-3g-serial"]
+                if survey { streamSettings["survey_step_hz"] = 10_000 }
                 let session: [String: Any] = ["id": "rf", "name": "RF Explorer", "state": running ? "running" : "draft",
                     "streams": [["id": "source", "device": "RF Explorer 3G Combo", "role": "spectrum_analyzer",
                         "level_unit": "dBm", "port": port, "capabilities": ["sweep","waterfall"],
-                        "state": acquiring ? "connected" : "disconnected", "settings": ["adapter": "rf-explorer-3g-serial"]]]]
+                        "state": acquiring ? "connected" : "disconnected", "settings": streamSettings]]]
                 let worker: [String: Any] = ["stream_id": "source", "state": acquiring ? "running" : "stopped", "alive": acquiring]
                 switch path {
                 case "/api/v1/capabilities":
-                    try stub.reply(["features": ["rf_explorer_3g_spectrum": true, "graceful_device_stop": true]])
+                    try stub.reply(["features": ["rf_explorer_3g_spectrum": true, "rf_explorer_10khz_survey": survey,
+                        "graceful_device_stop": true]])
                 case "/api/v1/sessions":
                     if stub.request.httpMethod == "POST" { try stub.reply(session) }
                     else { try stub.reply(created ? [session] : []) }
@@ -115,6 +126,65 @@ import SpektrKomandy
         await #expect(throws: CancellationError.self) { try await client.measurementCatalog() }
     }
 
+    @Test func formChoosesWholeInputOrBothMHzBoundsWithoutCarryingOverTheSurveyStep() throws {
+        var draft = NativeRFExplorerDraft()
+        #expect(draft.port.isEmpty)
+        #expect(throws: PlatformError.self) { try draft.configuration() }
+        draft.port = "/dev/cu.usbserial-fixture"
+        let follow = try PlatformRFExplorerConfiguration(port: draft.port)
+        #expect(try draft.configuration() == follow)
+        draft.mode = .survey
+        let full = try PlatformRFExplorerConfiguration(port: draft.port, surveyStepHz: 10_000)
+        #expect(try draft.configuration() == full)
+        draft.customSurveyRange = true
+        draft.startMHz = "100"
+        #expect(throws: PlatformError.self) { try draft.configuration() }
+        draft.stopMHz = "400"
+        let custom = try PlatformRFExplorerConfiguration(port: draft.port,
+            startHz: 100_000_000, stopHz: 400_000_000, surveyStepHz: 10_000)
+        #expect(try draft.configuration() == custom)
+        draft.customSurveyRange = false
+        #expect(try draft.configuration() == full)
+        draft.mode = .window
+        draft.stopMHz = "101,110"
+        let window = try PlatformRFExplorerConfiguration(port: draft.port, startHz: 100_000_000, stopHz: 101_110_000)
+        #expect(try draft.configuration() == window)
+        draft.mode = .instrument
+        #expect(try draft.configuration() == follow)
+    }
+
+    @Test @MainActor func surveyShowsRecordedPassAndTileBesidePlannedRangeAndReadbackRBW() async throws {
+        let core = Core(survey: true)
+        try await withConnectedCore(core) { model, _ in
+            let configuration = try PlatformRFExplorerConfiguration(port: core.port,
+                startHz: 100_000_000, stopHz: 400_000_000, surveyStepHz: 10_000)
+            let connected = await model.connectRFExplorer(configuration)
+            #expect(connected)
+            let sweep = try #require(model.displayInspectorSweeps.last)
+            let progress = try #require(NativeRFExplorerSurveyProgress(sweep.settings?["survey"]))
+            #expect(progress.startHz == 100_000_000 && progress.stopHz == 400_000_000 && progress.stepHz == 10_000)
+            #expect(progress.pass == 2 && progress.tile == 1 && progress.tiles == 268 && progress.passID == "run-2")
+            #expect(progress.tileLabel.contains("Проход 2") && progress.tileLabel.contains("окно 1 из 268"))
+            #expect(sweep.frequenciesHz.last == 101_110_000)
+            let description = NativeSpectrumRangeHeader.acquisitionDetails(sweep, rfExplorer: true)
+            #expect(description.contains("Normal") && description.contains("текущий уровень"))
+            #expect(description.contains("15000 Гц"))
+        }
+    }
+
+    @Test func malformedSurveyProgressNeverBecomesAPassOrTileLabel() {
+        let fields: [String: PlatformComparisonSetting] = ["start_hz": .number(100_000_000), "stop_hz": .number(400_000_000),
+            "step_hz": .number(10_000), "pass": .number(2), "tile": .number(1), "tiles": .number(268),
+            "pass_id": .string("run-2")]
+        #expect(NativeRFExplorerSurveyProgress(nil) == nil)
+        for (key, value): (String, PlatformComparisonSetting) in [("pass", .number(0)), ("tile", .number(269)),
+            ("tile", .number(1.5)), ("tiles", .boolean(true)), ("pass_id", .string(""))] {
+            var invalid = fields
+            invalid[key] = value
+            #expect(NativeRFExplorerSurveyProgress(.object(invalid)) == nil)
+        }
+    }
+
     @Test @MainActor func connectSelectsRFExplorerAndDisplaysPersistedBinsAfterStop() async throws {
         let core = Core()
         try await withConnectedCore(core) { model, client in
@@ -132,7 +202,8 @@ import SpektrKomandy
             #expect(model.displayWaterfall.rows.last == sweep.levels)
             #expect(sweep.frequenciesHz.first == 100_000_000 && sweep.frequenciesHz.last == 101_110_000)
             let description = NativeSpectrumRangeHeader.acquisitionDetails(sweep, rfExplorer: true)
-            #expect(description.contains("Max Hold"))
+            #expect(description.contains("Max Hold") && description.contains("удержанный максимум"))
+            #expect(NativeRFExplorerSurveyProgress(sweep.settings?["survey"]) == nil)
             #expect(description.contains("10000 Гц"))
             #expect(description.contains("правый вход SMA"))
             model.stopStream(model.analyzer)
