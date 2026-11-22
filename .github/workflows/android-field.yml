@@ -9,6 +9,9 @@ on:
       - 'tools/field_archive.py'
       - 'tools/field/android_release.py'
       - 'tools/field/android_upgrade.py'
+      - 'tools/field/android_notices.py'
+      - 'tools/release/native_notices.py'
+      - 'tests/test_android_notices.py'
       - 'tools/field/play_distribution.py'
       - 'tests/test_field_archive.py'
       - 'tests/test_android_distribution.py'
@@ -54,6 +57,12 @@ jobs:
         working-directory: clients/android
         run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:bundleRelease
 
+      - name: Regenerate the runtime notices from locked inputs without network resolution
+        working-directory: clients/android
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: ./gradlew --offline --no-daemon --rerun-tasks :app:collectFieldNotices
+
       - name: Verify signing, privacy, ABI and 16 KiB page alignment
         working-directory: clients/android
         run: |
@@ -86,7 +95,7 @@ jobs:
           FIELD_TEST_AAB: ${{ github.workspace }}/clients/android/app/build/outputs/bundle/release/app-release.aab
           FIELD_TEST_DEBUG_APK: ${{ github.workspace }}/clients/android/app/build/outputs/apk/debug/app-debug.apk
           FIELD_TEST_BUNDLETOOL: ${{ runner.temp }}/bundletool.jar
-        run: python3 -m unittest -v tests.test_android_distribution tests.android_distribution_integration
+        run: python3 -m unittest -v tests.test_android_distribution tests.test_android_notices tests.android_distribution_integration
 
       - name: Retain Field build for sideload and Play rehearsal
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

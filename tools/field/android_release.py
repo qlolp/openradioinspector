@@ -10,6 +10,7 @@ import sys
 import xml.etree.ElementTree as ET
 from zipfile import ZIP_STORED, ZipFile
 
+from tools.field import android_notices
 from tools.release.macos_rc_package import digest
 from tools.release.release_artifacts import keys, require, sha
 
@@ -85,6 +86,7 @@ def verify_bundle(path, jar, name, code):
         manifests = [n for n in bundle.namelist() if n.endswith("/manifest/AndroidManifest.xml")]
         require(manifests == ["base/manifest/AndroidManifest.xml"], "expected a self-contained base module")
     verify_native(path)
+    android_notices.verify_package(path, (android_notices.SOURCES / "inventory.sha256").read_text().strip())
 
 
 def check_apk_signer(report, play_pin):
@@ -95,7 +97,7 @@ def check_apk_signer(report, play_pin):
             "expected one modern APK signature from the pinned Play app-signing certificate")
 
 
-def verify_apk(path, name, code, play_pin):
+def verify_apk(path, name, code, play_pin, notice_digest=None):
     sdk = Path(os.environ["ANDROID_HOME"])
     tools = sdk / "build-tools" / SDK_TOOLS
     report = subprocess.check_output([tools / "apksigner", "verify", "--verbose", "--print-certs", path], text=True)
@@ -109,6 +111,9 @@ def verify_apk(path, name, code, play_pin):
                     if entry.filename.startswith("lib/") and entry.filename.endswith(".so")),
                 "compressed native library in the universal APK")
     verify_native(path)
+    if name is not None:
+        expected = notice_digest or (android_notices.SOURCES / "inventory.sha256").read_text().strip()
+        android_notices.verify_package(path, expected)
 
 
 def archive_fingerprint(path):

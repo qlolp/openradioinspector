@@ -12,6 +12,7 @@ import tempfile
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from tools.field import android_notices
 from tools.field.android_release import (PACKAGE, PLAY_URL, fingerprint, signing_pins, validate_receipt,
                                          verify_apk, version)
 from tools.release.macos_rc_package import digest, read_json, write_json
@@ -132,11 +133,14 @@ def review(build, candidate, out, play):
     verify_sums(candidate, {AAB})
     out.mkdir()
     build["aab_sha256"] = digest(candidate / AAB)
+    expected = subprocess.check_output(["git", "show", build["source_revision"] + ":clients/android/notices/inventory.sha256"],
+                                       text=True).strip()
+    build["notice_inventory_sha256"] = android_notices.verify_package(candidate / AAB, expected)
     pin, upload = signing_pins()
     play.check(build["version_code"], build["aab_sha256"], public=False)
     apk = out / apk_name(build)
     play.download(build["version_code"], pin, apk)
-    verify_apk(apk, build["version_name"], build["version_code"], pin)
+    verify_apk(apk, build["version_name"], build["version_code"], pin, build["notice_inventory_sha256"])
     collect_dispatch_file(out, RECEIPT, "FIELD_RECEIPT_B64", 16 * 1024)
     receipt = read_json(out / RECEIPT)
     build["apk_sha256"] = digest(apk)

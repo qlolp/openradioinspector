@@ -1,3 +1,5 @@
+import groovy.json.JsonOutput
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -6,6 +8,7 @@ plugins {
 
 val generatedJni = layout.buildDirectory.dir("generated/jniLibs")
 val policyAssets = layout.buildDirectory.dir("generated/fieldPolicyAssets")
+val noticeAssets = layout.buildDirectory.dir("generated/fieldNoticeAssets")
 val copyPrivacyPolicy by tasks.registering(Sync::class) {
     from(rootProject.file("../../docs/field/privacy.md"))
     into(policyAssets)
@@ -35,10 +38,33 @@ android {
     kotlinOptions { jvmTarget = "17" }
     sourceSets["main"].jniLibs.srcDir(generatedJni)
     sourceSets["main"].assets.srcDir(policyAssets)
+    sourceSets["main"].assets.srcDir(noticeAssets)
     packaging.jniLibs.useLegacyPackaging = false
 }
 
 val workspaceRoot = rootProject.file("../..")
+val runtimeClasspath = providers.provider { configurations.getByName("releaseRuntimeClasspath") }
+val collectFieldNotices by tasks.registering(Exec::class) {
+    description = "Collect notices from the locked Field binary's Rust and Android runtime inputs"
+    workingDir = workspaceRoot
+    inputs.files(runtimeClasspath)
+    inputs.files(fileTree(workspaceRoot) {
+        include("LICENSE", "Cargo.lock", "Cargo.toml", "crates/**/Cargo.toml", "rust-toolchain.toml",
+            "clients/android/notices/**", "tools/release/native_notices.py", "tools/field/android_notices.py")
+    })
+    outputs.dir(noticeAssets)
+    doFirst {
+        val artifacts = runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts
+        val paths = artifacts.associate { it.moduleVersion.id.toString() to it.file.absolutePath }
+        check(paths.size == artifacts.size) { "Ambiguous Android runtime artifact coordinates" }
+        val inventory = temporaryDir.resolve("resolved.json")
+        inventory.writeText(JsonOutput.toJson(paths))
+        val python = if (System.getProperty("os.name").startsWith("Windows")) "python" else "python3"
+        commandLine(python, "-m", "tools.field.android_notices", "collect", "--resolved", inventory,
+            "--assets", noticeAssets.get().asFile)
+        if (gradle.startParameter.isOffline) args("--offline")
+    }
+}
 val cargoTarget = layout.buildDirectory.dir("cargo")
 val androidNdk = androidComponents.sdkComponents.ndkDirectory
 val nativeField by tasks.registering(Exec::class) {
@@ -70,6 +96,7 @@ val nativeField by tasks.registering(Exec::class) {
         environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER", cc.absolutePath)
         environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS", "-C link-arg=-Wl,-z,max-page-size=16384")
         environment("CARGO_TARGET_DIR", cargoTarget.get().asFile.absolutePath)
+        if (gradle.startParameter.isOffline) environment("CARGO_NET_OFFLINE", "true")
     }
     doLast {
         copy {
@@ -78,7 +105,7 @@ val nativeField by tasks.registering(Exec::class) {
         }
     }
 }
-tasks.named("preBuild") { dependsOn(nativeField, copyPrivacyPolicy) }
+tasks.named("preBuild") { dependsOn(nativeField, copyPrivacyPolicy, collectFieldNotices) }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.05.01")

@@ -26,9 +26,10 @@ class RealPackageTests(unittest.TestCase):
                 run("keytool", "-genkeypair", "-alias", alias, "-keystore", keystore, "-storepass", "fixturepass",
                     "-keypass", "fixturepass", "-keyalg", "RSA", "-keysize", "2048", "-validity", "3650",
                     "-dname", "CN=Fixture " + alias)
-                cert = run("keytool", "-exportcert", "-alias", alias, "-keystore", keystore,
-                           "-storepass", "fixturepass").stdout
-                return keystore, hashlib.sha256(cert).hexdigest()
+                cert = scratch / (alias + ".der")
+                run("keytool", "-exportcert", "-alias", alias, "-keystore", keystore,
+                    "-storepass", "fixturepass", "-file", cert)
+                return keystore, hashlib.sha256(cert.read_bytes()).hexdigest()
             store, upload = make_key("upload")
             signing, play = make_key("play")
             env = dict(os.environ, FIELD_UPLOAD_KEYSTORE_B64=base64.b64encode(store.read_bytes()).decode(),
@@ -41,7 +42,7 @@ class RealPackageTests(unittest.TestCase):
                 run("bash", "clients/android/ci/sign-upload.sh", aab, scratch / "wrong.aab",
                     env=dict(env, FIELD_UPLOAD_CERT_SHA256=play), cwd=field.ROOT)
             apks = scratch / "universal.apks"
-            run("java", "-jar", jar, "build-apks", "--mode=universal", f"--bundle={signed}", f"--output={apks}",
+            run("java", f"-Djava.io.tmpdir={scratch}", "-jar", jar, "build-apks", "--mode=universal", f"--bundle={signed}", f"--output={apks}",
                 f"--ks={signing}", "--ks-pass=pass:fixturepass", "--ks-key-alias=play")
             with ZipFile(apks) as archive:
                 path = Path(archive.extract("universal.apk", scratch))
