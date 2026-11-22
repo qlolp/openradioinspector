@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-unit=openradioinspector-pi-rc.service
+unit=@PACKAGE@.service
 case "$1" in
     remove) deb-systemd-helper mask "$unit" >/dev/null ;;
     purge)

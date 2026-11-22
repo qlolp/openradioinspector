@@ -62,7 +62,8 @@
 
 | Профиль | Из чего состоит установленный узел | Владелец службы |
 |---|---|---|
-| Raspberry Pi 5, ARM64 | Debian-пакет с серийной сборкой ядра, supervisor и встроенным WebUI. Первый запуск готовит архив на диске данных. | systemd запускает supervisor от пользователя службы и ждёт готовности. [Unit](../packaging/pi/rc/openradioinspector-pi-rc.service) · [Установка](pi-rc1.md) |
+| Raspberry Pi 5, ARM64 | Debian-пакет с серийной сборкой ядра, supervisor и встроенным WebUI. Первый запуск готовит архив на диске данных. | systemd запускает supervisor от пользователя службы и ждёт готовности. [Unit](../packaging/debian/templates/monitoring.service) · [Установка](pi-rc1.md) |
+| Debian 12 и 13, x86-64 | Пакет `openradioinspector-linux` с ядром для Debian 12 ABI, supervisor и локальным WebUI. | Служба `openradioinspector-linux.service` работает от `ori-linux` с доступом к последовательным портам через `dialout`. [Установка и откат](debian-amd64.md) |
 | Windows 11 x64 | Пользовательский NSIS с Tauri, офлайн-установщиком WebView2 и двумя Rust-бинарниками. Локальный узел и подключение к удалённому узлу выбираются отдельно. | Supervisor владеет локальным ядром. Автозапуск при входе регистрируется отдельным действием. [Сборка встроенного узла](../tools/release/prepare_windows_node.py) · [Установленный пульт](windows-standalone-rc.md) |
 | macOS arm64 | DMG с приложением SwiftUI и закреплёнными ядром и supervisor. В RC1 включён последовательный порт. Отдельный RC2 добавляет явный выбор аудиовхода и разрешение macOS на захват. | Пользовательский LaunchAgent управляет supervisor. Идентичность комплекта привязана к профилю, SHA исходников и хешам helper. [Сборщик](../packaging/macos/build_personal_rc.py) · [RC1](macos-personal-rc.md) · [RC2 с аудио](macos-audio-candidate.md) |
 

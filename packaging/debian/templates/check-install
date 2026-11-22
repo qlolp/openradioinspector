@@ -1,0 +1,11 @@
+#!/bin/sh
+# Inspect the package, executables and running supervisor without opening a device.
+set -eu
+cd /usr/lib/@PACKAGE@
+dpkg-query --show --showformat='${binary:Package} ${Version} ${Architecture}\n' @PACKAGE@
+sha256sum --strict --check components.sha256
+systemctl is-active @PACKAGE@.service
+if [ "$(id -u)" -eq 0 ]; then
+    exec runuser -u @SERVICE_USER@ -- ./ori-supervisor status /var/lib/@PACKAGE@
+fi
+exec ./ori-supervisor status /var/lib/@PACKAGE@

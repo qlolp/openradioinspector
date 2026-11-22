@@ -1,0 +1,131 @@
+name: Debian amd64 package
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  build:
+    name: Build Debian amd64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_REVISION }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.13.0'
+      - name: Build the two native executables and embedded WebUI on Debian 12
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          test "$(uname -m)" = x86_64
+          node_dir=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --platform linux/amd64 \
+            -v "$GITHUB_WORKSPACE:/src" -v "$node_dir:/opt/ori-node:ro" -w /src \
+            -e RUSTUP_TOOLCHAIN=1.99.1 -e CARGO_BUILD_JOBS=3 \
+            rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c \
+            bash -euc '
+              export PATH="/opt/ori-node/bin:$PATH"
+              . /etc/os-release
+              test "$ID/$VERSION_ID/$(dpkg --print-architecture)" = debian/12/amd64
+              git config --global --add safe.directory /src
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake python3
+              npm ci --prefix clients/web --no-audit --no-fund
+              python3 packaging/pi/build_rc.py --platform linux-amd64 --distribution \
+                --output-dir build/linux-amd64/release --rehearsal-dir build/linux-amd64/rehearsal
+            '
+      - name: Save the distribution package with its manifest and SHA-256
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openradioinspector-linux-amd64-${{ env.SOURCE_REVISION }}-${{ github.run_attempt }}
+          path: build/linux-amd64/release/*
+          if-no-files-found: error
+          retention-days: 90
+      - name: Save the preceding private RC for the installation tests
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openradioinspector-linux-amd64-rehearsal-${{ env.SOURCE_REVISION }}-${{ github.run_attempt }}
+          path: build/linux-amd64/rehearsal/*
+          if-no-files-found: error
+          retention-days: 7
+
+  install:
+    name: Install on Debian ${{ matrix.version }} amd64
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: '12'
+            image: debian:bookworm@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
+          - version: '13'
+            image: debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_REVISION }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: openradioinspector-linux-amd64-${{ env.SOURCE_REVISION }}-${{ github.run_attempt }}
+          path: build/linux-amd64/release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: openradioinspector-linux-amd64-rehearsal-${{ env.SOURCE_REVISION }}-${{ github.run_attempt }}
+          path: build/linux-amd64/rehearsal
+      - name: Boot Debian with systemd and exercise the installed service offline
+        env:
+          DEBIAN_BASE: ${{ matrix.image }}
+          DEBIAN_VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          test "$(uname -m)" = x86_64
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends systemd-container
+          image=$(docker build -q --build-arg DEBIAN_BASE="$DEBIAN_BASE" - < packaging/debian/ci-systemd.Dockerfile)
+          guest="$RUNNER_TEMP/ori-debian-root"
+          reports="$RUNNER_TEMP/ori-debian-reports"
+          machine="ori-debian-$DEBIAN_VERSION"
+          mkdir "$guest" "$reports"
+          cid=$(docker create "$image")
+          docker export "$cid" | sudo tar --numeric-owner -C "$guest" -xpf -
+          docker rm "$cid"
+          trap 'sudo journalctl -u "$machine.service" --no-pager -n 60; sudo systemctl stop "$machine.service"' EXIT
+          sudo systemd-run --unit="$machine" -p Delegate=yes -p TimeoutStartSec=150s \
+            --service-type=notify /usr/bin/systemd-nspawn --quiet --keep-unit --settings=no \
+            --machine="$machine" --directory="$guest" --private-users=no --private-network \
+            --bind-ro="$GITHUB_WORKSPACE:/src" --bind="$reports:/proof" \
+            --link-journal=no --notify-ready=yes --boot
+          sudo systemd-run --machine="$machine" --wait --pipe --collect /bin/bash \
+            /src/packaging/pi/test-installed.sh /src/build/linux-amd64/rehearsal \
+            /src/build/linux-amd64/release /proof/result
+          python3 - "$reports/result/environment.json" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1]) as source:
+              proof = json.load(source)
+          assert proof['os_version'] == os.environ['DEBIAN_VERSION']
+          assert proof['source_revision'] == os.environ['SOURCE_REVISION']
+          PY
+      - name: Save the native offline installation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openradioinspector-linux-amd64-proof-debian${{ matrix.version }}-${{ env.SOURCE_REVISION }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ori-debian-reports/result/
+          if-no-files-found: warn
+          retention-days: 90

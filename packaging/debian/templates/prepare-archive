@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+db=/var/lib/@PACKAGE@/sessions.sqlite3
+# Run under the service UID. Existing archives keep their format.
+if [ ! -e "$db" ] && [ ! -L "$db" ]; then
+    exec /usr/lib/@PACKAGE@/ori-core archive-init-compact "$db"
+fi

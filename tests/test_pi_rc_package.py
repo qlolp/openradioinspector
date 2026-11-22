@@ -1,6 +1,9 @@
 import importlib.util
+import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -39,7 +42,8 @@ class PiReleaseTests(unittest.TestCase):
             for relative in ['clients/web/public/untracked.css', 'clients/web/public/ignored.csv',
                              'clients/web/public/node_modules/app.js', 'clients/web/.env.local',
                              'clients/web/src/ignored.csv', 'radioinspector/web/static/unknown.js',
-                             'crates/ori-extra/src/lib.rs', '.cargo/config.toml']:
+                             'crates/ori-extra/src/lib.rs', '.cargo/config.toml',
+                             'packaging/debian/templates/extra.csv', 'docs/debian-amd64.md']:
                 with self.subTest(relative=relative):
                     path = root / relative
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +61,80 @@ class PiReleaseTests(unittest.TestCase):
                        ELF + '(RUNPATH) [/opt/build]\n', ELF.replace('/lib/ld-linux-aarch64', '/opt/out/ld-linux-aarch64')):
             with self.subTest(output=output), patch.object(package, 'capture', return_value=output), self.assertRaises(ValueError):
                 package.inspect_elf(Path('ori-core'))
+
+    def test_amd64_uses_its_own_interpreter_libraries_and_debian_12_symbol_ceiling(self):
+        amd64 = ELF.replace('AArch64', 'Advanced Micro Devices X86-64').replace(
+            '/lib/ld-linux-aarch64.so.1', '/lib64/ld-linux-x86-64.so.2')
+        relr = amd64 + '  Name: GLIBC_ABI_DT_RELR\n'
+        with patch.object(package, 'capture', return_value=relr):
+            self.assertEqual(package.inspect_elf(Path('core'), package.AMD64)['highest_required_glibc_symbol'], '2.36')
+            with self.assertRaises(ValueError):
+                package.inspect_elf(Path('core'), package.PI)
+        for invalid in (ELF, amd64.replace('/lib64/', '/usr/local/lib64/'), amd64.replace('2.34', '2.37'),
+                        amd64.replace('little endian', 'big endian'), amd64.replace('ELF64', 'ELF32'),
+                        amd64 + ' (NEEDED) Shared library: [ld-linux-aarch64.so.1]',
+                        amd64 + ' Name: GLIBC_PRIVATE', amd64 + ' (RPATH) [/opt/lib]'):
+            with self.subTest(invalid=invalid), patch.object(package, 'capture', return_value=invalid):
+                with self.assertRaisesRegex(ValueError, 'amd64 Debian 12'):
+                    package.inspect_elf(Path('core'), package.AMD64)
+
+    def test_amd64_rejects_crossed_build_identity(self):
+        source = 'b' * 40
+        core = dict(component='ori-core', target_arch='x86_64', target_os='linux', version='0.1.0',
+                    source_revision=source, features={'serial': True, 'audio': False}, sqlite_version='3.54.1')
+        for field, wrong in [('target_arch', 'aarch64'), ('target_os', 'windows'), ('source_revision', 'a' * 40),
+                             ('component', 'ori-supervisor'), ('features', {'serial': False, 'audio': False})]:
+            with self.subTest(field=field), patch.object(package, 'inspect_elf', return_value={}), \
+                    patch.object(package, 'capture', return_value=json.dumps(dict(core, **{field: wrong}))):
+                with self.assertRaises(ValueError):
+                    package.inventory_components(Path('bin'), source, package.AMD64)
+
+    @unittest.skipUnless(shutil.which('dpkg-deb'), 'requires Debian package tools')
+    def test_both_packages_stage_their_own_unit_config_and_maintainer_scripts(self):
+        profiles = [(package.PI, 'openradioinspector-pi-rc', 'ori-pi-rc', 'arm64'),
+                    (package.AMD64, 'openradioinspector-linux', 'ori-linux', 'amd64')]
+        for profile, name, user, arch in profiles:
+            with self.subTest(arch=arch), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                stage = root / 'stage'
+                package.stage_service(stage, profile)
+                doc = stage / 'usr/share/doc' / name
+                doc.mkdir(parents=True)
+                (doc / 'README.md').write_text('test fixture')
+                products = root / 'out'
+                info = dict(release_version='0.4.0', target=profile.target, package=name, debian_architecture=arch)
+                package.assemble(stage, products, 1, os.environ.copy(), info, profile)
+                deb = products / f'{name}_0.4.0-1_{arch}.deb'
+                self.assertEqual({p.name for p in products.iterdir()}, {deb.name, 'SHA256SUMS', 'release.json', 'README.md'})
+                for line in (products / 'SHA256SUMS').read_text().splitlines():
+                    sha, file = line.split('  ')
+                    self.assertEqual(hashlib.sha256((products / file).read_bytes()).hexdigest(), sha)
+                for field, expected in [('Package', name), ('Architecture', arch), ('Version', '0.4.0-1')]:
+                    self.assertEqual(subprocess.check_output(['dpkg-deb', '-f', deb, field], text=True).strip(), expected)
+                installed = root / 'extracted'
+                subprocess.run(['dpkg-deb', '-R', deb, installed], check=True)
+                unit = (installed / 'usr/lib/systemd/system' / f'{name}.service').read_text()
+                self.assertIn(f'User={user}\nGroup={user}\nSupplementaryGroups=dialout\n', unit)
+                self.assertIn(f'StateDirectory={name}\nStateDirectoryMode=0700\n', unit)
+                self.assertIn(f'/usr/lib/{name}/ori-supervisor run /etc/{name}/supervisor.json', unit)
+                self.assertIn(f'u {user} ', (installed / 'usr/lib/sysusers.d' / f'{name}.conf').read_text())
+                config = json.loads((installed / profile.config).read_text())
+                self.assertEqual(config['data_directory'], '/var/lib/' + name)
+                self.assertEqual(config['backend']['program'], f'/usr/lib/{name}/ori-core')
+                self.assertIn('--allow-serial', config['backend']['args'])
+                self.assertEqual(config['backend']['control_addr'], '127.0.0.1:8770')
+                self.assertEqual((installed / 'DEBIAN/conffiles').read_text(), f'/etc/{name}/supervisor.json\n')
+                for script in ('postinst', 'prerm', 'postrm'):
+                    maintainer = installed / 'DEBIAN' / script
+                    self.assertIn(f'{name}.service', maintainer.read_text())
+                    self.assertTrue(os.access(maintainer, os.X_OK))
+                for script in ('prepare-archive', 'wait-ready', 'check-install'):
+                    path = installed / profile.lib / script
+                    self.assertTrue(os.access(path, os.X_OK))
+                    self.assertIn(f'/var/lib/{name}', path.read_text())
+                self.assertEqual((installed / profile.doc / 'release.json').read_bytes(),
+                                 (products / 'release.json').read_bytes())
+                self.assertEqual(json.loads((products / 'release.json').read_text()), dict(info, debian_version='0.4.0-1'))
 
     def test_release_refuses_a_different_statically_linked_sqlite_engine(self):
         source = 'a' * 40
