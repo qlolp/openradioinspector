@@ -79,7 +79,15 @@ pub(crate) async fn run(context: &Context, session: &Value) -> SessionResult<Val
                     "Исходный поток отсутствует в сеансе",
                 )
             })?;
-        if definition["role"] != "spectrum_analyzer" || definition["level_unit"] != "dBm" {
+        let settings = &sweep["settings"];
+        let rf_explorer = definition["settings"]["adapter"] == "rf-explorer-3g-serial"
+            || settings["adapter"] == "rf-explorer-3g-serial";
+        if definition["role"] != "spectrum_analyzer"
+            || definition["level_unit"] != "dBm"
+            || (rf_explorer
+                && (settings["detector"] != "normal"
+                    || settings["artifact_kind"] != "raw_spectrum"))
+        {
             context.current_state()?.cursor = *sequence;
             continue;
         }

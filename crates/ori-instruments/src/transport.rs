@@ -81,7 +81,7 @@ impl Drop for ExecutionScope {
         *slot = self.previous.take();
     }
 }
-struct CheckedIo<T> {
+pub(crate) struct CheckedIo<T> {
     inner: T,
     flags: Arc<Flags>,
 }
@@ -270,6 +270,31 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
             Ok(result) => result.map_err(InstrumentError::Io),
             Err(_) => Err(InstrumentError::Timeout),
         }
+    }
+    /// One bounded operation on a continuously streaming protocol. Commands
+    /// and incoming data may interleave, so no input is flushed or prefetched.
+    pub(crate) async fn streaming<R>(
+        &mut self,
+        deadline: Duration,
+        operation: impl AsyncFnOnce(&mut CheckedIo<T>) -> Result<R>,
+    ) -> Result<R> {
+        let guard = self.begin()?;
+        let cancel = self.cancellation_handle();
+        let result = tokio::select! { biased;
+            _ = cancel.cancelled() => return Err(InstrumentError::Cancelled),
+            result = tokio::time::timeout(deadline, operation(&mut self.io)) =>
+                result.map_err(|_| InstrumentError::Timeout)?,
+        };
+        let value = result.map_err(|error| match error {
+            InstrumentError::Io(error) => instrument_io(error),
+            other => other,
+        })?;
+        self.flags.authorize()?;
+        if cancel.is_cancelled() {
+            return Err(InstrumentError::Cancelled);
+        }
+        guard.complete();
+        Ok(value)
     }
     async fn clean_input(&mut self, fresh_identity_query: bool) -> Result<bool> {
         if !self.stash.is_empty() {

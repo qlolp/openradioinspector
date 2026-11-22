@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Api, ResourceScope } from './api';
+import { standaloneRfExplorer } from './rf-explorer';
 import { LiveStore, type LiveCheckpoint } from './live';
 import { HealthReceipts, type HealthCheckpoint } from './health';
 import type { Connection } from './transport';
@@ -52,7 +53,7 @@ const readyAction = {
   text: 'Receive-only workspace · core owns devices and archive',
 };
 
-export function useDesk(transport: Connection) {
+export function useDesk(transport: Connection, rfSessionId?: string) {
   const api = useMemo(() => new Api(transport), [transport]);
   const healthReceipts = useMemo(
     () => new HealthReceipts(checkpoints.get(transport)?.health),
@@ -96,11 +97,22 @@ export function useDesk(transport: Connection) {
     projectAfter = useRef('');
   const project = guard?.project;
   const scopeProject = useRef(restored.projectId);
+  const rfSessions = useMemo(() => sessions.filter(standaloneRfExplorer), [sessions]);
+  const rfSession = rfSessions.find((s) => s.id === rfSessionId) ?? rfSessions.at(-1);
+  const rfActive =
+    rfSessionId !== undefined && capabilities?.features.rf_explorer_3g_spectrum === true;
+  const rfMode = useRef(rfActive);
+  rfMode.current = rfActive;
+  const requestedRf = useRef(rfSessionId);
+  requestedRf.current = rfSessionId;
+  const sessionsRead = useRef(0);
 
   const reloadSessions = useCallback(async () => {
     const epoch = connectionEpoch.current;
+    const receipt = ++sessionsRead.current;
     const list = await api.get<Session[]>('/sessions');
-    if (mounted.current && connectionEpoch.current === epoch) setSessions(list);
+    if (mounted.current && connectionEpoch.current === epoch && receipt === sessionsRead.current)
+      setSessions(list);
   }, [api]);
 
   const loadProjects = useCallback(
@@ -131,7 +143,7 @@ export function useDesk(transport: Connection) {
     ) => {
       const id = selection.current,
         ticket = currentScope.current;
-      if (!id || !ticket || ticket.signal.aborted) return;
+      if (rfMode.current || !id || !ticket || ticket.signal.aborted) return;
       const valid = () =>
         scope.current.current(ticket.generation) && selection.current === id && mounted.current;
       const calls: Promise<void>[] = [];
@@ -168,7 +180,7 @@ export function useDesk(transport: Connection) {
     resyncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const seed = useCallback(
     async (p: Project, searchScope?: SearchStatus, signal?: AbortSignal) => {
-      if (selection.current !== p.id || !searchScope) return;
+      if (rfMode.current || selection.current !== p.id || !searchScope) return;
       const sid =
         searchScope.active && searchScope.session_id ? searchScope.session_id : p.active_session_id;
       const stream =
@@ -187,7 +199,8 @@ export function useDesk(transport: Connection) {
           signal,
         ),
       ]);
-      if (!signal?.aborted && selection.current === p.id) liveStore.seed(sweeps, observations);
+      if (!signal?.aborted && !rfMode.current && selection.current === p.id)
+        liveStore.seed(sweeps, observations);
     },
     [api, liveStore],
   );
@@ -228,8 +241,12 @@ export function useDesk(transport: Connection) {
         healthReceipts.acknowledgeArchive(value);
         setConnectionVersion((version) => version + 1);
         setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
+        if (rfMode.current) {
+          ++sessionsRead.current;
+          setSessions([]);
+        }
         const p = projectRef.current;
-        if (p) {
+        if (p && !rfMode.current) {
           try {
             await seed(p, searchRef.current, currentScope.current?.signal);
           } catch (error) {
@@ -298,17 +315,32 @@ export function useDesk(transport: Connection) {
         setConnectionVersion((version) => version + 1);
         setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
       }
-      await loadProjects();
+      const wantsRf = () =>
+        requestedRf.current !== undefined && c.features.rf_explorer_3g_spectrum === true;
+      if (wantsRf()) {
+        const candidates = s.filter(standaloneRfExplorer);
+        const selected =
+          candidates.find((item) => item.id === requestedRf.current) ?? candidates.at(-1);
+        if (selected) liveStore.scope(selected.id, selected.streams[0].id, '');
+        else liveStore.selectProject(false);
+      }
+      if (c.features.monitoring_projects === false) {
+        selection.current = '';
+        setProjectId('');
+        setProjects([]);
+      } else {
+        await loadProjects();
+      }
       // Establish the current selected scope before replay, including a source
       // search/session transition made by another operator while disconnected.
       const id = selection.current;
-      if (resume && id) {
+      if (resume && id && !wantsRf()) {
         const [status, search] = await Promise.all([
           api.project<GuardStatus>(id, 'status'),
           api.project<SearchStatus>(id, 'search/status'),
         ]);
         if (!mounted.current || connectionEpoch.current !== epoch) return;
-        if (selection.current === id) {
+        if (selection.current === id && !rfMode.current) {
           setGuard(status);
           setSearch(search);
           const p = status.project;
@@ -355,11 +387,19 @@ export function useDesk(transport: Connection) {
       });
   }, [connected, boot]);
 
+  const rfId = rfSession?.id;
+  const rfStream = rfSession?.streams[0].id;
   useLayoutEffect(() => {
+    if (rfActive) {
+      scopeProject.current = undefined;
+      if (rfId && rfStream) liveStore.scope(rfId, rfStream, '');
+      else liveStore.selectProject(false);
+      return;
+    }
     if (scopeProject.current === projectId) return;
     scopeProject.current = projectId;
     liveStore.selectProject(Boolean(projectId));
-  }, [projectId, liveStore]);
+  }, [projectId, liveStore, rfActive, rfId, rfStream]);
 
   useEffect(() => {
     currentScope.current = scope.current.next();
@@ -371,7 +411,34 @@ export function useDesk(transport: Connection) {
     setSearch(undefined);
     save('project', projectId);
     if (connected) void refresh();
-  }, [projectId, connectionVersion, connected, refresh, liveStore]);
+  }, [projectId, connectionVersion, connected, refresh, liveStore, rfActive]);
+
+  useEffect(() => {
+    if (!rfActive || !rfId || !rfStream || !liveStore.needsSeed()) return;
+    const controller = new AbortController();
+    void api
+      .get<Sweep[]>(
+        '/sessions/' +
+          encodePathSegment(rfId) +
+          '/sweeps?' +
+          new URLSearchParams({ stream_id: rfStream, limit: '1' }),
+        controller.signal,
+      )
+      .then((sweeps) => {
+        if (!controller.signal.aborted) liveStore.seed(sweeps, []);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setAction({ state: 'Error', text: message(error) });
+      });
+    return () => controller.abort();
+  }, [api, liveStore, rfActive, rfId, rfStream, connectionVersion]);
+
+  useEffect(() => {
+    if (rfActive)
+      void reloadSessions().catch((error) => {
+        if (mounted.current && rfMode.current) setAction({ state: 'Error', text: message(error) });
+      });
+  }, [rfActive, reloadSessions, connectionVersion]);
 
   useEffect(() => {
     if (!project || !search || project.id !== projectId) return;
@@ -472,10 +539,16 @@ export function useDesk(transport: Connection) {
     let invalidationTimer: ReturnType<typeof setTimeout> | undefined;
     const invalidations = new Set<string>();
     liveStore.onInvalidate = (resources) => {
-      for (const resource of resources) if (resource !== 'sessions') invalidations.add(resource);
+      for (const resource of resources)
+        if (resource !== 'sessions' || rfMode.current) invalidations.add(resource);
       if (invalidationTimer) return;
       invalidationTimer = setTimeout(() => {
         invalidationTimer = undefined;
+        if (invalidations.delete('sessions') && rfMode.current)
+          void reloadSessions().catch((error) => {
+            if (mounted.current && rfMode.current)
+              setAction({ state: 'Error', text: message(error) });
+          });
         void refresh([...invalidations]);
         invalidations.clear();
       }, 500);
@@ -495,7 +568,7 @@ export function useDesk(transport: Connection) {
       liveStore.onGap = () => {};
       liveStore.onInvalidate = () => {};
     };
-  }, [connected, api, liveStore, refresh, resync, healthReceipts]);
+  }, [connected, api, liveStore, refresh, resync, healthReceipts, reloadSessions]);
 
   const run = useCallback(
     async <T>(
@@ -630,6 +703,9 @@ export function useDesk(transport: Connection) {
     setProjectId,
     projects,
     sessions,
+    rfSessions,
+    rfSession,
+    rfActive,
     guard,
     preflight,
     storage,

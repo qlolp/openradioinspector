@@ -348,9 +348,9 @@ impl Core {
             .map(Archive::domain_coordinator)
             .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(())));
         let (shutdown, _) = watch::channel(false);
-        let devices = archive
-            .as_ref()
-            .map(|archive| devices::DeviceManager::new(archive.clone(), config.devices.clone()));
+        let devices = archive.as_ref().map(|archive| {
+            devices::DeviceManager::new(archive.clone(), config.devices.clone(), config.mode)
+        });
         let audio = if archive.is_some() {
             audio::Audio::open(&config.audio)?
         } else {

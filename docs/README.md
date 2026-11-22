@@ -6,6 +6,7 @@
 
 | Задача | С чего начать |
 |---|---|
+| Снять спектр RF Explorer 3G Combo | [Выбор входа, диапазона и шага, просмотр в архиве](rf-explorer-3g.md) |
 | Установить пульт, подключиться к службе, сохранить данные при обновлении | [Выбор пакета и откат](release/installation.md) · [Raspberry Pi](pi-rc1.md) · [Windows](windows-standalone-rc.md) · [macOS](macos-observation-console.md) |
 | Подготовить независимые tinySA и AR-DV1, проверить покрытие | [Подготовка в пульте](operator-guide/index.html#prepare) · [Профиль tinySA](tinysa-receive-profile.md) · [Приёмник AR-DV1](ardv1-fast-scan.md) · [Поддиапазоны и сетка 10 кГц](release/pi-windows-receive-grid.md) |
 | Вести охрану и расследовать событие | [Режимы работы](monitoring-modes.md) · [План обзора](scan-plans.md) · [Пульт Pi/Windows](pi-windows-operator-ui.md) · [Открыть исходник](operator-guide/index.html#research) |

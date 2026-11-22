@@ -396,6 +396,18 @@ public struct PlatformInterval: Codable, Equatable, Sendable {
 }
 
 public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
+    private struct Settings: Decodable, Equatable, Sendable {
+        let adapter: String?
+        private enum Keys: CodingKey { case adapter }
+        init(adapter: String) { self.adapter = adapter }
+        init(from decoder: Decoder) throws {
+            // Other adapters can store their own JSON. Keep those sessions browsable.
+            guard let fields = try? decoder.container(keyedBy: Keys.self) else { adapter = ""; return }
+            adapter = fields.contains(.adapter) ? (try? fields.decode(String.self, forKey: .adapter)) ?? "" : nil
+        }
+    }
+    private let settings: Settings?
+    fileprivate var adapter: String? { settings?.adapter }
     public let id: String
     public let device: String
     public let role: String
@@ -405,7 +417,7 @@ public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
     public let port: String?
 
     public init(id: String, device: String, role: String, levelUnit: String, state: String,
-                capabilities: [String], port: String? = nil) {
+                capabilities: [String], port: String? = nil, adapter: String? = nil) {
         self.id = id
         self.device = device
         self.role = role
@@ -413,11 +425,22 @@ public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
         self.state = state
         self.capabilities = capabilities
         self.port = port
+        self.settings = adapter.map { Settings(adapter: $0) }
     }
 
     public var isReceiver: Bool { role == "receiver" }
     public var isDbmAnalyzer: Bool {
         role == "spectrum_analyzer" && levelUnit == "dBm"
+    }
+    public var isRFExplorer3G: Bool {
+        guard isDbmAnalyzer else { return false }
+        if let adapter { return adapter == PlatformRFExplorerConfiguration.adapter }
+        return device == PlatformRFExplorerConfiguration.device
+    }
+    public var isTinySAAnalyzer: Bool {
+        guard isDbmAnalyzer else { return false }
+        if let adapter { return adapter == "tinysa-serial" || adapter == "tinysa-sim" }
+        return ["tinysa", "tinysa ultra"].contains(device.lowercased())
     }
     public var tuneModes: [String] {
         capabilities.contains("hardware_decode") ? ["FM", "AM", "DMR", "TETRA"] : ["FM", "AM"]
@@ -705,6 +728,32 @@ private struct StreamDraft: Encodable, Sendable {
     let settings: [String: PlatformSettingValue]?
 }
 
+/// Omitting both endpoints asks the core to follow the analyzer's current RF configuration.
+public struct PlatformRFExplorerConfiguration: Equatable, Sendable {
+    public static let device = "RF Explorer 3G Combo"
+    static let adapter = "rf-explorer-3g-serial"
+    public let port: String
+    public let startHz, stopHz: Int?
+
+    public init(port: String, startHz: Int? = nil, stopHz: Int? = nil) throws {
+        let path = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty, !path.contains("://"), !path.contains("\0") else {
+            throw PlatformError.invalidCommand("Выберите физический последовательный порт RF Explorer.")
+        }
+        switch (startHz, stopHz) {
+        case (nil, nil): break
+        case let (start?, stop?) where start >= 15_000_000 && start < stop && stop <= 2_700_000_000
+            && (112_000...600_000_000).contains(stop - start)
+            && start.isMultiple(of: 1000) && stop.isMultiple(of: 1000): break
+        default:
+            throw PlatformError.invalidCommand("Диапазон RF Explorer — 15…2700 МГц, ширина 0,112…600 МГц. Обе границы задаются в целых кГц в пределах активного модуля.")
+        }
+        self.port = path
+        self.startHz = startHz
+        self.stopHz = stopHz
+    }
+}
+
 /// The conservative receive profile accepted by the shared core. These values
 /// configure a new session; constructing it never opens a device.
 public struct PlatformSerialReceiveConfiguration: Equatable, Sendable {
@@ -972,6 +1021,34 @@ public final class PlatformClient: Sendable {
             streams.append(receiver)
         }
         return try await post("/sessions", body: SessionDraft(name: trimmed, streams: streams))
+    }
+
+    public func supportsRFExplorer3G() async throws -> Bool {
+        try await workbenchFeatures().contains("rf_explorer_3g_spectrum")
+    }
+
+    public func createRFExplorerSession(_ configuration: PlatformRFExplorerConfiguration) async throws -> PlatformSession {
+        guard try await supportsRFExplorer3G() else {
+            throw PlatformError.invalidCommand("Подключённое ядро не поддерживает RF Explorer 3G Combo.")
+        }
+        try Task.checkCancellation()
+        var settings: [String: PlatformSettingValue] = [
+            "adapter": .string(PlatformRFExplorerConfiguration.adapter), "baud": .integer(500_000)
+        ]
+        if let start = configuration.startHz, let stop = configuration.stopHz {
+            settings["start_hz"] = .integer(start)
+            settings["stop_hz"] = .integer(stop)
+        }
+        let device = PlatformRFExplorerConfiguration.device
+        let analyzer = StreamDraft(device: device, role: "spectrum_analyzer", levelUnit: "dBm",
+            port: configuration.port, capabilities: ["sweep", "waterfall"], settings: settings)
+        let created: PlatformSession = try await post("/sessions", body: SessionDraft(name: device, streams: [analyzer]))
+        guard !created.id.isEmpty, created.streams.count == 1, let stream = created.streams.first,
+              !stream.id.isEmpty, stream.isDbmAnalyzer, stream.adapter == PlatformRFExplorerConfiguration.adapter,
+              PlatformExactID.same(stream.port, configuration.port) else {
+            throw PlatformError.invalidResponse("Ядро вернуло неожиданный поток для RF Explorer.")
+        }
+        return created
     }
 
     public func startSession(_ id: String) async throws -> PlatformSession {

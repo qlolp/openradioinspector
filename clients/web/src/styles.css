@@ -1861,6 +1861,18 @@
     .workspace-note {
       max-width: 41%;
     }
+    .workspace-bar:has(nav > button:nth-child(3)) {
+      height: auto;
+      min-height: 42px;
+    }
+    .workspace-bar nav:has(> button:nth-child(3)) {
+      flex-wrap: wrap;
+      height: auto;
+      gap: 0 8px;
+    }
+    .workspace-bar nav:has(> button:nth-child(3)) + .workspace-note {
+      display: none;
+    }
     .spectrum-metrics small {
       font-size: 9px;
     }

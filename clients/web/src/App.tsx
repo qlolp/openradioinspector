@@ -5,6 +5,8 @@ import { Spectrum, Waterfall } from './charts';
 import { originalJSON, encodePathSegment } from './wire';
 import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
+import { RfExplorer, RfExplorerSettings } from './RfExplorer';
+import { rfExplorerReadback } from './rf-explorer';
 import { Research } from './Research';
 import { PairedRechecks } from './PairedRechecks';
 import { AudioEvidence } from './AudioEvidence';
@@ -334,8 +336,12 @@ export function App({
   connectionLabel?: string;
 }) {
   useLocale();
-  const desk = useDesk(transport);
-  const [workspace, setWorkspace] = useState(() => remember('workspace', 'monitoring'));
+  const [requestedWorkspace, setWorkspace] = useState(() => remember('workspace', 'monitoring'));
+  const [rfSelection, setRfSelection] = useState(() => remember('rf-explorer-session', ''));
+  const desk = useDesk(transport, requestedWorkspace === 'rf-explorer' ? rfSelection : undefined);
+  const workspace =
+    requestedWorkspace === 'rf-explorer' && !desk.rfActive ? 'monitoring' : requestedWorkspace;
+  const availableRf = desk.capabilities?.features.rf_explorer_3g_spectrum === true;
   const [theme, setTheme] = useState(() => remember('theme', 'system'));
   const [scanBand, setScanBand] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<string>();
@@ -436,7 +442,7 @@ export function App({
     dialogGeneration.current++;
     dialogAbort.current.abort();
     dialogAbort.current = new AbortController();
-  }, [desk.projectId, desk.connectionVersion]);
+  }, [desk.projectId, desk.connectionVersion, desk.rfActive, desk.rfActive && desk.rfSession?.id]);
   useEffect(() => {
     return () => {
       if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -581,9 +587,98 @@ export function App({
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  const originalDialog = original && (
+    <Modal label={t('Original sweep')} close={() => setOriginal(undefined)} wide>
+      <div className="eyebrow">{t('IMMUTABLE SOURCE')}</div>
+      <h2>{t('Original sweep')}</h2>
+      <p>
+        <strong>
+          {original.levels.length}
+          {' ' + t('original points')}
+        </strong>{' '}
+        · {original.level_unit}
+        {' ' + t('· no client resampling')}
+      </p>
+      <p className="mono break">
+        {original.id}
+        <br />
+        {utc(original.interval.started_at)} → {utc(original.interval.ended_at)}
+      </p>
+      <p>
+        <Qualification
+          label="Source qualification"
+          value={original.settings?.measurement_qualification}
+        />
+      </p>
+      {desk.rfActive && <RfExplorerSettings readback={rfExplorerReadback(original.settings)} />}
+      {originalPlot ? (
+        <div className="evidence-spectrum">
+          <h3>{t('Source panorama')}</h3>
+          <Spectrum sweep={originalPlot} />
+        </div>
+      ) : (
+        <p className="muted">{t('Source frequency outside supported display range')}</p>
+      )}
+      <div className="original-table">
+        <table>
+          <thead>
+            <tr>
+              <th>{t('Source index')}</th>
+              <th>{t('Frequency · Hz')}</th>
+              <th>
+                {t('Level ·') + ' '}
+                {original.level_unit}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {original.levels.slice(originalOffset, originalOffset + 100).map((level, i) => (
+              <tr key={i}>
+                <td>{originalOffset + i}</td>
+                <td>{original.frequencies_hz[originalOffset + i]}</td>
+                <td>{level}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="actions">
+        <button
+          disabled={originalOffset === 0}
+          onClick={() => setOriginalOffset((x) => Math.max(0, x - 100))}
+        >
+          {t('Previous points')}
+        </button>
+        <button
+          disabled={originalOffset + 100 >= original.levels.length}
+          onClick={() => setOriginalOffset((x) => x + 100)}
+        >
+          {t('Next points')}
+        </button>
+        <button onClick={downloadOriginal}>{t('Download original JSON')}</button>
+        <button onClick={() => setOriginal(undefined)}>{t('Close original')}</button>
+      </div>
+    </Modal>
+  );
+  const actionStatus = (
+    <div
+      className={'action-state ' + desk.action.state.toLowerCase()}
+      data-testid="action-state"
+      role={desk.action.state === 'Error' ? 'alert' : 'status'}
+      aria-live="polite"
+    >
+      <strong>{t(desk.action.state)}</strong>
+      <span>{t(desk.action.text)}</span>
+      {desk.action.state === 'Error' && (
+        <button onClick={() => void desk.resync()} disabled={desk.busy}>
+          {t('Resync')}
+        </button>
+      )}
+    </div>
+  );
   const coverage = p?.coverage || 'stopped';
-  return (
-    <div className="app-shell">
+  const header = (
+    <>
       <a className="skip-link" href="#main">
         {t('Skip to workspace')}
       </a>
@@ -637,7 +732,10 @@ export function App({
             </a>
           </div>
         </div>
-        <div className="workspace-bar" title={t('Local view · global guard state')}>
+        <div
+          className="workspace-bar"
+          title={desk.rfActive ? undefined : t('Local view · global guard state')}
+        >
           <nav aria-label={t('Workspace')}>
             <button
               aria-keyshortcuts="Alt+M"
@@ -653,11 +751,43 @@ export function App({
             >
               {t('Research')}
             </button>
+            {availableRf && (
+              <button aria-pressed={desk.rfActive} onClick={() => setScreen('rf-explorer')}>
+                RF Explorer
+              </button>
+            )}
           </nav>
-          <span className="workspace-note">{t('Local view · global guard state')}</span>
+          {!desk.rfActive && (
+            <span className="workspace-note">{t('Local view · global guard state')}</span>
+          )}
           <span className="shortcut">{t('Alt M / Alt R')}</span>
         </div>
       </header>
+    </>
+  );
+  if (desk.rfActive)
+    return (
+      <div className="app-shell">
+        {header}
+        <RfExplorer
+          key={desk.connectionVersion}
+          desk={desk}
+          actionStatus={actionStatus}
+          select={(id) => {
+            setRfSelection(id);
+            save('rf-explorer-session', id);
+          }}
+          openOriginal={(sweep) => {
+            setOriginalOffset(0);
+            setOriginal(sweep);
+          }}
+        />
+        {originalDialog}
+      </div>
+    );
+  return (
+    <div className="app-shell">
+      {header}
       <main id="main">
         <div className="station-context">
           <div className="page-heading">
@@ -777,20 +907,7 @@ export function App({
             </button>
           </div>
         </div>
-        <div
-          className={'action-state ' + desk.action.state.toLowerCase()}
-          data-testid="action-state"
-          role={desk.action.state === 'Error' ? 'alert' : 'status'}
-          aria-live="polite"
-        >
-          <strong>{t(desk.action.state)}</strong>
-          <span>{t(desk.action.text)}</span>
-          {desk.action.state === 'Error' && (
-            <button onClick={() => void desk.resync()} disabled={desk.busy}>
-              {t('Resync')}
-            </button>
-          )}
-        </div>
+        {actionStatus}
         <Recovery desk={desk} />
         <section hidden={workspace !== 'research'} aria-label={t('Research workspace')}>
           <Research
@@ -1154,78 +1271,7 @@ export function App({
           </form>
         </Modal>
       )}
-      {original && (
-        <Modal label={t('Original sweep')} close={() => setOriginal(undefined)} wide>
-          <div className="eyebrow">{t('IMMUTABLE SOURCE')}</div>
-          <h2>{t('Original sweep')}</h2>
-          <p>
-            <strong>
-              {original.levels.length}
-              {' ' + t('original points')}
-            </strong>{' '}
-            · {original.level_unit}
-            {' ' + t('· no client resampling')}
-          </p>
-          <p className="mono break">
-            {original.id}
-            <br />
-            {utc(original.interval.started_at)} → {utc(original.interval.ended_at)}
-          </p>
-          <p>
-            <Qualification
-              label="Source qualification"
-              value={original.settings?.measurement_qualification}
-            />
-          </p>
-          {originalPlot ? (
-            <div className="evidence-spectrum">
-              <h3>{t('Source panorama')}</h3>
-              <Spectrum sweep={originalPlot} />
-            </div>
-          ) : (
-            <p className="muted">{t('Source frequency outside supported display range')}</p>
-          )}
-          <div className="original-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('Source index')}</th>
-                  <th>{t('Frequency · Hz')}</th>
-                  <th>
-                    {t('Level ·') + ' '}
-                    {original.level_unit}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {original.levels.slice(originalOffset, originalOffset + 100).map((level, i) => (
-                  <tr key={i}>
-                    <td>{originalOffset + i}</td>
-                    <td>{original.frequencies_hz[originalOffset + i]}</td>
-                    <td>{level}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="actions">
-            <button
-              disabled={originalOffset === 0}
-              onClick={() => setOriginalOffset((x) => Math.max(0, x - 100))}
-            >
-              {t('Previous points')}
-            </button>
-            <button
-              disabled={originalOffset + 100 >= original.levels.length}
-              onClick={() => setOriginalOffset((x) => x + 100)}
-            >
-              {t('Next points')}
-            </button>
-            <button onClick={downloadOriginal}>{t('Download original JSON')}</button>
-            <button onClick={() => setOriginal(undefined)}>{t('Close original')}</button>
-          </div>
-        </Modal>
-      )}
+      {originalDialog}
     </div>
   );
 }

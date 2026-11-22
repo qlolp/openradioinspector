@@ -1,3 +1,4 @@
+import { rfExplorerReadback } from './rf-explorer';
 import { decodeFrame } from '../../../contracts/generated/typescript/measurement_stream.ts';
 import type { DisplaySweep, Observation, Sweep } from './types';
 import { observationValue, parseWire, sweepValue } from './wire';
@@ -80,8 +81,10 @@ export function prepareSweep(
   // The full scan proved these Hz are exact safe integers before Number conversion.
   const frequencies = indices.map((i) => Number(hz[i])),
     selectedLevels = indices.map((i) => levels[i]);
+  const rfExplorer = rfExplorerReadback(sweep.settings);
   return {
     sweep: {
+      ...(rfExplorer ? { rf_explorer: rfExplorer } : {}),
       id: sweep.id,
       session_id: sweep.session_id,
       stream_id: sweep.stream_id,

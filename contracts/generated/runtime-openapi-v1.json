@@ -13274,6 +13274,29 @@
         "requestBody": {
           "content": {
             "application/json": {
+              "examples": {
+                "rfExplorer3G": {
+                  "description": "Requires features.rf_explorer_3g_spectrum on a live Rust core and the port chosen by the operator. Omit both bounds to follow the active input. The example requests a 10 kHz grid on the WSUB3G input.",
+                  "summary": "Receive a 112-point spectrum from an RF Explorer 3G Combo",
+                  "value": {
+                    "name": "RF Explorer spectrum",
+                    "streams": [
+                      {
+                        "device": "RF Explorer 3G Combo",
+                        "level_unit": "dBm",
+                        "port": "/dev/cu.usbserial-EXAMPLE",
+                        "role": "spectrum_analyzer",
+                        "settings": {
+                          "adapter": "rf-explorer-3g-serial",
+                          "baud": 500000,
+                          "start_hz": 100000000,
+                          "stop_hz": 101110000
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
               "schema": {
                 "$ref": "#/components/schemas/NewSession"
               }

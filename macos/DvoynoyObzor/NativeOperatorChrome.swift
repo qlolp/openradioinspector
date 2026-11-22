@@ -10,9 +10,13 @@ struct NativeOperatorHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: openWorkspace) { Label(workspace.title, systemImage: workspace.symbol) }
-                .accessibilityIdentifier("workbench.space")
-                .help("Рабочее пространство этого клиента; переключение не останавливает охрану")
+            if model.isStandaloneRFExplorer {
+                Label("Спектроанализ", systemImage: "waveform.path").accessibilityIdentifier("workbench.space")
+            } else {
+                Button(action: openWorkspace) { Label(workspace.title, systemImage: workspace.symbol) }
+                    .accessibilityIdentifier("workbench.space")
+                    .help("Рабочее пространство этого клиента; переключение не останавливает охрану")
+            }
             sessionPicker.frame(maxWidth: 400)
             Spacer()
             TimelineView(.periodic(from: .now, by: 1)) { context in

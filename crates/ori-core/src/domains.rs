@@ -330,7 +330,7 @@ impl InstrumentControl for Effects {
         Box::pin(async move {
             let core = self.core.upgrade().ok_or_else(unavailable)?;
             let devices = core.devices.as_ref().ok_or_else(unavailable)?;
-            let checked = devices.validate_profiles(session).map_err(control);
+            let checked = devices.validate_guard_profiles(session).map_err(control);
             let check=ori_guard::PreflightCheck{name:"core_adapter_configuration".into(),confirmed:Some(checked.is_ok()),detail:checked.as_ref().err().map(ToString::to_string).unwrap_or_else(||"Explicit supported profiles; physical hardware validation not run. Native start must await safe-prepare acknowledgement.".into())};
             Ok(ori_guard::InstrumentPreflight {
                 ready: Some(checked.is_ok()),

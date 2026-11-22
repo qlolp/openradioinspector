@@ -17,6 +17,7 @@ export interface Sweep {
 }
 export type DisplayNumbers = number[] | Float64Array<ArrayBuffer>;
 export interface DisplaySweep extends Omit<Sweep, 'settings' | 'frequencies_hz' | 'levels'> {
+  rf_explorer?: import('./rf-explorer').RfExplorerReadback;
   scan_context?: {
     plan_id: string;
     band_id: string;

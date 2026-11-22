@@ -55,6 +55,91 @@ final class PlatformWorkflowTests: XCTestCase {
         Data("{\"contract\":\"openradioinspector-platform\",\"contract_version\":1,\"data\":\(data)}".utf8)
     }
 
+    func testRFExplorerCreatesOnePhysicalAnalyzerAndOnlySetsAnExplicitRange() async throws {
+        let port = "/dev/cu.usbserial-fixture"
+        for customRange in [false, true] {
+            let configuration = try PlatformRFExplorerConfiguration(port: port,
+                startHz: customRange ? 100_000_000 : nil, stopHz: customRange ? 101_110_000 : nil)
+            let api = try client { request in
+                let url = try XCTUnwrap(request.url)
+                if url.path == "/api/v1/capabilities" {
+                    XCTAssertEqual(request.httpMethod, "GET")
+                    return (self.response(url), self.envelope(#"{"features":{"rf_explorer_3g_spectrum":true}}"#))
+                }
+                XCTAssertEqual(url.path, "/api/v1/sessions")
+                XCTAssertEqual(request.httpMethod, "POST")
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+                let streams = try XCTUnwrap(body["streams"] as? [[String: Any]])
+                XCTAssertEqual(streams.count, 1)
+                let stream = try XCTUnwrap(streams.first)
+                XCTAssertEqual(stream["device"] as? String, "RF Explorer 3G Combo")
+                XCTAssertEqual(stream["role"] as? String, "spectrum_analyzer")
+                XCTAssertEqual(stream["level_unit"] as? String, "dBm")
+                XCTAssertEqual(stream["port"] as? String, port)
+                XCTAssertEqual(stream["capabilities"] as? [String], ["sweep", "waterfall"])
+                let settings = try XCTUnwrap(stream["settings"] as? [String: Any])
+                XCTAssertEqual(Set(settings.keys), customRange ? ["adapter", "baud", "start_hz", "stop_hz"] : ["adapter", "baud"])
+                XCTAssertEqual(settings["adapter"] as? String, "rf-explorer-3g-serial")
+                XCTAssertEqual(settings["baud"] as? Int, 500_000)
+                XCTAssertEqual(settings["start_hz"] as? Int, configuration.startHz)
+                XCTAssertEqual(settings["stop_hz"] as? Int, configuration.stopHz)
+                return (self.response(url), self.envelope("""
+                    {"id":"rf","name":"RF Explorer","state":"draft","streams":[
+                     {"id":"source","device":"RF Explorer 3G Combo","role":"spectrum_analyzer","level_unit":"dBm",
+                      "state":"disconnected","capabilities":["sweep","waterfall"],"port":"\(port)",
+                      "settings":{"adapter":"rf-explorer-3g-serial","baud":500000}}]}
+                    """))
+            }
+            let session = try await api.createRFExplorerSession(configuration)
+            let stream = try XCTUnwrap(session.streams.first)
+            XCTAssertTrue(stream.isRFExplorer3G)
+            XCTAssertFalse(stream.isTinySAAnalyzer)
+        }
+    }
+
+    func testRFExplorerRequiresAPhysicalPortWholeKHzPairAndCoreSupport() async throws {
+        for port in ["", "  ", "SIM://fixture"] {
+            XCTAssertThrowsError(try PlatformRFExplorerConfiguration(port: port))
+        }
+        for (start, stop): (Int?, Int?) in [(100_000_000, nil), (nil, 101_110_000),
+            (100_000_001, 101_110_000), (100_000_000, 101_110_001), (101_110_000, 100_000_000),
+            (-1_000, 1_000), (100_000_000, 100_000_000), (100_000_000, 100_111_000),
+            (15_000_000, 615_001_000), (14_999_000, 17_000_000), (2_699_000_000, 2_700_001_000)] {
+            XCTAssertThrowsError(try PlatformRFExplorerConfiguration(port: "COM3", startHz: start, stopHz: stop))
+        }
+        let configuration = try PlatformRFExplorerConfiguration(port: "COM3")
+        for features in ["{}", #"{"rf_explorer_3g_spectrum":false}"#, #"{"rf_explorer_3g_spectrum":"true"}"#] {
+            let api = try client { request in
+                let url = try XCTUnwrap(request.url)
+                XCTAssertEqual(url.path, "/api/v1/capabilities")
+                XCTAssertEqual(request.httpMethod, "GET")
+                return (self.response(url), self.envelope("{\"features\":\(features)}"))
+            }
+            do {
+                _ = try await api.createRFExplorerSession(configuration)
+                XCTFail("Unsupported core created an RF Explorer session")
+            } catch PlatformError.invalidCommand { }
+        }
+    }
+
+    func testSpectrumControlsFollowAdapterAndSupportOlderTinySASessions() throws {
+        func stream(_ device: String, adapter: Any?) throws -> PlatformStream {
+            var fields: [String: Any] = ["id": "s", "device": device, "role": "spectrum_analyzer",
+                "level_unit": "dBm", "state": "disconnected", "capabilities": ["sweep", "waterfall"]]
+            if let adapter { fields["settings"] = ["adapter": adapter] }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(PlatformStream.self, from: JSONSerialization.data(withJSONObject: fields))
+        }
+        XCTAssertTrue(try stream("tinySA Ultra", adapter: nil).isTinySAAnalyzer)
+        XCTAssertTrue(try stream("Custom label", adapter: "tinysa-sim").isTinySAAnalyzer)
+        XCTAssertTrue(try stream("Custom label", adapter: "rf-explorer-3g-serial").isRFExplorer3G)
+        XCTAssertFalse(try stream("tinySA Ultra", adapter: "rf-explorer-3g-serial").isTinySAAnalyzer)
+        XCTAssertFalse(try stream("tinySA Ultra", adapter: ["vendor": 7]).isTinySAAnalyzer)
+        XCTAssertFalse(try stream("RF Explorer 3G Combo", adapter: nil).isTinySAAnalyzer)
+        XCTAssertFalse(try stream("Other analyzer", adapter: nil).isTinySAAnalyzer)
+    }
+
     func testARDV1ScopeCreatesAnIndependentPhysicalReceiverSession() async throws {
         let configuration = try PlatformARDV1ScopeConfiguration(startHz: 98_000_000, stopHz: 98_025_010, stepHz: 25_000)
         XCTAssertEqual(configuration.pointCount, 3)

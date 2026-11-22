@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { rfExplorerSession } from '../src/rf-explorer';
 import { Api, ResourceScope, historyQuery, receiveSession } from '../src/api';
 
 describe('v1 client boundary', () => {
@@ -47,6 +48,18 @@ describe('v1 client boundary', () => {
       '?limit=32&start=2026-11-11T01%3A02%3A00.000Z&min_hz=88000000&max_hz=108000000&event_id=e%2F2&after=a%2B%3D%2F',
     );
     expect(() => historyQuery({ min_hz: '3.2' })).toThrow(/integer/i);
+  });
+  it('requires a physical RF Explorer serial port and a complete optional window', () => {
+    for (const port of ['', 'sim://source', 'tcp://example.invalid', 'COM3\0']) {
+      expect(() => rfExplorerSession('RF', port)).toThrow(/serial port/i);
+    }
+    for (const window of [
+      { start: '100000000', stop: '' },
+      { start: '', stop: '101110000' },
+      { start: '101110000', stop: '100000000' },
+      { start: '100000100', stop: '101110000' },
+    ])
+      expect(() => rfExplorerSession('RF', 'COM3', window)).toThrow(/whole kHz/i);
   });
   it('creates only explicit simulated or conservative receive profiles without generator capabilities', () => {
     const session = receiveSession({

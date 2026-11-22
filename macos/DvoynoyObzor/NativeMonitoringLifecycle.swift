@@ -48,7 +48,7 @@ struct NativeMonitoringLifecycle: View {
             }
             .onChange(of: PlatformExactID(workspace.project["active_session_id"].text)) { _, id in
                 if let next = sessionFollow.sessionToFollow(endpoint: endpoint, projectID: workspace.selected,
-                                                           activeSessionID: id.rawValue) {
+                                                           activeSessionID: id.rawValue), !model.isStandaloneRFExplorer {
                     model.selectSession(next)
                     Task { await model.reloadSessions() }
                 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99.1"
 license = "MIT"
-description = "Bounded asynchronous tinySA Ultra and AR-DV1 serial adapters"
+description = "Bounded asynchronous tinySA Ultra, RF Explorer 3G Combo and AR-DV1 serial adapters"
 
 [features]
 default = []

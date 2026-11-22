@@ -53,13 +53,21 @@ struct NativeConnectionPane: View {
                     Button("Учебный сеанс") { model.createSession(simulated: true) }
                     Button("Подключить приборы…") { model.showSerialForm = true }
                     Spacer()
-                    Button("Экран и управление tinySA") { model.showTinySAControl = true }.disabled(model.analyzer == nil)
+                    if model.tinySAAnalyzer != nil {
+                        Button("Экран и управление tinySA") { model.showTinySAControl = true }
+                    }
                 }.disabled(!model.connected || model.busy)
                 HStack {
-                    Button("Запустить сеанс") { model.startSession() }
-                    Button("Остановить сеанс") { model.stopSession() }
-                    Button(model.session?.streams.count == 1 ? "Начать приём" : "Начать приём на обоих") { model.startWorkers() }
-                    Button(model.session?.streams.count == 1 ? "Завершить приём" : "Завершить приём на обоих") { model.stopWorkers() }
+                    if model.isStandaloneRFExplorer {
+                        let active = model.worker(for: model.analyzer?.id)?.alive == true
+                        Button("Начать приём RF Explorer") { model.startStream(model.analyzer) }.disabled(active)
+                        Button("Завершить приём RF Explorer") { model.stopStream(model.analyzer) }.disabled(!active)
+                    } else {
+                        Button("Запустить сеанс") { model.startSession() }
+                        Button("Остановить сеанс") { model.stopSession() }
+                        Button(model.session?.streams.count == 1 ? "Начать приём" : "Начать приём на обоих") { model.startWorkers() }
+                        Button(model.session?.streams.count == 1 ? "Завершить приём" : "Завершить приём на обоих") { model.stopWorkers() }
+                    }
                 }.disabled(model.session == nil || model.busy)
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
             }
@@ -182,34 +190,38 @@ struct NativeContinuityBar: View {
                         .accessibilityIdentifier("continuity.recording")
                     Text(archiveLabel)
                         .accessibilityIdentifier("continuity.archive")
-                    Text(guardLabel(verified: verified))
-                        .accessibilityIdentifier("continuity.guard")
+                    if !model.isStandaloneRFExplorer {
+                        Text(guardLabel(verified: verified))
+                            .accessibilityIdentifier("continuity.guard")
+                    }
                     Spacer(minLength: 0)
                     Button("Диагностика") { details.toggle() }.controlSize(.mini)
                         .popover(isPresented: $details) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(coverage(verified: verified))
+                                if !model.isStandaloneRFExplorer { Text(coverage(verified: verified)) }
                                 Text(model.eventStatus).textSelection(.enabled)
                                 if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
                             }.padding().frame(width: 380)
                         }
                 }.font(.caption).lineLimit(1)
                 HStack(spacing: 16) {
-                    Text("tinySA: " + activity(model.analyzer?.id))
+                    Text((model.analyzer?.device ?? "Спектроанализатор") + " · " + activity(model.analyzer?.id))
                         .accessibilityIdentifier("continuity.analyzer")
-                    Text("AR-DV1: " + activity(model.receiver?.id))
-                        .accessibilityIdentifier("continuity.receiver")
-                    Text(coverage(verified: verified)).help(coverage(verified: verified))
-                        .accessibilityIdentifier("continuity.coverage")
-                    Button("По полосам") { showBands.toggle() }
-                        .controlSize(.mini).accessibilityIdentifier("continuity.bands")
-                        .popover(isPresented: $showBands) {
-                            ScrollView {
-                                NativeBandCoveragePane(status: workspace.status, sessionID: model.selectedSessionID,
-                                                       verified: model.coreReachable && verified)
-                                    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                            }.frame(width: 410, height: 280)
-                        }
+                    if !model.isStandaloneRFExplorer {
+                        Text("AR-DV1: " + activity(model.receiver?.id))
+                            .accessibilityIdentifier("continuity.receiver")
+                        Text(coverage(verified: verified)).help(coverage(verified: verified))
+                            .accessibilityIdentifier("continuity.coverage")
+                        Button("По полосам") { showBands.toggle() }
+                            .controlSize(.mini).accessibilityIdentifier("continuity.bands")
+                            .popover(isPresented: $showBands) {
+                                ScrollView {
+                                    NativeBandCoveragePane(status: workspace.status, sessionID: model.selectedSessionID,
+                                                           verified: model.coreReachable && verified)
+                                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                                }.frame(width: 410, height: 280)
+                            }
+                    }
                     Spacer(minLength: 0)
                     if let time = model.acquisitionSweepTime {
                         let age = context.date.timeIntervalSince(time)

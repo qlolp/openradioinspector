@@ -1,9 +1,10 @@
-//! Bounded asynchronous adapters for the existing, conservatively verified
-//! tinySA Ultra ZS405 and AOR AR-DV1 profiles. No archive writes or port discovery.
+//! Bounded asynchronous adapters for named spectrum analyzer and receiver profiles.
 mod provenance;
+mod rf_explorer;
 mod settings;
 pub use provenance::{TinySaProvenanceContext, legacy_monitoring_settings};
 mod types;
+pub use rf_explorer::{RfExplorer, validate_rf_explorer_window};
 pub use settings::setting_command;
 mod actor;
 mod ardv1;

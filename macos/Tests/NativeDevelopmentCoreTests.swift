@@ -33,6 +33,55 @@ struct NativeDevelopmentCoreTests {
         #expect(NativeDevelopmentCoreConfiguration.defaultDataDirectory.path.hasSuffix("OpenRadioInspector/macOS-Development"))
     }
 
+    @Test func bundledRustPrecedesCompatibilityHelpersAndKeepsItsOwnArchive() throws {
+        let files = FileManager.default
+        let root = files.temporaryDirectory.appendingPathComponent("ori-launcher-" + UUID().uuidString)
+        let bundleURL = root.appendingPathComponent("Spectrum Test.app")
+        let contents = bundleURL.appendingPathComponent("Contents")
+        let helpers = contents.appendingPathComponent("Helpers")
+        let rust = helpers.appendingPathComponent("ori-core")
+        let legacy = helpers.appendingPathComponent("openradioinspector-core/openradioinspector-core")
+        let checkout = root.appendingPathComponent("checkout")
+        let python = URL(fileURLWithPath: "/usr/bin/true")
+        try files.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: root) }
+        let info = ["CFBundleIdentifier": "org.example.ori-launcher-fixture", "CFBundlePackageType": "APPL"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
+        for helper in [rust, legacy] {
+            try Data().write(to: helper)
+            try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+        }
+        let launcher = checkout.appendingPathComponent("radioinspector/launcher.py")
+        try files.createDirectory(at: launcher.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: launcher)
+        let bundle = try #require(Bundle(url: bundleURL))
+        func discover() throws -> NativeDevelopmentCoreConfiguration {
+            try .discover(bundle: bundle, environment: ["ORI_DEVELOPMENT_PYTHON": python.path, "ORI_DEVELOPMENT_CHECKOUT": checkout.path])
+        }
+
+        let selected = try discover()
+        let development = NativeDevelopmentCoreConfiguration.defaultDataDirectory
+        let archive = development.appendingPathComponent("Rust", isDirectory: true)
+        let ready = root.appendingPathComponent("ready")
+        #expect(selected.executable.resolvingSymlinksInPath() == rust.resolvingSymlinksInPath())
+        #expect(selected.checkout == nil)
+        #expect(selected.dataDirectory == archive)
+        #expect(selected.arguments(readyFile: ready) == ["--mode", "live", "--allow-serial", "--data-dir", archive.path,
+            "--host", "127.0.0.1", "--port", "0", "--ready-file", ready.path, "--stdin-lifeline"])
+
+        try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: rust.path)
+        let packagedPython = try discover()
+        #expect(packagedPython.executable.resolvingSymlinksInPath() == legacy.resolvingSymlinksInPath())
+        #expect(packagedPython.dataDirectory == development)
+        #expect(packagedPython.prefixArguments.isEmpty)
+        try files.removeItem(at: legacy)
+        let interpreter = try discover()
+        #expect(interpreter.executable == python)
+        #expect(interpreter.dataDirectory == development)
+        #expect(interpreter.prefixArguments == ["-m", "radioinspector.launcher"])
+    }
+
     @Test func personalRCNeverResolvesOrLaunchesCompatibilityCore() async {
         var resolved = false
         let model = NativeDevelopmentCore(isPersonalRC: true, resolve: {

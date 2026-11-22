@@ -858,6 +858,11 @@ fn capabilities(core: &Core) -> Value {
         value["features"][name] = Value::Bool(archived);
     }
     let serial = archived && core.config.devices.transport.is_some();
+    value["features"]["rf_explorer_3g_spectrum"] = Value::Bool(
+        core.devices
+            .as_ref()
+            .is_some_and(|devices| devices.rf_explorer_enabled()),
+    );
     for name in [
         "explicit_serial_adapters",
         "ardv1_sampled_scope",

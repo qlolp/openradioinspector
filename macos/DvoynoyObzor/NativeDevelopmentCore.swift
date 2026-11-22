@@ -29,7 +29,14 @@ struct NativeDevelopmentCoreConfiguration: Sendable {
 
     static func discover(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
                          preferences: UserDefaults = .standard) throws -> Self {
-        let helper = bundle.bundleURL.appendingPathComponent("Contents/Helpers/openradioinspector-core/openradioinspector-core")
+        let helpers = bundle.bundleURL.appendingPathComponent("Contents/Helpers", isDirectory: true)
+        let rust = helpers.appendingPathComponent("ori-core")
+        if let file = try? rust.resourceValues(forKeys: [.isRegularFileKey, .isExecutableKey]),
+           file.isRegularFile == true, file.isExecutable == true {
+            return Self(executable: rust, prefixArguments: ["--mode", "live", "--allow-serial"], checkout: nil,
+                        dataDirectory: defaultDataDirectory.appendingPathComponent("Rust", isDirectory: true))
+        }
+        let helper = helpers.appendingPathComponent("openradioinspector-core/openradioinspector-core")
         if FileManager.default.isExecutableFile(atPath: helper.path) {
             return Self(executable: helper, prefixArguments: [], checkout: nil, dataDirectory: defaultDataDirectory)
         }

@@ -67,7 +67,7 @@ def validate_document(document):
 
 
 def _policy(value):
-    if not isinstance(value, dict) or set(value) - {'features', 'capabilities', 'request_features'}:
+    if not isinstance(value, dict) or set(value) - {'features', 'capabilities', 'request_features', 'request_examples'}:
         raise ValueError('Unknown runtime support policy')
     for key in ('features', 'capabilities'):
         items = value.get(key, [])
@@ -76,10 +76,20 @@ def _policy(value):
     for item in value.get('request_features', []):
         if not isinstance(item, dict) or set(item) != {'field', 'equals', 'feature'} or not isinstance(item['field'], str) or type(item['equals']) is not bool or not isinstance(item['feature'], str):
             raise ValueError('Invalid request feature requirement')
+    examples = value.get('request_examples', {})
+    if not isinstance(examples, dict) or any(
+        not isinstance(example, dict) or 'value' not in example for example in examples.values()
+    ):
+        raise ValueError('Invalid runtime request examples')
     return value
 
 
 def _tag(operation, backends, policy, support):
+    if examples := policy.get('request_examples'):
+        body = operation.get('requestBody', {}).get('content', {}).get('application/json')
+        if body is None:
+            raise ValueError('Runtime request examples require a JSON request body')
+        body.setdefault('examples', {}).update(deepcopy(examples))
     operation['x-ori-backends'] = backends
     operation['x-ori-runtime-support'] = support
     operation['x-ori-feature-requirements'] = policy.get('features', [])
