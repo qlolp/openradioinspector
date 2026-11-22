@@ -97,8 +97,8 @@ jobs:
           working-directory: clients/android
           script: |
             adb shell getprop ro.product.cpu.abilist | grep -F arm64-v8a
-            ./gradlew --no-daemon --stacktrace -Pandroid.testInstrumentationRunnerArguments.publishFieldInterop=true :app:connectedDebugAndroidTest
             bash ci/capture-emulator-ui.sh
+            ./gradlew --no-daemon --stacktrace -Pandroid.testInstrumentationRunnerArguments.publishFieldInterop=true :app:connectedDebugAndroidTest
             adb pull /sdcard/Download/ORIFieldInterop "$RUNNER_TEMP/field-download"
 
       - name: Verify the Android export with the offline reader

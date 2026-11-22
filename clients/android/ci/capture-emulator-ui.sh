@@ -4,6 +4,7 @@ set -euo pipefail
 output=app/build/outputs/emulator-ui
 mkdir -p "$output"
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard
 adb shell am start -W -n org.openradioinspector.field/.MainActivity > "$output/activity.txt"
 deadline=$((SECONDS + 60))
@@ -42,5 +43,18 @@ PY
     fi
     sleep 1
 done
+adb exec-out screencap -p > "$output/failure.png"
+adb logcat -d -s AndroidRuntime ActivityManager ActivityTaskManager > "$output/failure-logcat.txt"
+tail -40 "$output/failure-logcat.txt" >&2
+if [[ -s "$output/setup.xml" ]]; then
+    python3 - "$output/setup.xml" <<'PYXML'
+from xml.etree import ElementTree as ET
+import sys
+
+for node in ET.parse(sys.argv[1]).iter("node"):
+    if node.get("text") or node.get("content-desc"):
+        print(node.get("package"), node.get("text"), node.get("content-desc"))
+PYXML
+fi
 echo "Field setup controls did not appear in time" >&2
 exit 1
