@@ -64,7 +64,7 @@ jobs:
           java -jar "$jar" validate --bundle="$bundle"
           java -jar "$jar" dump config --bundle="$bundle" > "$RUNNER_TEMP/field-bundle-config"
           grep -F PAGE_ALIGNMENT_16K "$RUNNER_TEMP/field-bundle-config"
-          sha256sum "$apk" "$bundle" > "$outputs/SHA256SUMS"
+          (cd "$outputs" && sha256sum apk/debug/app-debug.apk bundle/release/app-release.aab) > "$outputs/SHA256SUMS"
           cat "$outputs/SHA256SUMS"
 
       - name: Retain Field build for sideload and Play rehearsal
