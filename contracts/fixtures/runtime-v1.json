@@ -11,6 +11,12 @@
       "$serde_json::private::Number": "literal"
     }
   },
+  "reader_status": {
+    "mode": "lan_tls",
+    "pairing_required": false,
+    "reader_pairing": true,
+    "access_scope": "reader"
+  },
   "browser_pairing": {
     "paired": true,
     "credential": "browser_cookie"
@@ -18,6 +24,7 @@
   "native_pairing": {
     "paired": true,
     "credential": "bearer",
+    "access_scope": "reader",
     "token": "synthetic-fixture-never-a-valid-credential"
   },
   "websocket_descriptor": {

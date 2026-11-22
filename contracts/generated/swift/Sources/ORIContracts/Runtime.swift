@@ -10,6 +10,16 @@ public enum AudioEvidenceInfoEncoding: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum BrowserPairingAccessScope: String, Sendable, Codable, CaseIterable {
+    case `operator` = "operator"
+    case reader = "reader"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public enum BrowserPairingCredential: String, Sendable, Codable, CaseIterable {
     case browser_cookie = "browser_cookie"
     public init(json: JSONValue) throws {
@@ -144,6 +154,16 @@ public enum MeasurementWebSocketTransport: String, Sendable, Codable, CaseIterab
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum NativePairingAccessScope: String, Sendable, Codable, CaseIterable {
+    case `operator` = "operator"
+    case reader = "reader"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public enum NativePairingCredential: String, Sendable, Codable, CaseIterable {
     case bearer = "bearer"
     public init(json: JSONValue) throws {
@@ -192,8 +212,28 @@ public enum PairingInputClient: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum PairingInputRequiredScope: String, Sendable, Codable, CaseIterable {
+    case `operator` = "operator"
+    case reader = "reader"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public enum ScanPlanRevisionHardwareValidation: String, Sendable, Codable, CaseIterable {
     case not_run = "not_run"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
+public enum SecurityStatusAccessScope: String, Sendable, Codable, CaseIterable {
+    case `operator` = "operator"
+    case reader = "reader"
     public init(json: JSONValue) throws {
         guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
         self = value
@@ -411,16 +451,19 @@ public struct AudioRangeMark: ContractModel, Equatable, Sendable {
 }
 
 public struct BrowserPairing: ContractModel, Equatable, Sendable {
+    public var access_scope: BrowserPairingAccessScope?
     public var credential: BrowserPairingCredential
     public var paired: Bool
     public var extra: JSONObject
-    public init(credential: BrowserPairingCredential, paired: Bool, extra: JSONObject = [:]) {
+    public init(access_scope: BrowserPairingAccessScope? = nil, credential: BrowserPairingCredential, paired: Bool, extra: JSONObject = [:]) {
+        self.access_scope = access_scope
         self.credential = credential
         self.paired = paired
         self.extra = extra
     }
     public init(json: JSONValue) throws {
         var object = try json.requireObject()
+        if let value = object.removeValue(forKey: "access_scope"), value != .null { access_scope = try BrowserPairingAccessScope(json: value) } else { access_scope = nil }
         guard let credentialValue = object.removeValue(forKey: "credential") else { throw ContractError.invalid("Missing credential") }
         credential = try BrowserPairingCredential(json: credentialValue)
         guard let pairedValue = object.removeValue(forKey: "paired") else { throw ContractError.invalid("Missing paired") }
@@ -430,6 +473,7 @@ public struct BrowserPairing: ContractModel, Equatable, Sendable {
     }
     public var json: JSONValue {
         var object = extra
+        if let value = access_scope { object["access_scope"] = value.json }
         object["credential"] = credential.json
         object["paired"] = .bool(paired)
         return .object(object)
@@ -1288,11 +1332,13 @@ public struct MeasurementWebSocket: ContractModel, Equatable, Sendable {
 }
 
 public struct NativePairing: ContractModel, Equatable, Sendable {
+    public var access_scope: NativePairingAccessScope?
     public var credential: NativePairingCredential
     public var paired: Bool
     public var token: String
     public var extra: JSONObject
-    public init(credential: NativePairingCredential, paired: Bool, token: String, extra: JSONObject = [:]) {
+    public init(access_scope: NativePairingAccessScope? = nil, credential: NativePairingCredential, paired: Bool, token: String, extra: JSONObject = [:]) {
+        self.access_scope = access_scope
         self.credential = credential
         self.paired = paired
         self.token = token
@@ -1300,6 +1346,7 @@ public struct NativePairing: ContractModel, Equatable, Sendable {
     }
     public init(json: JSONValue) throws {
         var object = try json.requireObject()
+        if let value = object.removeValue(forKey: "access_scope"), value != .null { access_scope = try NativePairingAccessScope(json: value) } else { access_scope = nil }
         guard let credentialValue = object.removeValue(forKey: "credential") else { throw ContractError.invalid("Missing credential") }
         credential = try NativePairingCredential(json: credentialValue)
         guard let pairedValue = object.removeValue(forKey: "paired") else { throw ContractError.invalid("Missing paired") }
@@ -1311,6 +1358,7 @@ public struct NativePairing: ContractModel, Equatable, Sendable {
     }
     public var json: JSONValue {
         var object = extra
+        if let value = access_scope { object["access_scope"] = value.json }
         object["credential"] = credential.json
         object["paired"] = .bool(paired)
         object["token"] = .string(token)
@@ -1574,11 +1622,13 @@ public struct PairingInput: ContractModel, Equatable, Sendable {
     public var client: PairingInputClient?
     public var label: String
     public var pairing_code: String
+    public var required_scope: PairingInputRequiredScope?
     public var extra: JSONObject
-    public init(client: PairingInputClient? = nil, label: String, pairing_code: String, extra: JSONObject = [:]) {
+    public init(client: PairingInputClient? = nil, label: String, pairing_code: String, required_scope: PairingInputRequiredScope? = nil, extra: JSONObject = [:]) {
         self.client = client
         self.label = label
         self.pairing_code = pairing_code
+        self.required_scope = required_scope
         self.extra = extra
     }
     public init(json: JSONValue) throws {
@@ -1588,6 +1638,7 @@ public struct PairingInput: ContractModel, Equatable, Sendable {
         label = try labelValue.requireString()
         guard let pairing_codeValue = object.removeValue(forKey: "pairing_code") else { throw ContractError.invalid("Missing pairing_code") }
         pairing_code = try pairing_codeValue.requireString()
+        if let value = object.removeValue(forKey: "required_scope"), value != .null { required_scope = try PairingInputRequiredScope(json: value) } else { required_scope = nil }
         extra = object
     }
     public var json: JSONValue {
@@ -1595,6 +1646,7 @@ public struct PairingInput: ContractModel, Equatable, Sendable {
         if let value = client { object["client"] = value.json }
         object["label"] = .string(label)
         object["pairing_code"] = .string(pairing_code)
+        if let value = required_scope { object["required_scope"] = value.json }
         return .object(object)
     }
 }
@@ -1758,26 +1810,34 @@ public struct ScanPlanRevision: ContractModel, Equatable, Sendable {
 }
 
 public struct SecurityStatus: ContractModel, Equatable, Sendable {
+    public var access_scope: SecurityStatusAccessScope?
     public var mode: SecurityStatusMode
     public var pairing_required: Bool
+    public var reader_pairing: Bool?
     public var extra: JSONObject
-    public init(mode: SecurityStatusMode, pairing_required: Bool, extra: JSONObject = [:]) {
+    public init(access_scope: SecurityStatusAccessScope? = nil, mode: SecurityStatusMode, pairing_required: Bool, reader_pairing: Bool? = nil, extra: JSONObject = [:]) {
+        self.access_scope = access_scope
         self.mode = mode
         self.pairing_required = pairing_required
+        self.reader_pairing = reader_pairing
         self.extra = extra
     }
     public init(json: JSONValue) throws {
         var object = try json.requireObject()
+        if let value = object.removeValue(forKey: "access_scope"), value != .null { access_scope = try SecurityStatusAccessScope(json: value) } else { access_scope = nil }
         guard let modeValue = object.removeValue(forKey: "mode") else { throw ContractError.invalid("Missing mode") }
         mode = try SecurityStatusMode(json: modeValue)
         guard let pairing_requiredValue = object.removeValue(forKey: "pairing_required") else { throw ContractError.invalid("Missing pairing_required") }
         pairing_required = try pairing_requiredValue.requireBool()
+        if let value = object.removeValue(forKey: "reader_pairing"), value != .null { reader_pairing = try value.requireBool() } else { reader_pairing = nil }
         extra = object
     }
     public var json: JSONValue {
         var object = extra
+        if let value = access_scope { object["access_scope"] = value.json }
         object["mode"] = mode.json
         object["pairing_required"] = .bool(pairing_required)
+        if let value = reader_pairing { object["reader_pairing"] = .bool(value) }
         return .object(object)
     }
 }
@@ -2006,7 +2066,8 @@ RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_signal_list_expo
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_signal_list_import",method: "POST",path: "/api/v1/sessions/{id}/signal-list/import",backends: ["python-legacy", "rust-candidate"],features: ["signal_list_exchange"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 524288),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_start",method: "POST",path: "/api/v1/sessions/{id}/start",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_stop",method: "POST",path: "/api/v1/sessions/{id}/stop",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),
-RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams",method: "GET",path: "/api/v1/sessions/{id}/streams",backends: ["rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts_artifact_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id", "artifact_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts_artifact_id_content",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/content",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id", "artifact_id"], maxRequestBytes: nil),
@@ -2040,6 +2101,7 @@ RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_sweep_threshold"
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_sweeps",method: "GET",path: "/api/v1/sessions/{id}/sweeps",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: ["stream_id", "limit"], pathParameters: ["id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_sweeps",method: "POST",path: "/api/v1/sessions/{id}/sweeps",backends: ["python-legacy", "rust-candidate"],features: ["measurement_ingest"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 16777216),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_sweeps_batch",method: "POST",path: "/api/v1/sessions/{id}/sweeps/batch",backends: ["python-legacy", "rust-candidate"],features: ["measurement_ingest"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 16777216),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_sweeps_sweep_id",method: "GET",path: "/api/v1/sessions/{id}/sweeps/{sweep_id}",backends: ["rust-candidate"],features: ["measurement_archive"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "sweep_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_workers",method: "GET",path: "/api/v1/sessions/{id}/workers",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_workers_start",method: "POST",path: "/api/v1/sessions/{id}/workers/start",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_workers_stop",method: "POST",path: "/api/v1/sessions/{id}/workers/stop",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),

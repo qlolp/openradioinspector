@@ -13,6 +13,10 @@ final class RuntimeContractTests: XCTestCase {
         let status = try SecurityStatus(json: XCTUnwrap(value.object?["security_status"]))
         XCTAssertEqual(status.mode.rawValue, "legacy_loopback")
         XCTAssertFalse(status.pairing_required)
+        XCTAssertNil(status.access_scope)
+        let reader = try SecurityStatus(json: XCTUnwrap(value.object?["reader_status"]))
+        XCTAssertEqual(reader.reader_pairing, true)
+        XCTAssertEqual(reader.access_scope, .reader)
         let round = try StrictJSON.parse(StrictJSON.encode(status))
         let extra = round.object?["future_metadata"]?.object
         XCTAssertEqual(extra?["big"], .integer("18446744073709551615"))
@@ -24,6 +28,7 @@ final class RuntimeContractTests: XCTestCase {
         let browser = try BrowserPairing(json: XCTUnwrap(value.object?["browser_pairing"]))
         XCTAssertEqual(browser.credential.rawValue, "browser_cookie")
         let native = try NativePairing(json: XCTUnwrap(value.object?["native_pairing"]))
+        XCTAssertEqual(native.access_scope, .reader)
         XCTAssertEqual(native.token, "synthetic-fixture-never-a-valid-credential")
         var socket = try MeasurementWebSocket(json: XCTUnwrap(value.object?["websocket_descriptor"]))
         XCTAssertEqual(socket.path, "/api/v1/events/ws")

@@ -556,6 +556,26 @@ async fn websocket_uses_verified_tls_trusted_host_origin_and_shared_revocable_be
     assert!(
         matches!(connect(vec![("Authorization",bearer)]).await,Err(tokio_tungstenite::tungstenite::Error::Http(reply)) if reply.status()==401)
     );
+    let code = core
+        .begin_scoped_pairing_window(60, 3, ori_runtime::security::CredentialScope::Reader)
+        .unwrap();
+    let pair: serde_json::Value = http.post(format!("{origin}/api/v1/security/pair"))
+        .json(&json!({"pairing_code":code,"client":"native","label":"synthetic WS reader","required_scope":"reader"}))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(pair["data"]["access_scope"], "reader");
+    let reader = pair["data"]["token"].as_str().unwrap();
+    let (mut stream, _) = connect(vec![("Authorization", format!("Bearer {reader}"))])
+        .await
+        .unwrap();
+    assert_eq!(event(&mut stream).await.sequence, first.sequence);
+    let revoked = http
+        .delete(format!("{origin}/api/v1/security/credentials/current"))
+        .bearer_auth(reader)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), 200);
+    closed(&mut stream, CloseCode::Policy).await;
     core.request_shutdown();
     tokio::time::timeout(Duration::from_secs(4), task)
         .await

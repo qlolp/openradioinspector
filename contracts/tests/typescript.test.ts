@@ -44,6 +44,9 @@ test('runtime fixtures reuse strict codecs and retain exact DTO fields and futur
     const fixture=parseJSON(readFileSync(new URL('../fixtures/runtime-v1.json',import.meta.url),'utf8')) as any;
     const status=decodeSecurityStatus(fixture.security_status);
     assert.equal(status.mode,'legacy_loopback'); assert.equal(status.pairing_required,false);
+    assert.equal(status.access_scope,undefined);
+    const reader=decodeSecurityStatus(fixture.reader_status);
+    assert.equal(reader.reader_pairing,true); assert.equal(reader.access_scope,'reader');
     const round=decodeSecurityStatus(parseJSON(encodeSecurityStatus(status))) as any;
     assert.equal(round.future_metadata.big,18446744073709551615n);
     assert.equal(bits(round.future_metadata.negative_zero),'8000000000000000');
@@ -52,6 +55,7 @@ test('runtime fixtures reuse strict codecs and retain exact DTO fields and futur
     assert.equal(round.future_metadata['$serde_json::private::Number'],'literal');
     assert.equal(decodeBrowserPairing(fixture.browser_pairing).credential,'browser_cookie');
     assert.equal(decodeNativePairing(fixture.native_pairing).token,'synthetic-fixture-never-a-valid-credential');
+    assert.equal(decodeNativePairing(fixture.native_pairing).access_scope,'reader');
     const socket=decodeMeasurementWebSocket(fixture.websocket_descriptor);
     assert.equal(socket.path,'/api/v1/events/ws'); assert.equal(socket.subprotocol,'ori.measurements.v1.protobuf');
     socket.max_frame_bytes=18446744073709551615n;

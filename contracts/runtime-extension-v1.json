@@ -227,6 +227,12 @@
         "signal_list_exchange"
       ]
     },
+    "get_api_v1_sessions_id_streams_stream_id": {
+      "capabilities": [],
+      "features": [
+        "sessions"
+      ]
+    },
     "get_api_v1_sessions_id_sweep_comparison": {
       "capabilities": [],
       "features": [
@@ -911,6 +917,14 @@
       "BrowserPairing": {
         "additionalProperties": false,
         "properties": {
+          "access_scope": {
+            "description": "Locally granted scope. Returned for every reader pairing and every exchange with required_scope.",
+            "enum": [
+              "operator",
+              "reader"
+            ],
+            "type": "string"
+          },
           "credential": {
             "enum": [
               "browser_cookie"
@@ -2070,6 +2084,14 @@
       "NativePairing": {
         "additionalProperties": false,
         "properties": {
+          "access_scope": {
+            "description": "Locally granted scope. Returned for every reader credential and every exchange with required_scope.",
+            "enum": [
+              "operator",
+              "reader"
+            ],
+            "type": "string"
+          },
           "credential": {
             "enum": [
               "bearer"
@@ -2423,6 +2445,14 @@
           },
           "pairing_code": {
             "type": "string"
+          },
+          "required_scope": {
+            "description": "Optional exact scope constraint on an operator-issued code. A mismatch spends an attempt and issues no credential.",
+            "enum": [
+              "operator",
+              "reader"
+            ],
+            "type": "string"
           }
         },
         "required": [
@@ -2630,6 +2660,14 @@
       },
       "SecurityStatus": {
         "properties": {
+          "access_scope": {
+            "description": "Scope of the presented, verified LAN credential. Absent for a public or legacy-loopback status.",
+            "enum": [
+              "operator",
+              "reader"
+            ],
+            "type": "string"
+          },
           "mode": {
             "enum": [
               "legacy_loopback",
@@ -2638,6 +2676,10 @@
             "type": "string"
           },
           "pairing_required": {
+            "type": "boolean"
+          },
+          "reader_pairing": {
+            "description": "True when this LAN listener supports server-enforced reader pairing. Reader clients require true before sending a code.",
             "type": "boolean"
           }
         },
@@ -5298,7 +5340,7 @@
                 }
               }
             },
-            "description": "Paired browser cookie, or explicit native Bearer credential",
+            "description": "Paired browser cookie or native bearer. Native reader pairings return only the bearer.",
             "headers": {
               "Set-Cookie": {
                 "schema": {
@@ -5325,7 +5367,7 @@
                 }
               }
             },
-            "description": "Incorrect pairing code"
+            "description": "Incorrect pairing code or scope mismatch"
           },
           "409": {
             "content": {
@@ -5371,7 +5413,7 @@
                 }
               }
             },
-            "description": "Bounded public security mode; no credentials or pairing code"
+            "description": "Public mode and pairing support. A verified LAN credential also receives its access scope."
           }
         },
         "security": [],
@@ -5380,6 +5422,163 @@
           "features": []
         }
       }
+    },
+    "/api/v1/sessions/{id}/streams": {
+      "get": {
+        "operationId": "get_api_v1_sessions_id_streams",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "items": {
+                            "$ref": "#/components/schemas/DeviceStream"
+                          },
+                          "type": "array"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Committed session data"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Session or source unavailable"
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "sessions"
+          ]
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/sweeps/{sweep_id}": {
+      "get": {
+        "operationId": "get_api_v1_sessions_id_sweeps_sweep_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sweep_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Sweep"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Committed session data"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Session or source unavailable"
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "measurement_archive"
+          ]
+        }
+      }
     }
-  }
+  },
+  "reader_operations": [
+    "delete_api_v1_security_credentials_current",
+    "get_api_v1_capabilities",
+    "get_api_v1_events",
+    "get_api_v1_events_history",
+    "get_api_v1_events_ws",
+    "get_api_v1_health",
+    "get_api_v1_security_status",
+    "get_api_v1_sessions",
+    "get_api_v1_sessions_id",
+    "get_api_v1_sessions_id_observations",
+    "get_api_v1_sessions_id_streams",
+    "get_api_v1_sessions_id_streams_stream_id",
+    "get_api_v1_sessions_id_sweep_summaries",
+    "get_api_v1_sessions_id_sweeps",
+    "get_api_v1_sessions_id_sweeps_sweep_id",
+    "post_api_v1_security_credentials_current_revoke"
+  ]
 }

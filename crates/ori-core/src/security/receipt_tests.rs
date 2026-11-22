@@ -3,6 +3,28 @@ use super::*;
 use ori_runtime::security::TlsIdentity;
 use std::time::Duration;
 
+#[test]
+fn reader_authorization_agrees_with_every_published_operation() {
+    let reader = AuthContext {
+        kind: AuthKind::Bearer,
+        scope: Some(CredentialScope::Reader),
+        token: None,
+        receipt: AuthReceipt::new(Revocation::live(), None),
+    };
+    let document: Value = serde_json::from_str(ori_contracts::RUNTIME_OPENAPI_V1_JSON).unwrap();
+    for (path, methods) in document["paths"].as_object().unwrap() {
+        let parts = crate::http::path_parts(path).unwrap();
+        for (name, operation) in methods.as_object().unwrap() {
+            let method: Method = name.to_ascii_uppercase().parse().unwrap();
+            assert_eq!(
+                reader.authorize_route(&method, &parts).is_ok(),
+                operation["x-ori-reader-access"] == true,
+                "{method} {path}",
+            );
+        }
+    }
+}
+
 #[cfg(not(windows))]
 struct Fixture {
     directory: tempfile::TempDir,

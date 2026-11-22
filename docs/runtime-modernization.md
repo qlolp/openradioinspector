@@ -288,19 +288,21 @@ behind the core's mutex. Pairing redemption is the only LAN operation exempt
 from bearer auth, and still requires TLS and trusted Host/Origin validation.
 The Rust candidate implements these routes over its actual TLS listener:
 
-* `GET /api/v1/security/status` reports the installation mode and pairing state.
-* `POST /api/v1/security/pair` accepts `{pairing_code, label, client}`. Native
+* `GET /api/v1/security/status` reports the installation mode, pairing state,
+  reader pairing support in TLS mode, and the scope of a verified credential.
+* `POST /api/v1/security/pair` accepts `{pairing_code, label, client}` and an
+  optional `required_scope` constraint on the operator-issued code. Native
   clients receive the new opaque credential once over trusted TLS. A browser
   receives only an HttpOnly/Secure/SameSite=Strict session cookie. The single
   pairing window is consumed even if credential persistence fails.
-* `POST /api/v1/security/browser-session` exchanges a valid native Bearer
+* `POST /api/v1/security/browser-session` exchanges a valid native operator Bearer
   credential for the browser cookie used by the same-origin legacy interface.
 * `POST /api/v1/security/credentials/current/revoke` (or the existing DELETE
   alias) revokes the credential, expires the cookie and closes its event stream.
 
-Security POST bodies have a 4 KiB limit. The local `ori-core pair`
-command opens the bounded window; no unauthenticated network route opens it.
-The implementation and tested wire details are in `docs/rust-core.md`.
+Security POST bodies have a 4 KiB limit. The local `ori-core pair` command
+opens the bounded operator window. Use `--scope reader` for a measurement
+viewer. See the [reader pairing instructions](rust-core.md#pair-a-read-only-viewer).
 
 Persist only SHA-256 hashes of these high-entropy tokens; no passwords or raw
 bearer tokens are written. At most 256 device credentials are admitted. Do not

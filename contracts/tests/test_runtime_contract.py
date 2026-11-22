@@ -177,7 +177,7 @@ class RuntimeContractTests(unittest.TestCase):
         runtime = self.composer().compose_runtime_document(baseline, extension)
         jsonschema.Draft202012Validator.check_schema(runtime)
         fixtures=json.loads((ROOT/'contracts/fixtures/runtime-v1.json').read_text())
-        for key, schema in [('security_status','SecurityStatus'), ('browser_pairing','BrowserPairing'),
+        for key, schema in [('security_status','SecurityStatus'), ('reader_status','SecurityStatus'), ('browser_pairing','BrowserPairing'),
                             ('native_pairing','NativePairing'), ('websocket_descriptor','MeasurementWebSocket'),
                             ('summary_page','SweepSummaryPage')]:
             validator=jsonschema.Draft202012Validator({'$ref':f'#/components/schemas/{schema}','components':runtime['components']})

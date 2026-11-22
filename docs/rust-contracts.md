@@ -4,7 +4,8 @@
 baseline: 117 paths, 135 operation IDs and the existing schemas and codecs.
 `contracts/runtime-extension-v1.json` is the reviewed additive source for the
 Rust candidate. The generator composes it into
-`contracts/generated/runtime-openapi-v1.json` (130 paths, 149 operations).
+`contracts/generated/runtime-openapi-v1.json`. Operations available to a LAN
+reader carry `x-ori-reader-access:true`.
 Core consumes `ori_contracts::RUNTIME_OPENAPI_V1_JSON`; it must not maintain a
 second handcrafted OpenAPI document or derive the contract from a running node.
 The companion runtime manifest records the baseline, extension and runtime

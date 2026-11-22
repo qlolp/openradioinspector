@@ -100,7 +100,7 @@ def _tag(operation, backends, policy, support):
 def compose_runtime_document(baseline, extension, variant='rust-candidate'):
     if variant not in BACKENDS:
         raise ValueError('Unknown contract backend variant')
-    allowed = {'extension', 'extension_version', 'backends', 'description', 'baseline_support', 'components', 'paths'}
+    allowed = {'extension', 'extension_version', 'backends', 'description', 'baseline_support', 'components', 'paths', 'reader_operations'}
     if set(extension) - allowed or extension.get('extension') != 'openradioinspector-runtime' or type(extension.get('extension_version')) is not int or extension['extension_version'] != 1 or extension.get('backends') != ['rust-candidate']:
         raise ValueError('Unknown runtime extension, version, backend or key')
     validate_document(baseline)
@@ -131,10 +131,20 @@ def compose_runtime_document(baseline, extension, variant='rust-candidate'):
             if method in document.get('paths', {}).get(path, {}):
                 raise ValueError('Extension cannot replace baseline operations')
             document['paths'].setdefault(path, {})[method] = operation
+    reader_operations = extension.get('reader_operations', [])
+    by_id = {op['operationId']: op for methods in document['paths'].values() for op in methods.values()}
+    if (not isinstance(reader_operations, list) or
+            not all(isinstance(name, str) and name in by_id and
+                    'rust-candidate' in by_id[name]['x-ori-backends'] for name in reader_operations) or
+            len(set(reader_operations)) != len(reader_operations)):
+        raise ValueError('Invalid reader operation list')
+    for name in reader_operations:
+        by_id[name]['x-ori-reader-access'] = True
     document['security'] = [{'nativeBearer': []}, {'browserSession': []}]
     document['x-ori-authentication-modes'] = {
         'lan_tls': 'All API operations require a validated credential except GET security/status and POST security/pair. Pair requires trusted TLS/Host/Origin and a locally opened single-use window. Cookie mutations require Origin.',
         'legacy_loopback': 'API credential authentication is disabled; existing mutation-origin checks still apply.',
+        'reader': 'The local operator selects the scope of each one-use code. A reader credential may access operations marked x-ori-reader-access. Other authenticated operations return 403 insufficient_scope. Require reader_pairing on TLS status, send required_scope=reader when pairing, and verify access_scope=reader before use.',
         'browser_session': 'Valid native Bearer only; cookie credentials cannot mint a browser session.',
         'revocation': 'Revocation invalidates the native credential and browser sessions.',
         'internal_runtime': 'Separate authenticated loopback IPC is outside this public API contract.'}

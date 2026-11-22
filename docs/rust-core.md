@@ -354,16 +354,16 @@ Pairing cannot be enabled through LAN HTTP. Local tools can use
 LAN state remains fail-closed until owner-only DACL/IPC handling is implemented;
 Windows/macOS thin clients can pair with the Pi/Linux core.
 
-The frozen public routes return the normal version 1 envelope:
+The public security routes use the version 1 envelope.
 
 | Route | Request and behavior |
 | --- | --- |
-| GET `/api/v1/security/status` | Unauthenticated, bounded `{mode,pairing_required}`; legacy mode is `legacy_loopback` and requires no pairing. |
-| POST `/api/v1/security/pair` | At most 4 KiB `{pairing_code,label,client:"browser"|"native"}`; browser is the default. Browser returns `{paired:true,credential:"browser_cookie"}`. Native returns `{paired:true,credential:"bearer",token}` once. |
-| POST `/api/v1/security/browser-session` | Valid Bearer only, body `{}`; returns `{paired:true,credential:"browser_cookie"}` and a cookie for embedded native web views. |
+| GET `/api/v1/security/status` | Returns `mode` and `pairing_required`. A reader-capable TLS listener adds `reader_pairing:true`. A valid LAN credential also receives its `access_scope`. |
+| POST `/api/v1/security/pair` | Accepts `pairing_code`, `label`, optional `client` (browser by default, or native), and optional `required_scope`. Maximum body 4 KiB. The native reply contains one bearer token. The browser reply sets an HttpOnly cookie. |
+| POST `/api/v1/security/browser-session` | A native operator bearer and body `{}` obtain a secure cookie for embedded web views. |
 | POST `/api/v1/security/credentials/current/revoke` | Body `{}`; revokes the current credential. DELETE `/api/v1/security/credentials/current` is equivalent. |
 
-Pairing sets `ori_session` with `Secure; HttpOnly; SameSite=Strict; Path=/api`.
+Browser pairing and native operator pairing set `ori_session` with `Secure; HttpOnly; SameSite=Strict; Path=/api`.
 Only hashed device tokens persist. The same credential authenticates HTTP and
 SSE; revocation invalidates both forms and closes its active event streams.
 
@@ -404,14 +404,72 @@ Anonymous access is limited to exact public pairing/status paths and compiled
 GET/HEAD program assets. Percent-encoded fixed API prefixes cannot turn a data
 or mutation route into an anonymous bootstrap request.
 
+### Pair a read-only viewer
+
+Run this command on the node in a local terminal belonging to the service owner.
+
+```sh
+ori-core pair --data-dir /absolute/private-replay --scope reader
+```
+
+The scope covers the node's monitoring sessions. Each new local pairing command
+replaces the previous window. The default `operator` scope preserves desktop
+control. The CLI confirms the reader scope over the owner socket before
+displaying a reader code.
+
+A native viewer uses the installation's trusted HTTPS origin for all three steps.
+
+1. Read `/api/v1/security/status` and require `mode:"lan_tls"` and `reader_pairing:true`.
+2. Submit the code to `POST /api/v1/security/pair` with `client:"native"`, a label and `required_scope:"reader"`. Require `paired:true`, `credential:"bearer"` and `access_scope:"reader"`. A scope mismatch spends one attempt and returns HTTP 401. A successful reader exchange returns the bearer in the JSON body.
+3. Present the bearer to `GET /api/v1/security/status` and require `pairing_required:false` and `access_scope:"reader"` before using or restoring the credential.
+
+The reader can fetch health, capabilities, sessions, streams, individual and recent
+sweeps, paged sweep summaries, receiver observations in their original units,
+event history and live SSE or protobuf WebSocket
+events. The two current-credential revocation routes close its active streams.
+The Rust listener checks the HTTP method and decoded route before dispatch.
+Other operations return HTTP 403 with `insufficient_scope` on v1 routes.
+Each allowed operation carries `x-ori-reader-access:true` in the runtime OpenAPI
+document. These permissions also apply when a browser redeems a reader code.
+
+### Roll back a reader-capable node
+
+Stop the service, switch to the previous compatible binary and restart it with
+the same data directory and TLS identity. Reader pairing preserves the version 1
+credential store and existing operator hashes. A reader record uses a
+`reader-v1:` prefix and a distinct SHA-256 input. Older nodes continue to
+authenticate operators and reject reader tokens. Returning to the reader-capable
+binary restores access for each still-enrolled reader. Windows local LAN
+provisioning still requires owner-only IPC support. Its thin clients can use a
+Pi or other supported Unix host.
+
+Pairing and revocation write the owner-only credential file in the TLS state
+directory (normally `.ori-runtime/security/credentials.json`). These operations
+leave the measurement archive, original units and event history intact. To retire
+a connected viewer, revoke its current credential before rollback. If the
+credential is lost and the node needs an access reset, stop the service and move
+`credentials.json` to a protected backup directory. Restarting creates an empty
+store. Re-enroll each authorized client on the node with the intended scope.
+
+For recovery of a known installation, restore its matching protected credentials
+and TLS identity with the service stopped and owner-only permissions. Verify the
+node identity before reconnecting. An older credential backup can re-enable
+credentials revoked since that backup. Use fresh enrollment when the revocation
+history is unknown.
+
+An HTTPS replay check ran the previous and reader-capable Linux binaries in
+sequence on one synthetic archive, then rolled back and upgraded again. It
+verified operator writes on the previous binary, rejection of reader requests
+during rollback, archived sweep and receiver observation values across both
+switches, and successful reader revocation after the upgrade.
+
 ## HTTP, durability and bounded work
 
 The OpenAPI response is the canonical generated runtime variant exported by
 ori-contracts. It reuses the unchanged baseline wire schemas and adds reviewed
 security/WebSocket operations and explicit support predicates. The fixed document
-has 130 paths and 149 unique operation IDs; declaring a compatibility target does
-not claim that its implementation or hardware acceptance has passed. Core no
-longer maintains a parallel handwritten schema/route description.
+records a backend and feature requirements for each operation. Hardware
+acceptance is tracked separately.
 
 Versioned responses retain the Python
 `{contract:"openradioinspector-platform",contract_version:1,data:...}` envelope

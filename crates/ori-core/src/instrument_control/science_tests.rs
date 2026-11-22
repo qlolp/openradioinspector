@@ -65,7 +65,7 @@ async fn configured(
     let mut headers = HeaderMap::new();
     headers.insert(header::HOST, "127.0.0.1:8555".parse().unwrap());
     headers.insert(header::ORIGIN, "https://127.0.0.1:8555".parse().unwrap());
-    let code = core.security.begin(300, 10).unwrap();
+    let code = core.begin_pairing_window(300, 10).unwrap();
     let response = core
         .security
         .pair(

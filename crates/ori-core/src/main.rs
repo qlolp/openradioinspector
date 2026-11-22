@@ -105,7 +105,7 @@ fn options() -> Result<Option<Options>> {
         }
         if key == "--help" || key == "-h" {
             println!(
-                "ori-core --mode shadow|replay|live --data-dir DIR [--database FILE] [--host IP] [--port PORT] [--lan --trusted-host NAME:PORT --tls-state DIR] [--control-port PORT] [--archive-max-bytes BYTES] [--allow-serial] [--ready-file FILE] [--stdin-lifeline] [--check-ready] [--acceptance-profile PRIVATE_JSON] [--analysis-python PYTHON (--research-cgroup DIR | --research-best-effort)] [--research-deadline-ms 30000]\nori-core init-lan --data-dir DIR --name DNS_OR_IP [--name DNS_OR_IP]\nori-core pair --data-dir DIR [--ttl-seconds 300] [--attempts 5]\nDefault shadow opens no archive writer or hardware. Replay is an explicit private-copy candidate. Live requires --data-dir; native serial requires --mode live --allow-serial. Release acceptance is incomplete. LAN identity provisioning and operator trust are explicit."
+                "ori-core --mode shadow|replay|live --data-dir DIR [--database FILE] [--host IP] [--port PORT] [--lan --trusted-host NAME:PORT --tls-state DIR] [--control-port PORT] [--archive-max-bytes BYTES] [--allow-serial] [--ready-file FILE] [--stdin-lifeline] [--check-ready] [--acceptance-profile PRIVATE_JSON] [--analysis-python PYTHON (--research-cgroup DIR | --research-best-effort)] [--research-deadline-ms 30000]\nori-core init-lan --data-dir DIR --name DNS_OR_IP [--name DNS_OR_IP]\nori-core pair --data-dir DIR [--scope operator|reader] [--ttl-seconds 300] [--attempts 5]\nDefault shadow opens no archive writer or hardware. Replay is an explicit private-copy candidate. Live requires --data-dir; native serial requires --mode live --allow-serial. Release acceptance is incomplete. LAN identity provisioning and operator trust are explicit."
             );
             println!(
                 "TaskBook uses ephemeral storage by default; --task-book FILE selects the operator's persistent book. This candidate supports planning; execution is unavailable. --allow-audio explicitly enables the compiled native audio backend; construction opens no input."
@@ -623,14 +623,27 @@ fn create_data(path: &Path) -> Result<()> {
     Ok(())
 }
 async fn operator_command(command: &str) -> Result<()> {
+    use ori_runtime::security::CredentialScope;
     let mut data = default_data();
     let mut names = Vec::new();
     let mut ttl = 300;
     let mut attempts = 5;
+    let mut scope = None;
     let mut args = std::env::args_os().skip(2);
     while let Some(key) = args.next() {
         match key.to_str() {
             Some("--data-dir") => data = value(&mut args)?.into(),
+            Some("--scope") if command == "pair" && scope.is_none() => {
+                scope = Some(match value(&mut args)?.to_str() {
+                    Some("operator") => CredentialScope::Operator,
+                    Some("reader") => CredentialScope::Reader,
+                    _ => {
+                        return Err(CoreError::Invalid(
+                            "pairing scope must be operator or reader",
+                        ));
+                    }
+                });
+            }
             Some("--name") if command == "init-lan" => names.push(
                 value(&mut args)?
                     .into_string()
@@ -687,13 +700,17 @@ async fn operator_command(command: &str) -> Result<()> {
                 "pairing bounds are 1..300 seconds and 1..10 attempts",
             ));
         }
-        let response = ori_core::admin::request(&data, ttl, attempts).await?;
+        let scope = scope.unwrap_or(CredentialScope::Operator);
+        let response = ori_core::admin::request_scoped(&data, ttl, attempts, scope).await?;
         let code = response["pairing_code"]
             .as_str()
             .ok_or(CoreError::Invalid("pairing window unavailable"))?;
         println!(
             "Pairing code: {code}\nExpires in {ttl} seconds; one use, at most {attempts} attempts."
         );
+        if scope == CredentialScope::Reader {
+            println!("Access scope: reader (measurement viewing only)");
+        }
     }
     Ok(())
 }

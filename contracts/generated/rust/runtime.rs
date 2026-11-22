@@ -13,6 +13,17 @@ impl crate::RestoreKeys for AudioEvidenceInfoEncoding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserPairingAccessScope {
+    #[serde(rename = "operator")]
+    Operator,
+    #[serde(rename = "reader")]
+    Reader,
+}
+impl crate::RestoreKeys for BrowserPairingAccessScope {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BrowserPairingCredential {
     #[serde(rename = "browser_cookie")]
     BrowserCookie,
@@ -182,6 +193,17 @@ impl crate::RestoreKeys for MeasurementWebSocketTransport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativePairingAccessScope {
+    #[serde(rename = "operator")]
+    Operator,
+    #[serde(rename = "reader")]
+    Reader,
+}
+impl crate::RestoreKeys for NativePairingAccessScope {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NativePairingCredential {
     #[serde(rename = "bearer")]
     Bearer,
@@ -233,11 +255,33 @@ impl crate::RestoreKeys for PairingInputClient {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PairingInputRequiredScope {
+    #[serde(rename = "operator")]
+    Operator,
+    #[serde(rename = "reader")]
+    Reader,
+}
+impl crate::RestoreKeys for PairingInputRequiredScope {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScanPlanRevisionHardwareValidation {
     #[serde(rename = "not_run")]
     NotRun,
 }
 impl crate::RestoreKeys for ScanPlanRevisionHardwareValidation {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SecurityStatusAccessScope {
+    #[serde(rename = "operator")]
+    Operator,
+    #[serde(rename = "reader")]
+    Reader,
+}
+impl crate::RestoreKeys for SecurityStatusAccessScope {
     fn restore_keys(&mut self) {}
 }
 
@@ -430,6 +474,8 @@ fn runtime_integer_audiorangemark_start_frame<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserPairing {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_scope: Option<BrowserPairingAccessScope>,
     pub credential: BrowserPairingCredential,
     #[serde(deserialize_with = "runtime_const_browserpairing_paired")]
     pub paired: bool,
@@ -1019,6 +1065,8 @@ fn runtime_const_measurementwebsocket_version<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NativePairing {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_scope: Option<NativePairingAccessScope>,
     pub credential: NativePairingCredential,
     #[serde(deserialize_with = "runtime_const_nativepairing_paired")]
     pub paired: bool,
@@ -1178,6 +1226,8 @@ pub struct PairingInput {
     pub client: Option<PairingInputClient>,
     pub label: String,
     pub pairing_code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_scope: Option<PairingInputRequiredScope>,
     #[serde(default, flatten)]
     pub extra: JSONObject,
 }
@@ -1264,8 +1314,12 @@ impl crate::RestoreKeys for ScanPlanRevision {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecurityStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_scope: Option<SecurityStatusAccessScope>,
     pub mode: SecurityStatusMode,
     pub pairing_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reader_pairing: Option<bool>,
     #[serde(default, flatten)]
     pub extra: JSONObject,
 }
@@ -2861,11 +2915,23 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams",
+        backends: &["rust-candidate"],
+        features: &["sessions"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "get_api_v1_sessions_id_streams_stream_id",
         method: "GET",
         path: "/api/v1/sessions/{id}/streams/{stream_id}",
-        backends: &["python-legacy"],
-        features: &[],
+        backends: &["python-legacy", "rust-candidate"],
+        features: &["sessions"],
         capabilities: &[],
         query: &[],
         path_parameters: &["id", "stream_id"],
@@ -3274,6 +3340,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         query: &[],
         path_parameters: &["id"],
         max_request_bytes: Some(16777216),
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_sweeps_sweep_id",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/sweeps/{sweep_id}",
+        backends: &["rust-candidate"],
+        features: &["measurement_archive"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["id", "sweep_id"],
+        max_request_bytes: None,
         request_features: &[],
     },
     RuntimeOperation {
