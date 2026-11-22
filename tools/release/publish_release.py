@@ -177,13 +177,13 @@ def verify_remote_assets(release, paths):
         compare_remote(asset, paths[asset['name']])
 
 
-def verify_github_attestation(repo, receipt, proof):
+def verify_github_attestation(repo, receipt, proof, *, workflow='review-release-evidence.yml', branches=BRANCHES):
     # This is a Sigstore bundle issued by GitHub Actions. Signature, subject
     # digest, protected workflow identity and exact source are all enforced.
     base = ['gh', 'attestation', 'verify', str(receipt), '--bundle', str(proof),
-            '--repo', repo.repo, '--signer-workflow', repo.repo + '/.github/workflows/review-release-evidence.yml',
+            '--repo', repo.repo, '--signer-workflow', repo.repo + '/.github/workflows/' + workflow,
             '--signer-digest', repo.revision, '--source-digest', repo.revision, '--deny-self-hosted-runners']
-    for branch in sorted(BRANCHES):
+    for branch in sorted(branches):
         result = subprocess.run([*base, '--source-ref', 'refs/heads/' + branch],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result.returncode == 0:

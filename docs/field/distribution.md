@@ -73,6 +73,20 @@ gh workflow run android-field-release.yml --ref main \
 
 Этап **review** находит точные успешные прогоны в этом репозитории, сверяет SHA-256 загруженного AAB с Google Play, получает `generatedUniversalApk` у Play и проверяет оба фактических APK, отпечатки, версии и свидетельство. Незавершённый тест или отсутствующий пакет останавливает процесс. В сводке Actions рецензент сверяет хеши с оригиналами. Ограничение GitHub на ожидание environment approval — 30 дней, поэтому длительный закрытый тест лучше закончить до запуска review.
 
-Получив доступ к production, владелец продвигает в Play **этот же AAB**, дожидается полного выпуска и проверяет реальную установку из публичной карточки. Рецензент одобряет `android-field-publication` после этой проверки. Публикация повторно сверяет SHA-256 AAB и полностью развёрнутый production-трек через API и требует, чтобы кандидат имел наибольший обслуживаемый код. Она создаёт отдельный неизменяемый релиз `android-field-v<versionName>` на SHA подписанной сборки с универсальным APK, файлами `android-field-release.json`, `android-field-acceptance.json` и `SHA256SUMS`. GitHub сверяет SHA-256 каждого загруженного файла. Вручение APK и контрольных сумм для автономной установки выполняется после этого шага.
+Получив доступ к production, владелец продвигает в Play **этот же AAB**, дожидается полного выпуска и проверяет реальную установку из публичной карточки. Рецензент одобряет `android-field-publication` после этой проверки. Публикация повторно сверяет SHA-256 AAB и полностью развёрнутый production-трек через API и требует, чтобы кандидат имел наибольший обслуживаемый код. Она создаёт отдельный неизменяемый релиз `android-field-v<versionName>` на SHA подписанной сборки с универсальным APK, манифестом `android-field-release.json`, формой `android-field-acceptance.json`, её подписью `android-field-acceptance.sigstore.json` и `SHA256SUMS`. GitHub сверяет SHA-256 каждого загруженного файла. Вручение APK и контрольных сумм для автономной установки выполняется после этого шага.
 
 Получатель скачивает активы одного Android-тега, проверяет `sha256sum -c SHA256SUMS` (на Mac — `shasum -a 256 -c SHA256SUMS`) и сопоставляет SHA-256 сертификата из `apksigner verify --verbose --print-certs` с опубликованным отпечатком Play App Signing. Передача целого APK на телефон по USB позволяет установить его системным установщиком без сети.
+
+После одобрения GitHub подписывает точные байты формы приёмки аттестацией Sigstore из защищённого задания публикации. В форме указаны SHA-256 APK и AAB и коммит подписанной сборки. Поле `review_revision` манифеста указывает коммит workflow, который проверил форму. Для самостоятельной проверки скачайте активы тега в один каталог, сверьте контрольные суммы и используйте GitHub CLI с поддержкой `gh attestation verify`.
+
+```sh
+sha256sum -c SHA256SUMS
+REVIEW_SHA=$(python3 -c 'import json; print(json.load(open("android-field-release.json"))["review_revision"])')
+gh attestation verify android-field-acceptance.json --bundle android-field-acceptance.sigstore.json \
+  --repo qlolp/openradioinspector \
+  --signer-workflow qlolp/openradioinspector/.github/workflows/android-field-release.yml \
+  --source-ref refs/heads/main --signer-digest "$REVIEW_SHA" --source-digest "$REVIEW_SHA" \
+  --deny-self-hosted-runners
+```
+
+Сопоставьте эту ревизию с историей защищённой `main`, а SHA-256 APK из подписанной формы — со скачанным файлом. При повторе прерванной публикации издатель сверяет уже загруженную подпись для той же формы и сохраняет её байты в релизе.

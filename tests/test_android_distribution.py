@@ -209,7 +209,8 @@ class FieldReleaseTests(unittest.TestCase):
 
     def test_publication_requires_review_public_play_and_exact_frozen_bytes(self):
         build, receipt = sample_receipt()
-        build.update(version_name="0.1.0", application_id=field.PACKAGE, play_cert_sha256=PIN, upload_cert_sha256=UPLOAD)
+        build.update(version_name="0.1.0", review_revision="f" * 40, application_id=field.PACKAGE,
+                     play_cert_sha256=PIN, upload_cert_sha256=UPLOAD)
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, GITHUB_RUN_ID="123", FIELD_PLAY_CERT_SHA256=PIN,
                                                               FIELD_UPLOAD_CERT_SHA256=UPLOAD):
             out = Path(tmp)
@@ -223,7 +224,7 @@ class FieldReleaseTests(unittest.TestCase):
             release.write_sums(out)
             accepted = digest(out / "SHA256SUMS")
             repo, play = Mock(), Mock()
-            repo.repo, repo.base = "owner/repo", "repos/owner/repo/"
+            repo.repo, repo.base, repo.revision = "owner/repo", "repos/owner/repo/", build["review_revision"]
             repo.api.return_value = []
             with patch.object(release, "github") as github:
                 with self.assertRaisesRegex(ValueError, "review"):

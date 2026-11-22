@@ -16,7 +16,7 @@ from tools.field.android_release import (PACKAGE, PLAY_URL, fingerprint, signing
                                          verify_apk, version)
 from tools.release.macos_rc_package import digest, read_json, write_json
 from tools.release.publish_release import (Repository, collect_dispatch_file, compare_remote, github,
-                                          verify_remote_assets)
+                                          verify_github_attestation, verify_remote_assets)
 from tools.release.release_artifacts import require, sha, verify_sums, write_sums
 
 BUILDER = "android-field-bundle.yml"
@@ -25,6 +25,7 @@ WORKFLOW_JOBS = {BUILDER: {"upload-bundle"}, TESTS: {"field", "macos-field-reade
 AAB = "field-upload.aab"
 RECORD = "android-field-release.json"
 RECEIPT = "android-field-acceptance.json"
+PROOF = "android-field-acceptance.sigstore.json"
 
 
 def universal_id(response, pin):
@@ -119,7 +120,7 @@ def origin(repo, build_id, test_id):
     require(tests["head_sha"] == revision, "Android emulator and Mac reader must pass on the signed revision")
     props = subprocess.check_output(["git", "show", revision + ":clients/android/gradle.properties"], text=True)
     name, code = version(props, build["run_number"])
-    return dict(source_revision=revision, version_name=name, version_code=code, build_run_id=build_id,
+    return dict(source_revision=revision, review_revision=repo.revision, version_name=name, version_code=code, build_run_id=build_id,
                 build_attempt=build["run_attempt"], test_run_id=test_id, test_attempt=tests["run_attempt"])
 
 
@@ -163,6 +164,42 @@ def approved(repo):
                 for r in reviews), "a recorded Field publication environment review is required")
 
 
+def reviewed_files(repo, out, expected_sums):
+    require(sha(expected_sums) and digest(out / "SHA256SUMS") == expected_sums, "reviewed checksums changed")
+    record = read_json(out / RECORD)
+    require(sha(record.get("review_revision"), 40) and record["review_revision"] == repo.revision,
+            "review and publication workflow revisions differ")
+    apk = apk_name(record)
+    verify_sums(out, {apk, RECORD, RECEIPT})
+    require(record["application_id"] == PACKAGE and digest(out / apk) == record["apk_sha256"]
+            and record["apk"] == apk and (out / apk).stat().st_size == record["apk_bytes"]
+            and record["acceptance_sha256"] == digest(out / RECEIPT), "reviewed application, APK or receipt changed")
+    receipt = read_json(out / RECEIPT)
+    validate_receipt(receipt, record, record["apk_sha256"])
+    approved(repo)
+    return record, receipt
+
+
+def seal_acceptance(repo, out, proof, existing_assets):
+    # A rerun issues a fresh Sigstore bundle for the same bytes. Resume using
+    # the first valid proof already uploaded to this release.
+    destination = out / PROOF
+    previous = [asset for asset in existing_assets if asset["name"] == PROOF]
+    require(len(previous) <= 1, "ambiguous acceptance attestation")
+    if previous:
+        asset = previous[0]
+        require(0 < asset["size"] <= 128 * 1024, "invalid remote Field attestation size")
+        with destination.open("xb") as stream:
+            github("-H", "Accept: application/octet-stream", repo.base + f"releases/assets/{asset['id']}", output=stream)
+        compare_remote(asset, destination)
+    else:
+        require(proof is not None and proof.is_file() and not proof.is_symlink() and 0 < proof.stat().st_size <= 128 * 1024,
+                "a GitHub acceptance attestation is required")
+        shutil.copyfile(proof, destination)
+    verify_github_attestation(repo, out / RECEIPT, destination, workflow="android-field-release.yml", branches=("main",))
+    write_sums(out)
+
+
 def prior_public_code(releases, tag):
     codes = []
     for release in releases:
@@ -176,27 +213,18 @@ def prior_public_code(releases, tag):
     return max(codes, default=0)
 
 
-def publish(repo, out, expected_sums, play):
-    require(sha(expected_sums) and digest(out / "SHA256SUMS") == expected_sums, "reviewed checksums changed")
-    record = read_json(out / RECORD)
-    apk = apk_name(record)
-    verify_sums(out, {apk, RECORD, RECEIPT})
+def publish(repo, out, expected_sums, play, proof=None):
+    record, receipt = reviewed_files(repo, out, expected_sums)
     pin, upload = signing_pins()
-    require(record["application_id"] == PACKAGE and record["play_cert_sha256"] == pin
-            and record["upload_cert_sha256"] == upload and digest(out / apk) == record["apk_sha256"]
-            and record["apk"] == apk and (out / apk).stat().st_size == record["apk_bytes"]
-            and record["acceptance_sha256"] == digest(out / RECEIPT),
-            "reviewed application, APK or signing identity changed")
-    receipt = read_json(out / RECEIPT)
-    validate_receipt(receipt, record, record["apk_sha256"])
-    approved(repo)
+    require(record["play_cert_sha256"] == pin and record["upload_cert_sha256"] == upload, "reviewed certificate pins differ")
     play.check(record["version_code"], record["aab_sha256"], public=True)
     repo.immutable()
     tag = "android-field-v" + record["version_name"]
     revision = record["source_revision"]
     body = (f"OpenRadioInspector Field {record['version_name']} (versionCode {record['version_code']})\n\n"
             f"{PLAY_URL}\n\nAndroid 12+, ARM64. Play app-signing certificate (SHA-256) `{pin}`.\n\n"
-            f"Source `{revision}`. Review and package checksums `{expected_sums}`.")
+            f"Source `{revision}`. Reviewer-approved asset list SHA-256 `{expected_sums}`. "
+            f"Acceptance workflow commit `{repo.revision}`.")
     fields = dict(tag_name=tag, name=tag, body=body, target_commitish=revision, prerelease=False)
     pages = github("--paginate", "--slurp", repo.base + "releases?per_page=100")
     releases = [release for page in pages for release in page]
@@ -207,6 +235,7 @@ def publish(repo, out, expected_sums, play):
         require(all(release.get(k) == v for k, v in fields.items()), "tag already belongs to a different release")
     else:
         require(repo.tag_ref(tag, optional=True) is None, "tag already exists without a matching Field release")
+    seal_acceptance(repo, out, proof, existing[0]["assets"] if existing else [])
     if not existing or release["draft"]:
         previous = prior_public_code(releases, tag)
         require(previous == 0 or previous == receipt["previous_code"],
@@ -223,7 +252,9 @@ def publish(repo, out, expected_sums, play):
             require(asset["name"] in paths and asset["name"] not in present, "unexpected release draft asset")
             compare_remote(asset, paths[asset["name"]])
             present.add(asset["name"])
-        for name in sorted(paths.keys() - present):
+        # The final checksums include the nondeterministic proof. Upload the
+        # proof first, so every interrupted upload can reconstruct the same list.
+        for name in sorted(paths.keys() - present, key=lambda name: (name != PROOF, name)):
             subprocess.run(["gh", "release", "upload", tag, str(paths[name]), "--repo", repo.repo], check=True)
         verify_remote_assets(repo.api(endpoint), paths)
         repo.immutable()
@@ -236,16 +267,20 @@ def publish(repo, out, expected_sums, play):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("origin", "review", "publish"))
+    parser.add_argument("command", choices=("origin", "review", "approve", "publish"))
     parser.add_argument("--build-run", type=int)
     parser.add_argument("--test-run", type=int)
     parser.add_argument("--candidate", type=Path)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--proof", type=Path)
     args = parser.parse_args()
     repo = Repository()
     require(os.environ["GITHUB_REF"] == "refs/heads/main", "protected main required")
+    if args.command == "approve":
+        reviewed_files(repo, args.out, os.environ["FIELD_REVIEWED_SUMS"])
+        return
     if args.command == "publish":
-        publish(repo, args.out, os.environ["FIELD_REVIEWED_SUMS"], Play())
+        publish(repo, args.out, os.environ["FIELD_REVIEWED_SUMS"], Play(), args.proof)
         return
     build = origin(repo, args.build_run, args.test_run)
     artifact = f"android-field-upload-{args.build_run}-{build['build_attempt']}"

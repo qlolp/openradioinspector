@@ -100,6 +100,8 @@ jobs:
       contents: write
       actions: read
       id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -110,6 +112,15 @@ jobs:
         with:
           name: ${{ needs.review.outputs.artifact }}
           path: ${{ runner.temp }}/approved
+      - name: Confirm the human approval and the receipt submitted for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIELD_REVIEWED_SUMS: ${{ needs.review.outputs.sums }}
+        run: python3 -m tools.field.play_distribution approve --out "$RUNNER_TEMP/approved"
+      - id: witness
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/approved/android-field-acceptance.json
       - id: google
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
@@ -136,4 +147,5 @@ jobs:
           FIELD_PLAY_CERT_SHA256: ${{ vars.FIELD_PLAY_CERT_SHA256 }}
           FIELD_UPLOAD_CERT_SHA256: ${{ vars.FIELD_UPLOAD_CERT_SHA256 }}
           FIELD_REVIEWED_SUMS: ${{ needs.review.outputs.sums }}
-        run: python3 -m tools.field.play_distribution publish --out "$RUNNER_TEMP/approved"
+          FIELD_ACCEPTANCE_BUNDLE: ${{ steps.witness.outputs.bundle-path }}
+        run: python3 -m tools.field.play_distribution publish --out "$RUNNER_TEMP/approved" --proof "$FIELD_ACCEPTANCE_BUNDLE"
