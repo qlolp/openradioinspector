@@ -37,10 +37,13 @@ class LinuxReceiptTests(unittest.TestCase):
             (('hardware', 'os_id'), 'ubuntu'), (('hardware', 'os_version'), '12'),
             (('hardware', 'architecture'), 'arm64'), (('hardware', 'physical'), False),
             (('hardware', 'artifact_sha256'), 'f' * 64), (('hardware', 'seconds'), 28799),
+            (('hardware', 'coverage_sha256'), original['hardware']['report_sha256']),
             (('hardware', 'devices'), ['tinySA Ultra']), (('hardware', 'duplicates'), 1),
             (('loads', 'three-clients', 'concurrent_clients'), 2),
             (('loads', 'three-clients', 'archived', 'pcm_samples'), 86399999),
             (('loads', 'three-clients', 'pcm_rate_hz'), 44100),
+            (('loads', 'three-clients', 'producer_report_sha256'), None),
+            (('loads', 'three-clients', 'history_report_sha256'), original['loads']['three-clients']['report_sha256']),
             (('loads', 'three-clients', 'online_export_verified'), False),
             (('scan', '30000', 'passes'), 9), (('storage', '4096', 'verified_sweeps'), 511),
         )

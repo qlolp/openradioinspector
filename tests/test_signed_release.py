@@ -57,7 +57,9 @@ def receipt(platform, artifact_hash=HASH, manifest_hash=HASH):
                          'sweeps': 4852, 'observations': 4312, 'unexplained_losses': 0,
                          'duplicates': 0, 'report_sha256': '5' * 64}}
     if platform == bundles.LINUX_AMD64:
-        row['hardware'].update(os_id='debian', os_version='13', architecture='amd64', artifact_sha256=artifact_hash)
+        row['hardware'].update(os_id='debian', os_version='13', architecture='amd64', artifact_sha256=artifact_hash,
+                               coverage_sha256='f' * 64)
+        row['loads']['three-clients'].update(producer_report_sha256='0' * 64, history_report_sha256='7' * 64)
         row['installation'] = {version: dict(row['installation'], artifact_sha256=artifact_hash, report_sha256=c * 64)
                                for version, c in [('12', '8'), ('13', '9')]}
     return row

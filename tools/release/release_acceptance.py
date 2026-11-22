@@ -28,10 +28,11 @@ def number(value, low=0, high=math.inf):
 
 
 def validate_load(load, platform, profile):
-    keys(load, ['seconds', 'points_per_sweep', 'history_points_per_sweep', 'pcm_rate_hz', 'pcm_channels',
-                'online_history_verified', 'online_export_verified', 'online_backup_verified', 'offered', 'archived', 'displays', 'offered_sweep_ids_sha256', 'reaction_p95_ms', 'queue_p95_ms',
-                'commit_to_display_p95_ms', 'pan_min_fps', 'history_first_100_ms', 'history_sweeps',
-                'concurrent_clients', 'backup_restore_verified', 'report_sha256'], '30-minute run')
+    fields = ['seconds', 'points_per_sweep', 'history_points_per_sweep', 'pcm_rate_hz', 'pcm_channels',
+              'online_history_verified', 'online_export_verified', 'online_backup_verified', 'offered', 'archived', 'displays',
+              'offered_sweep_ids_sha256', 'reaction_p95_ms', 'queue_p95_ms', 'commit_to_display_p95_ms', 'pan_min_fps',
+              'history_first_100_ms', 'history_sweeps', 'concurrent_clients', 'backup_restore_verified', 'report_sha256']
+    keys(load, fields + (['producer_report_sha256', 'history_report_sha256'] if platform == LINUX_AMD64 else []), '30-minute run')
     counts = {'sweeps': 18000, 'observations': 18000, 'pcm_samples': 0 if platform == 'macos' else 86400000}
     require(type(load['points_per_sweep']) is int and load['points_per_sweep'] == 4096
             and type(load['history_points_per_sweep']) is int and load['history_points_per_sweep'] == 290,
@@ -133,7 +134,7 @@ def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_
     validate_comparisons(row['scan'], row['storage'])
     hardware = row['hardware']
     fields = ['physical', 'devices', 'seconds', 'sweeps', 'observations', 'unexplained_losses', 'duplicates', 'report_sha256']
-    keys(hardware, fields + (['os_id', 'os_version', 'architecture', 'artifact_sha256'] if linux else []), 'physical run')
+    keys(hardware, fields + (['os_id', 'os_version', 'architecture', 'artifact_sha256', 'coverage_sha256'] if linux else []), 'physical run')
     if linux:
         require(hardware['os_id'] == 'debian' and hardware['os_version'] == '13' and hardware['architecture'] == 'amd64'
                 and hardware['artifact_sha256'] == artifact_hash, 'physical run must use the frozen DEB on Debian 13 amd64')
@@ -144,6 +145,9 @@ def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_
             'physical two-device acceptance incomplete')
     hashes = [*(install['report_sha256'] for install in installations), hardware['report_sha256'], row['protocol_report_sha256'],
               *(entry['report_sha256'] for section in (loads, row['scan'], row['storage']) for entry in section.values())]
+    if linux:
+        hashes.extend([hardware['coverage_sha256'], loads['three-clients']['producer_report_sha256'],
+                       loads['three-clients']['history_report_sha256']])
     require(row['protocol_passed'] is True and all(sha(h) for h in hashes) and len(set(hashes)) == len(hashes),
             'distinct successful acceptance reports required')
 

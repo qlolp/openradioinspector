@@ -33,7 +33,8 @@ def template(platform, revision, artifact_hash, manifest_hash, run_id, *, native
         require(native_ci is not None, 'a frozen Debian CI manifest is required')
         workflows[LINUX_CI] = native_ci['run_id']
         install = {version: dict(install, artifact_sha256=None) for version in DEBIAN_VERSIONS}
-        hardware.update(blank('os_id os_version architecture artifact_sha256'))
+        hardware.update(blank('os_id os_version architecture artifact_sha256 coverage_sha256'))
+        loads['three-clients'].update(blank('producer_report_sha256 history_report_sha256'))
     return dict(schema_version=1, platform=platform, target=TARGETS[platform], source_revision=revision,
                 artifact_sha256=artifact_hash, manifest_sha256=manifest_hash, build_run_id=run_id,
                 software_runs=workflows,
@@ -93,7 +94,10 @@ def compare_private(row, manifest, folder):
     checked_file(folder / 'protocol.json', row['protocol_report_sha256'])
     hw = read_json(checked_file(folder / 'hardware.json', row['hardware']['report_sha256']), 32 * 1024 * 1024)
     if row['platform'] == LINUX_AMD64:
+        from . import linux_bench
         compare_linux_bench(row, folder, hw)
+        linux_bench.verify_load(row, folder, manifest)
+        linux_bench.verify_hardware(row, folder, manifest)
     else:
         installation = read_json(checked_file(folder / 'installation.json', row['installation']['report_sha256']))
     if row['platform'] == 'windows':
