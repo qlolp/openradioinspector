@@ -216,6 +216,7 @@ async fn dispatch(
         .security
         .check(&method, &security_path, &headers, role)
         .await?;
+    authentication.authorize_route(&method, &parts)?;
     if let Some(expected) = runtime_owner
         && !core
             .config
@@ -1476,7 +1477,23 @@ async fn events(
         loop {
             if *shutdown.borrow()||security.validate(&authentication).await.is_err(){break;}
             match archive.events(cursor,8).await {
-                Ok(items) if !items.is_empty()=>{for event in items{let Some(sequence)=event["sequence"].as_u64()else{break;};if sequence<=cursor{continue;}let event_type=event["event_type"].as_str().unwrap_or("unknown");match to_json_vec(&Envelope::new(&event)){Ok(data)=>{cursor=sequence;yield Ok::<Event,Infallible>(Event::default().id(sequence.to_string()).event(event_type).data(String::from_utf8(data).expect("JSON UTF8")));},Err(_)=>break,}}continue;},
+                Ok(items) if !items.is_empty() => {
+                    for event in items {
+                        if receipt.revalidate().is_err() {
+                            return;
+                        }
+                        let Some(sequence) = event["sequence"].as_u64() else { break };
+                        if sequence <= cursor {
+                            continue;
+                        }
+                        let Ok(data) = to_json_vec(&Envelope::new(&event)) else { break };
+                        let event_type = event["event_type"].as_str().unwrap_or("unknown");
+                        cursor = sequence;
+                        yield Ok::<Event, Infallible>(Event::default().id(sequence.to_string()).event(event_type)
+                            .data(String::from_utf8(data).expect("JSON UTF8")));
+                    }
+                    continue;
+                }
                 Err(_)=>{yield Ok(Event::default().event("stream.gap").data(format!("{{\"after\":{cursor},\"history_available\":true}}")));break;},
                 _=>{},
             }

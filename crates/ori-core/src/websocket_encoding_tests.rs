@@ -318,7 +318,7 @@ async fn revoking_the_original_credential_interrupts_a_queued_encoder_wait() {
         origins: vec!["https://localhost:8770".into()],
     });
     let core = Core::open(config).await.unwrap();
-    let code = core.security.begin(30, 2).unwrap();
+    let code = core.begin_pairing_window(30, 2).unwrap();
     let paired = core
         .security
         .pair(

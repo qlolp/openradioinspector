@@ -2,7 +2,7 @@
 use ori_runtime::security::Credentials;
 use ori_runtime::{
     lease::{InstanceLease, WriterLease},
-    security::{AccessPolicy, PairingWindow},
+    security::{AccessPolicy, CredentialScope, PairingWindow},
 };
 #[cfg(unix)]
 use std::fs;
@@ -67,6 +67,92 @@ fn pairing_is_single_use_expiring_and_rate_limited() {
         pairing.redeem(&code, 99).is_err(),
         "clock rollback extended a pairing window"
     );
+}
+
+#[test]
+fn pairing_scope_is_set_by_the_window_and_mismatches_spend_an_attempt() {
+    let (mut window, code) =
+        PairingWindow::begin_scoped(100, 60, 3, CredentialScope::Reader).unwrap();
+    assert!(window.redeem(&code, 101).is_err());
+    assert!(
+        window
+            .redeem_scoped(&code, 101, Some(CredentialScope::Operator))
+            .is_err()
+    );
+    assert_eq!(
+        window.redeem_scoped(&code, 101, None).unwrap(),
+        CredentialScope::Reader
+    );
+    assert!(window.redeem_scoped(&code, 101, None).is_err());
+
+    let (mut operator, code) = PairingWindow::begin(100, 60, 1).unwrap();
+    assert!(
+        operator
+            .redeem_scoped(&code, 101, Some(CredentialScope::Reader))
+            .is_err()
+    );
+    assert!(operator.redeem(&code, 101).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn version_one_operators_survive_downgrade_and_reader_tokens_never_match_the_legacy_verifier() {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use sha2::{Digest, Sha256};
+    let legacy_hash = |token: &str| URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()));
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().join("security");
+    Credentials::open(&dir).unwrap();
+    let path = dir.join("credentials.json");
+    let operator = "A".repeat(43);
+    let old = serde_json::to_vec(&serde_json::json!({"version":1,"tokens":[
+        {"hash":legacy_hash(&operator),"label":"historic desktop","created_at_unix":10}]}))
+    .unwrap();
+    fs::write(&path, &old).unwrap();
+    let mut credentials = Credentials::open(&dir).unwrap();
+    credentials.authorize(&operator).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), old);
+
+    let reader = credentials
+        .issue_scoped("phone", 11, CredentialScope::Reader)
+        .unwrap();
+    let reopened = Credentials::open(&dir).unwrap();
+    assert_eq!(
+        reopened.credential_scope(&reader).unwrap(),
+        CredentialScope::Reader
+    );
+    assert!(reopened.authorize(&reader).is_err());
+    let saved = fs::read_to_string(&path).unwrap();
+    assert!(!saved.contains(&reader));
+    let mut store: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(store["version"], 1);
+    let records = store["tokens"].as_array().unwrap();
+    assert!(
+        records
+            .iter()
+            .all(|record| record.as_object().unwrap().len() == 3)
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record["hash"] == legacy_hash(&operator))
+    );
+    assert!(
+        records
+            .iter()
+            .all(|record| record["hash"] != legacy_hash(&reader))
+    );
+    let suffix = records[1]["hash"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("reader-v1:")
+        .unwrap()
+        .to_owned();
+    assert_ne!(suffix, legacy_hash(&reader));
+    store["tokens"][1]["hash"] = suffix.into();
+    fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
+    assert!(reopened.credential_scope(&reader).is_err());
+    reopened.authorize(&operator).unwrap();
 }
 
 #[test]

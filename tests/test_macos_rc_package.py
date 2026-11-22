@@ -144,10 +144,21 @@ class MacOSRCPackageTests(unittest.TestCase):
             for name in ['COPYRIGHT-library.html', 'COPYRIGHT.html']: (docs/name).write_text('Controlled Rust notice fixture')
             metadata = {'packages': [dict(id='fixture-core', name='ori-core', version='0.1.0', license='MIT', source=None,
                 manifest_path=str(crate/'Cargo.toml'))], 'resolve': {'nodes': [dict(id='fixture-core', dependencies=[])]}}
+            ring = folder / 'ring'
+            fiat_notice = ring / 'third_party/fiat/LICENSE'
+            fiat_notice.parent.mkdir(parents=True)
+            fiat_notice.write_text('Fiat arithmetic copyright and terms')
+            metadata['packages'].append(dict(id='fixture-ring', name='ring', version='0.17.14',
+                license='ISC', source='registry', manifest_path=str(ring / 'Cargo.toml')))
+            metadata['resolve']['nodes'][0]['dependencies'].append('fixture-ring')
+            metadata['resolve']['nodes'].append(dict(id='fixture-ring', dependencies=[]))
             self.builder.notices(destination, metadata, folder/'sysroot')
             self.assertEqual((destination/'crates/ori-core-0.1.0/LICENSE').read_text(), 'Controlled fixture license')
             inventory = json.loads((destination/'cargo-build-dependency-closure.json').read_text())
             self.assertEqual(inventory[0]['name'], 'ori-core')
+            expected = 'crates/ring-0.17.14/third_party/fiat/LICENSE'
+            self.assertEqual(inventory[1]['notice_files'], [expected])
+            self.assertEqual((destination / expected).read_bytes(), fiat_notice.read_bytes())
             self.assertTrue((destination/'OpenRadioInspector-MIT.txt').is_file())
 
     def test_component_profile_rejects_mixed_source_architecture_and_audio(self):

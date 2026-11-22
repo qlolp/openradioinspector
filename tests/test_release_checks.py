@@ -13,7 +13,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from tests import run_release_checks as release
 
@@ -255,7 +255,7 @@ class ReleaseGateTests(unittest.TestCase):
         class Passing(unittest.TestCase):
             def runTest(self):
                 self.assertTrue(True)
-        for platform, count in (("linux", 2), ("darwin", 1), ("win32", 1)):
+        for platform, count in (("linux", 3), ("darwin", 1), ("win32", 1)):
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "result.json"
                 with patch.object(release.sys, "platform", platform), \
@@ -267,7 +267,10 @@ class ReleaseGateTests(unittest.TestCase):
                 self.assertEqual(report["tests_run"], count)
                 self.assertEqual(report["skipped"], [])
                 if platform == "linux":
-                    extra.assert_called_once_with("tests.offline_core_release_checks")
+                    self.assertEqual(extra.call_args_list, [
+                        call("tests.offline_core_release_checks"),
+                        call("tests.debian_package_release_checks"),
+                    ])
                 else:
                     extra.assert_not_called()
 

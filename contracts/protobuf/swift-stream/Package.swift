@@ -1,7 +1,7 @@
 // swift-tools-version: 6.4
 import PackageDescription
 let package = Package(
-    name: "ORIMeasurementStream", platforms: [.macOS(.v14)],
+    name: "ORIMeasurementStream", platforms: [.macOS(.v14), .iOS(.v17)],
     products: [.library(name: "ORIMeasurementStream", targets: ["ORIMeasurementStream"])],
     dependencies: [.package(path: "../../generated/swift")],
     targets: [

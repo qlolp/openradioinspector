@@ -1,6 +1,17 @@
 //! Private operator IPC. Pairing-window creation is never a LAN HTTP operation.
+use ori_runtime::security::CredentialScope;
+
+pub async fn request(
+    data: &std::path::Path,
+    ttl: u64,
+    attempts: u32,
+) -> crate::Result<serde_json::Value> {
+    request_scoped(data, ttl, attempts, CredentialScope::Operator).await
+}
+
 #[cfg(unix)]
 mod platform {
+    use super::CredentialScope;
     use crate::{Core, CoreError, Result};
     use serde_json::{Value, json};
     use std::{
@@ -96,7 +107,7 @@ mod platform {
         Ok(AdminServer { task })
     }
     fn command(core: &Core, value: Value) -> Value {
-        let allowed = ["version", "command", "ttl_seconds", "attempts"];
+        let allowed = ["version", "command", "ttl_seconds", "attempts", "scope"];
         if value
             .as_object()
             .is_none_or(|map| map.keys().any(|key| !allowed.contains(&key.as_str())))
@@ -119,20 +130,39 @@ mod platform {
                 None => return json!({"version":1,"error":"invalid_request"}),
             },
         };
-        match core.begin_pairing_window(ttl, attempts) {
+        let scope = match value.get("scope") {
+            None => CredentialScope::Operator,
+            Some(value) => match serde_json::from_value(value.clone()) {
+                Ok(scope) => scope,
+                Err(_) => return json!({"version":1,"error":"invalid_request"}),
+            },
+        };
+        match core.begin_scoped_pairing_window(ttl, attempts, scope) {
             Ok(code) => {
-                json!({"version":1,"pairing_code":code,"expires_in":ttl,"server_fingerprint_sha256":core.server_fingerprint()})
+                let mut reply = json!({"version":1,"pairing_code":code,"expires_in":ttl,"server_fingerprint_sha256":core.server_fingerprint()});
+                if value.get("scope").is_some() {
+                    reply["access_scope"] = json!(scope);
+                }
+                reply
             }
             Err(_) => json!({"version":1,"error":"pairing_unavailable"}),
         }
     }
-    pub async fn request(data: &Path, ttl: u64, attempts: u32) -> Result<Value> {
+    pub async fn request_scoped(
+        data: &Path,
+        ttl: u64,
+        attempts: u32,
+        scope: CredentialScope,
+    ) -> Result<Value> {
         let path = ori_runtime::lease::state_directory(data)?.join("core-admin.sock");
         let mut stream = UnixStream::connect(path).await?;
-        let request = ori_contracts::to_json_vec(
-            &json!({"version":1,"command":"pairing.start","ttl_seconds":ttl,"attempts":attempts}),
-        )
-        .map_err(|_| CoreError::Invalid("operator request serialization"))?;
+        let mut body =
+            json!({"version":1,"command":"pairing.start","ttl_seconds":ttl,"attempts":attempts});
+        if scope == CredentialScope::Reader {
+            body["scope"] = json!(scope);
+        }
+        let request = ori_contracts::to_json_vec(&body)
+            .map_err(|_| CoreError::Invalid("operator request serialization"))?;
         stream.write_all(&request).await?;
         stream.shutdown().await?;
         let mut bytes = Vec::new();
@@ -142,19 +172,28 @@ mod platform {
         )
         .await
         .map_err(|_| CoreError::Invalid("operator request timeout"))??;
-        ori_contracts::parse_json_value(&bytes, 4096)
-            .map_err(|_| CoreError::Invalid("operator response invalid"))
+        let response = ori_contracts::parse_json_value(&bytes, 4096)
+            .map_err(|_| CoreError::Invalid("operator response invalid"))?;
+        if scope == CredentialScope::Reader
+            && (response["version"] != 1 || response["access_scope"] != json!(scope))
+        {
+            return Err(CoreError::Invalid(
+                "node did not confirm a reader pairing window",
+            ));
+        }
+        Ok(response)
     }
 }
 #[cfg(unix)]
-pub use platform::request;
+pub use platform::request_scoped;
 #[cfg(unix)]
 pub(crate) use platform::start;
 #[cfg(not(unix))]
-pub async fn request(
+pub async fn request_scoped(
     _data: &std::path::Path,
     _ttl: u64,
     _attempts: u32,
+    _scope: CredentialScope,
 ) -> crate::Result<serde_json::Value> {
     Err(crate::CoreError::Invalid(
         "local pairing operator IPC requires verified native platform support",

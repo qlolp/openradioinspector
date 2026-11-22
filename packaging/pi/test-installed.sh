@@ -6,19 +6,23 @@ if [ "$#" -ne 3 ] && [ "$#" -ne 5 ]; then
     exit 2
 fi
 [ "$(id -u)" = 0 ]
-[ "$(uname -m)" = aarch64 ]
-[ "$(dpkg --print-architecture)" = arm64 ]
 [ "$(cat /proc/1/comm)" = systemd ]
+arch=$(dpkg --print-architecture)
+case "$arch/$(uname -m)" in
+    arm64/aarch64) package=openradioinspector-pi-rc; service_user=ori-pi-rc ;;
+    amd64/x86_64)  package=openradioinspector-linux; service_user=ori-linux; [ "$#" -eq 3 ] ;;
+    *) echo 'This test needs a native arm64 or amd64 Debian package host' >&2; exit 1 ;;
+esac
 release=$(realpath "$1")
 second=$(realpath "$2")
 report=$(realpath -m "$3")
 checks=$(realpath "$(dirname "$0")/check_installed.py")
-package=openradioinspector-pi-rc
 unit="$package.service"
 state=/var/lib/$package
+manifest=/usr/share/doc/$package/release.json
 dropin=/run/systemd/system/$unit.d
-ns=ori-pi-rc-ci
-for path in "$state" "$state.ci-retained" "/etc/$package" "$dropin" "/run/netns/$ns" "$report"; do
+ns=$service_user-ci
+for path in "$state" "$state.ci-clean" "$state.ci-retained" "/etc/$package" "$dropin" "/run/netns/$ns" "$report"; do
     if [ -e "$path" ] || [ -L "$path" ]; then echo "CI test requires a fresh path: $path" >&2; exit 1; fi
 done
 if dpkg-query -s "$package" >/dev/null 2>&1; then echo 'Package already present' >&2; exit 1; fi
@@ -29,7 +33,10 @@ rc=("$release"/*.deb)
 upgrade=("$second"/*.deb)
 [ "${#rc[@]}" = 1 ]
 [ "${#upgrade[@]}" = 1 ]
-for pkg in "${rc[0]}" "${upgrade[0]}"; do [ "$(dpkg-deb -f "$pkg" Package)" = "$package" ]; done
+for pkg in "${rc[0]}" "${upgrade[0]}"; do
+    [ "$(dpkg-deb -f "$pkg" Package)" = "$package" ]
+    [ "$(dpkg-deb -f "$pkg" Architecture)" = "$arch" ]
+done
 dpkg --compare-versions "$(dpkg-deb -f "${rc[0]}" Version)" lt "$(dpkg-deb -f "${upgrade[0]}" Version)"
 
 if [ "$#" -eq 5 ]; then
@@ -44,41 +51,87 @@ if [ "$#" -eq 5 ]; then
     [ "$(dpkg-deb -f "${upgrade[0]}" Version)" = '0.4.0-1' ]
 fi
 
-ip netns add "$ns"
+if [ "$arch" = amd64 ]; then
+    # CI boots the entire Debian userspace with only a private loopback device.
+    . /etc/os-release
+    [ "$ID" = debian ]
+    case "$VERSION_ID" in 12|13) ;; *) echo 'Debian 12 or 13 is required' >&2; exit 1 ;; esac
+    [ "$(ip -o link show | wc -l)" -eq 1 ]
+    ip link set lo up
+    network=/proc/1/ns/net
+    launcher=()
+else
+    ip netns add "$ns"
+    ip -n "$ns" link set lo up
+    [ "$(ip -n "$ns" -o link show | wc -l)" -eq 1 ]
+    mkdir "$dropin"
+    printf '[Service]\nNetworkNamespacePath=/run/netns/%s\n' "$ns" > "$dropin/network.conf"
+    network=/run/netns/$ns
+    launcher=(ip netns exec "$ns")
+fi
 cleanup() {
+    result=$?
     systemctl stop "$unit" >/dev/null 2>&1 || true
     journalctl -b -u "$unit" --no-pager > "$report/service.log" || true
+    if [ "$result" -ne 0 ]; then
+        dpkg-query --show ca-certificates systemd >&2 || true
+        cat "$report/service.log" >&2
+    fi
     if [ -d "$dropin" ]; then rm -f -- "$dropin/network.conf"; rmdir -- "$dropin"; fi
     systemctl daemon-reload
-    ip netns delete "$ns"
+    if [ "$arch" = arm64 ]; then ip netns delete "$ns"; fi
 }
 trap cleanup EXIT
-ip -n "$ns" link set lo up
-[ "$(ip -n "$ns" -o link show | wc -l)" = 1 ]
-mkdir "$dropin"
-printf '[Service]\nNetworkNamespacePath=/run/netns/%s\n' "$ns" > "$dropin/network.conf"
-offline() { ip netns exec "$ns" env NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost "$@"; }
-verify() { offline python3 "$checks" "$1" >> "$report/lifecycle.jsonl"; }
+offline() { "${launcher[@]}" env NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost "$@"; }
+verify() {
+    "/usr/lib/$package/check-install" >/dev/null
+    offline python3 "$checks" "$1" --manifest "$manifest" >> "$report/lifecycle.jsonl"
+}
+
+if [ "$arch" = amd64 ]; then
+    offline dpkg -i "${upgrade[0]}"
+    systemctl is-enabled --quiet "$unit"
+    [ -z "$(dpkg --verify "$package")" ]
+    cmp "$second/release.json" "$manifest"
+    verify clean-install
+    python3 - "${upgrade[0]}" "$manifest" "$report/environment.json" <<'PY'
+import hashlib, json, platform, subprocess, sys
+from pathlib import Path
+deb, manifest, output = map(Path, sys.argv[1:])
+info = json.loads(manifest.read_text())
+os = platform.freedesktop_os_release()
+package, version, arch = subprocess.check_output([
+    'dpkg-query', '-W', '-f', '${Package} ${Version} ${Architecture}', info['package']], text=True).split()
+assert (package, version, arch) == (info['package'], info['debian_version'], info['debian_architecture'])
+with deb.open('rb') as content:
+    sha = hashlib.file_digest(content, 'sha256').hexdigest()
+output.write_text(json.dumps(dict(os_id=os['ID'], os_version=os['VERSION_ID'], architecture=arch,
+    package=package, source_revision=info['source_revision'], debian_version=version, deb_sha256=sha,
+    hardware_validation='not_run'), indent=2) + '\n')
+PY
+    offline dpkg --purge "$package"
+    mv -- "$state" "$state.ci-clean"
+fi
 
 offline dpkg -i "${rc[0]}"
 systemctl is-active --quiet "$unit"
 systemctl is-enabled --quiet "$unit"
 [ -z "$(dpkg --verify "$package")" ]
 cmp "$release/release.json" "/usr/share/doc/$package/release.json"
-[ "$(stat -c '%U %G %a' "$state")" = 'ori-pi-rc ori-pi-rc 700' ]
-[ "$(stat -c '%U %a' "$state/sessions.sqlite3")" = 'ori-pi-rc 600' ]
-[ "$(systemctl show -p User --value "$unit")" = ori-pi-rc ]
-status=$(runuser -u ori-pi-rc -- "/usr/lib/$package/ori-supervisor" status "$state")
-python3 - "$status" <<'PY'
+[ "$(stat -c '%U %G %a' "$state")" = "$service_user $service_user 700" ]
+[ "$(stat -c '%U %a' "$state/sessions.sqlite3")" = "$service_user 600" ]
+[ "$(systemctl show -p User --value "$unit")" = "$service_user" ]
+status=$(runuser -u "$service_user" -- "/usr/lib/$package/ori-supervisor" status "$state")
+python3 - "$status" "$service_user" "$network" <<'PY'
 import grp, json, os, pwd, sys
 from pathlib import Path
 status = json.loads(sys.argv[1])['status']
 assert status['ready'] and status['writer_owned'] and status['preflight_complete']
 proc = Path('/proc') / str(status['pid'])
-assert proc.stat().st_uid == pwd.getpwnam('ori-pi-rc').pw_uid != os.getuid()
+assert proc.stat().st_uid == pwd.getpwnam(sys.argv[2]).pw_uid != os.getuid()
 groups = next(row for row in (proc / 'status').read_text().splitlines() if row.startswith('Groups:')).split()[1:]
 assert str(grp.getgrnam('dialout').gr_gid) in groups
-assert (proc / 'ns/net').stat().st_ino == Path('/run/netns/ori-pi-rc-ci').stat().st_ino
+assert (proc / 'ns/net').stat().st_ino == Path(sys.argv[3]).stat().st_ino
 PY
 python3 - "$package" <<'CHECK'
 import hashlib, json, subprocess, sys
@@ -110,7 +163,7 @@ verify rollback
 systemctl restart "$unit"
 verify restart
 systemctl stop "$unit"
-runuser -u ori-pi-rc -- "/usr/lib/$package/ori-core" archive-materialize "$state/sessions.sqlite3" "$state/compat-v6.sqlite"
+runuser -u "$service_user" -- "/usr/lib/$package/ori-core" archive-materialize "$state/sessions.sqlite3" "$state/compat-v6.sqlite"
 offline dpkg --purge "$package"
 python3 - "$state" <<'PY'
 from pathlib import Path
@@ -125,9 +178,14 @@ PY
 # Keep the entire original archive (including any sidecars) while exercising
 # a separate v6 data directory. The package must preserve an existing schema.
 mv -- "$state" "$state.ci-retained"
-install -d -o ori-pi-rc -g ori-pi-rc -m 0700 "$state"
-runuser -u ori-pi-rc -- cp "$state.ci-retained/compat-v6.sqlite" "$state/sessions.sqlite3"
-offline dpkg -i "${rc[0]}"
+install -d -o "$service_user" -g "$service_user" -m 0700 "$state"
+runuser -u "$service_user" -- cp "$state.ci-retained/compat-v6.sqlite" "$state/sessions.sqlite3"
+if [ "$arch" = amd64 ]; then
+    offline dpkg -i "${upgrade[0]}"
+    cmp "$second/release.json" "$manifest"
+else
+    offline dpkg -i "${rc[0]}"
+fi
 verify existing-v6
 if [ "$#" -eq 5 ]; then
     # The lifecycle and exact original-source checks have completed on the
@@ -147,4 +205,4 @@ with sqlite3.connect(Path(sys.argv[1]).as_uri() + '?mode=ro', uri=True) as db:
     assert db.execute('PRAGMA user_version').fetchone() == (6,)
     assert db.execute('PRAGMA integrity_check').fetchone() == ('ok',)
 PYV6
-echo 'Verified ARM64 install, restart, upgrade, downgrade, retained v7 data and compatible v6 restart offline.'
+echo "Verified $arch install, restart, upgrade, downgrade, retained v7 data and compatible v6 restart offline."

@@ -5,6 +5,8 @@ use reqwest::{Client, Response};
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use tokio::{net::TcpListener, task::JoinHandle};
+#[path = "security_tls/reader.rs"]
+mod reader;
 struct LanServer {
     core: Arc<Core>,
     client: Client,

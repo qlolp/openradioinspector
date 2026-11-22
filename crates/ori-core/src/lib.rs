@@ -650,10 +650,22 @@ impl Core {
         }
     }
     pub fn begin_pairing_window(&self, ttl: u64, attempts: u32) -> Result<String> {
+        self.begin_scoped_pairing_window(
+            ttl,
+            attempts,
+            ori_runtime::security::CredentialScope::Operator,
+        )
+    }
+    pub fn begin_scoped_pairing_window(
+        &self,
+        ttl: u64,
+        attempts: u32,
+        scope: ori_runtime::security::CredentialScope,
+    ) -> Result<String> {
         if self.admission.is_quiescing() {
             return Err(CoreError::Invalid("core is shutting down"));
         }
-        self.security.begin(ttl, attempts)
+        self.security.begin(ttl, attempts, scope)
     }
     pub fn server_fingerprint(&self) -> Option<&str> {
         self.security.fingerprint()

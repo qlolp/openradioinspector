@@ -3,7 +3,7 @@ set -eu
 case "$1" in
     upgrade|remove|deconfigure)
         if [ -d /run/systemd/system ]; then
-            deb-systemd-invoke stop openradioinspector-pi-rc.service
+            deb-systemd-invoke stop @PACKAGE@.service
         fi
         ;;
 esac

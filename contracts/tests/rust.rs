@@ -244,12 +244,18 @@ fn history_operations_require_their_independent_route_feature() {
 #[test]
 fn runtime_dtos_preserve_exact_values_and_existing_summary_schema() {
     use ori_contracts::runtime::{
-        BrowserPairing, MeasurementWebSocket, NativePairing, SecurityStatus,
+        BrowserPairing, MeasurementWebSocket, NativePairing, NativePairingAccessScope,
+        SecurityStatus, SecurityStatusAccessScope,
     };
     let fixture: Value = from_json_slice(RUNTIME_FIXTURE, RUNTIME_FIXTURE.len()).unwrap();
     let status: SecurityStatus =
         from_json_slice(&to_json_vec(&fixture["security_status"]).unwrap(), 10000).unwrap();
     assert!(!status.pairing_required);
+    assert!(status.access_scope.is_none());
+    let reader: SecurityStatus =
+        from_json_slice(&to_json_vec(&fixture["reader_status"]).unwrap(), 10000).unwrap();
+    assert_eq!(reader.reader_pairing, Some(true));
+    assert_eq!(reader.access_scope, Some(SecurityStatusAccessScope::Reader));
     let round: Value = from_json_slice(&to_json_vec(&status).unwrap(), 10000).unwrap();
     assert_eq!(round["mode"], "legacy_loopback");
     assert_eq!(round["future_metadata"]["big"].as_u64(), Some(u64::MAX));
@@ -278,6 +284,7 @@ fn runtime_dtos_preserve_exact_values_and_existing_summary_schema() {
     let native: NativePairing =
         from_json_slice(&to_json_vec(&fixture["native_pairing"]).unwrap(), 10000).unwrap();
     assert_eq!(native.token, "synthetic-fixture-never-a-valid-credential");
+    assert_eq!(native.access_scope, Some(NativePairingAccessScope::Reader));
     let mut socket: MeasurementWebSocket = from_json_slice(
         &to_json_vec(&fixture["websocket_descriptor"]).unwrap(),
         10000,

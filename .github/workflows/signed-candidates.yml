@@ -6,9 +6,14 @@ on:
         description: Target package
         type: choice
         required: true
-        options: [macos, windows, pi]
+        options: [macos, windows, pi, linux-amd64]
+      linux_ci_run:
+        description: Successful Linux amd64 CI run that installed the candidate on Debian 12 and 13
+        type: string
+        default: '0'
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -18,7 +23,7 @@ jobs:
     if: github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/0.4.0')
     environment: release-build-${{ inputs.platform }}
     # A repository variable can select an existing protected HSM/Xcode runner.
-    runs-on: ${{ inputs.platform == 'macos' && (vars.MACOS_RELEASE_RUNNER || 'macos-latest') || inputs.platform == 'windows' && (vars.WINDOWS_RELEASE_RUNNER || 'windows-latest') || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ inputs.platform == 'macos' && (vars.MACOS_RELEASE_RUNNER || 'macos-latest') || inputs.platform == 'windows' && (vars.WINDOWS_RELEASE_RUNNER || 'windows-latest') || inputs.platform == 'pi' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -32,7 +37,7 @@ jobs:
       - name: Require the dispatched checkout to belong to protected main
         run: python -c "from tools.release.publish_release import Repository; Repository()"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        if: inputs.platform != 'macos'
+        if: inputs.platform == 'windows' || inputs.platform == 'pi'
         with:
           node-version: '26.13.0'
       - name: Select Xcode for Apple Silicon
@@ -123,6 +128,49 @@ jobs:
               python3 packaging/pi/build_rc.py --distribution --output-dir build/distribution/pi/debian
               python3 -m tools.release.release_artifacts pi --metadata build/distribution/pi/debian/release.json --artifact build/distribution/pi/debian/*.deb --out build/distribution/pi/frozen
             '
+      - name: Verify the native Debian build and both successful installs at this revision
+        if: inputs.platform == 'linux-amd64'
+        id: linux-origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NATIVE_RUN: ${{ inputs.linux_ci_run }}
+        run: python -m tools.release.publish_release native-origin linux-amd64 --build-run "$NATIVE_RUN"
+      - name: Download the installed amd64 DEB
+        if: inputs.platform == 'linux-amd64'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.linux_ci_run }}
+          name: openradioinspector-linux-amd64-${{ github.sha }}-${{ steps.linux-origin.outputs.attempt }}
+          path: ${{ runner.temp }}/linux/package
+      - name: Download the Debian 12 install and rollback evidence
+        if: inputs.platform == 'linux-amd64'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.linux_ci_run }}
+          name: openradioinspector-linux-amd64-proof-debian12-${{ github.sha }}-${{ steps.linux-origin.outputs.attempt }}
+          path: ${{ runner.temp }}/linux/reports/12
+      - name: Download the Debian 13 install and rollback evidence
+        if: inputs.platform == 'linux-amd64'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.linux_ci_run }}
+          name: openradioinspector-linux-amd64-proof-debian13-${{ github.sha }}-${{ steps.linux-origin.outputs.attempt }}
+          path: ${{ runner.temp }}/linux/reports/13
+      - name: Freeze the exact DEB verified on Debian 12 and 13
+        if: inputs.platform == 'linux-amd64'
+        env:
+          NATIVE_RUN: ${{ inputs.linux_ci_run }}
+          NATIVE_ATTEMPT: ${{ steps.linux-origin.outputs.attempt }}
+        run: |
+          python -m tools.release.release_artifacts linux-amd64 \
+            --metadata "$RUNNER_TEMP/linux/package/release.json" \
+            --artifact "$RUNNER_TEMP/linux/package/openradioinspector-linux_0.4.0-1_amd64.deb" \
+            --native-reports "$RUNNER_TEMP/linux/reports" --source-revision "$GITHUB_SHA" \
+            --native-run "$NATIVE_RUN" --native-attempt "$NATIVE_ATTEMPT" \
+            --out build/distribution/linux-amd64/frozen
       - name: Retain frozen package bytes for offline acceptance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

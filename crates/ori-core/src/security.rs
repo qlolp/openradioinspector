@@ -8,7 +8,9 @@ use axum::{
     http::{HeaderMap, Method, StatusCode, header},
     response::Response,
 };
-use ori_runtime::security::{AccessPolicy, Credentials, PairingWindow, TlsIdentity};
+use ori_runtime::security::{
+    AccessPolicy, CredentialScope, Credentials, PairingWindow, TlsIdentity,
+};
 pub(crate) use receipt::AuthReceipt;
 use receipt::Revocation;
 use serde_json::{Value, json};
@@ -36,12 +38,48 @@ pub(crate) enum AuthKind {
 #[derive(Clone)]
 pub(crate) struct AuthContext {
     pub kind: AuthKind,
+    scope: Option<CredentialScope>,
     token: Option<String>,
     receipt: AuthReceipt,
 }
 impl AuthContext {
     pub(crate) fn receipt(&self) -> AuthReceipt {
         self.receipt.clone()
+    }
+
+    /// Match the same decoded segments used for dispatch, including runtime-owner aliases.
+    pub(crate) fn authorize_route(&self, method: &Method, parts: &[String]) -> ApiResult<()> {
+        match self.scope {
+            None | Some(CredentialScope::Operator) => return Ok(()),
+            Some(CredentialScope::Reader) => {}
+        }
+        let segments: Vec<_> = parts.iter().map(String::as_str).collect();
+        let resource = segments.strip_prefix(&["api", "v1"]).unwrap_or_default();
+        if matches!(
+            (method.as_str(), resource),
+            ("GET", ["security", "status"])
+                | ("GET", ["health" | "capabilities" | "sessions" | "events"])
+                | ("GET", ["events", "history" | "ws"])
+                | ("GET", ["sessions", _])
+                | (
+                    "GET",
+                    [
+                        "sessions",
+                        _,
+                        "streams" | "sweeps" | "sweep-summaries" | "observations"
+                    ]
+                )
+                | ("GET", ["sessions", _, "streams" | "sweeps", _])
+                | ("POST", ["security", "credentials", "current", "revoke"])
+                | ("DELETE", ["security", "credentials", "current"])
+        ) {
+            return Ok(());
+        }
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "insufficient_scope",
+            "Клиенту разрешено только чтение измерений",
+        ))
     }
 }
 struct Private {
@@ -153,12 +191,15 @@ impl SecurityState {
                 .lock()
                 .map_err(|_| ApiError::unavailable("security_state_unavailable"))?;
             let key: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-            if let Err(error) = private.credentials.authorize(&token) {
-                if let Some(flag) = private.receipts.get(&key).and_then(Weak::upgrade) {
-                    flag.revoke();
+            let scope = match private.credentials.credential_scope(&token) {
+                Ok(scope) => scope,
+                Err(error) => {
+                    if let Some(flag) = private.receipts.get(&key).and_then(Weak::upgrade) {
+                        flag.revoke();
+                    }
+                    return Err(runtime_error(error));
                 }
-                return Err(runtime_error(error));
-            }
+            };
             private.receipts.retain(|_, flag| flag.strong_count() > 0);
             let flag = if let Some(flag) = private
                 .receipts
@@ -179,6 +220,7 @@ impl SecurityState {
             receipt.revalidate()?;
             Ok(AuthContext {
                 kind,
+                scope: Some(scope),
                 token: Some(token),
                 receipt,
             })
@@ -186,11 +228,11 @@ impl SecurityState {
         .await
         .map_err(|_| ApiError::unavailable("security_state_unavailable"))?
     }
-    pub fn begin(&self, ttl: u64, attempts: u32) -> Result<String> {
+    pub fn begin(&self, ttl: u64, attempts: u32, scope: CredentialScope) -> Result<String> {
         let private = self.private.as_ref().ok_or(CoreError::Invalid(
             "explicit legacy loopback mode requires no pairing",
         ))?;
-        let (window, code) = PairingWindow::begin(now(), ttl, attempts)?;
+        let (window, code) = PairingWindow::begin_scoped(now(), ttl, attempts, scope)?;
         private
             .lock()
             .map_err(|_| CoreError::Invalid("security state poisoned"))?
@@ -233,6 +275,7 @@ impl SecurityState {
                     {
                         AuthContext {
                             kind: AuthKind::Unauthenticated,
+                            scope: None,
                             token: None,
                             receipt: AuthReceipt::new(self.admission.clone(), None),
                         }
@@ -241,6 +284,7 @@ impl SecurityState {
                 },
                 None if optional => AuthContext {
                     kind: AuthKind::Unauthenticated,
+                    scope: None,
                     token: None,
                     receipt: AuthReceipt::new(self.admission.clone(), None),
                 },
@@ -274,6 +318,7 @@ impl SecurityState {
             }
             Ok(AuthContext {
                 kind: AuthKind::Legacy,
+                scope: None,
                 token: None,
                 receipt: AuthReceipt::new(self.admission.clone(), None),
             })
@@ -285,15 +330,20 @@ impl SecurityState {
             return Ok(());
         }
         let token = context.token.clone().ok_or_else(denial)?;
+        let expected_scope = context.scope.ok_or_else(denial)?;
         let state = self.clone();
         let result = tokio::task::spawn_blocking(move || {
             let private = state.private.as_ref().ok_or_else(denial)?;
-            private
+            let scope = private
                 .lock()
                 .map_err(|_| ApiError::unavailable("security_state_unavailable"))?
                 .credentials
-                .authorize(&token)
-                .map_err(runtime_error)
+                .credential_scope(&token)
+                .map_err(runtime_error)?;
+            if scope != expected_scope {
+                return Err(denial());
+            }
+            Ok(())
         })
         .await
         .unwrap_or_else(|_| Err(ApiError::unavailable("security_state_unavailable")));
@@ -303,7 +353,14 @@ impl SecurityState {
         result
     }
     pub fn status(&self, context: &AuthContext) -> Value {
-        json!({"mode":if self.lan(){"lan_tls"}else{"legacy_loopback"},"pairing_required":self.lan()&&context.kind==AuthKind::Unauthenticated})
+        if !self.lan() {
+            return json!({"mode":"legacy_loopback","pairing_required":false});
+        }
+        let mut data = json!({"mode":"lan_tls","pairing_required":context.scope.is_none(),"reader_pairing":true});
+        if let Some(scope) = context.scope {
+            data["access_scope"] = json!(scope);
+        }
+        data
     }
     pub async fn pair(
         self: &Arc<Self>,
@@ -317,7 +374,7 @@ impl SecurityState {
                 "Legacy loopback mode requires no pairing",
             ));
         }
-        let allowed = ["pairing_code", "label", "client"];
+        let allowed = ["pairing_code", "label", "client", "required_scope"];
         if payload
             .as_object()
             .is_none_or(|v| v.keys().any(|key| !allowed.contains(&key.as_str())))
@@ -341,37 +398,48 @@ impl SecurityState {
             Some(Value::String(client)) if client == "native" => true,
             _ => return Err(ApiError::invalid("Неизвестный тип клиента")),
         };
+        let required_scope = payload
+            .get("required_scope")
+            .map(|value| serde_json::from_value::<CredentialScope>(value.clone()))
+            .transpose()
+            .map_err(|_| ApiError::invalid("Неизвестный уровень доступа"))?;
         if !native && !headers.contains_key(header::ORIGIN) {
             return Err(forbidden());
         }
         let state = self.clone();
-        let token = tokio::task::spawn_blocking(move || {
+        let (token, scope) = tokio::task::spawn_blocking(move || {
             let mut private = state
                 .private
                 .as_ref()
                 .ok_or_else(denial)?
                 .lock()
                 .map_err(|_| ApiError::unavailable("security_state_unavailable"))?;
-            private
+            let scope = private
                 .pairing
                 .as_mut()
                 .ok_or_else(|| runtime_error(ori_runtime::Error::PairingUnavailable))?
-                .redeem(&code, now())
+                .redeem_scoped(&code, now(), required_scope)
                 .map_err(runtime_error)?;
-            private
+            let token = private
                 .credentials
-                .issue(&label, now())
-                .map_err(runtime_error)
+                .issue_scoped(&label, now(), scope)
+                .map_err(runtime_error)?;
+            Ok::<_, ApiError>((token, scope))
         })
         .await
         .map_err(|_| ApiError::unavailable("security_state_unavailable"))??;
-        let data = if native {
+        let mut data = if native {
             json!({"paired":true,"credential":"bearer","token":token})
         } else {
             json!({"paired":true,"credential":"browser_cookie"})
         };
+        if scope == CredentialScope::Reader || required_scope.is_some() {
+            data["access_scope"] = json!(scope);
+        }
         let mut response = super::http::envelope(StatusCode::OK, data);
-        set_cookie(&mut response, &token, false)?;
+        if !native || scope == CredentialScope::Operator {
+            set_cookie(&mut response, &token, false)?;
+        }
         Ok(response)
     }
     pub fn browser_session(&self, context: &AuthContext, payload: &Value) -> ApiResult<Response> {

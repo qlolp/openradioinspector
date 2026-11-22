@@ -236,12 +236,11 @@ def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test:
                 raise ReleaseCheckError("Single-test selection must resolve to exactly the requested case")
         else:
             suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
-            # ELF relocation/AF_UNIX packaging belongs to the Linux target.
-            # Load that suite explicitly instead of creating platform skips in
-            # every Windows/macOS release. Never mask empty base discovery.
+            # ELF relocation, Unix sockets and dpkg-deb require the Linux target.
+            # Keep empty base discovery visible on every platform.
             if suite.countTestCases() and sys.platform.startswith("linux"):
-                suite.addTests(unittest.defaultTestLoader.loadTestsFromName(
-                    "tests.offline_core_release_checks"))
+                for module in ("tests.offline_core_release_checks", "tests.debian_package_release_checks"):
+                    suite.addTests(unittest.defaultTestLoader.loadTestsFromName(module))
             suite = isolate_tk_cases(suite)
         result = unittest.TextTestRunner(verbosity=2, resultclass=DiagnosticTestResult if diagnostics else None).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]

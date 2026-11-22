@@ -1,12 +1,12 @@
 {
-  "data_directory": "/var/lib/openradioinspector-pi-rc",
+  "data_directory": "/var/lib/@PACKAGE@",
   "backend": {
-    "name": "pi-rc-serial",
-    "program": "/usr/lib/openradioinspector-pi-rc/ori-core",
+    "name": "@BACKEND_NAME@",
+    "program": "/usr/lib/@PACKAGE@/ori-core",
     "args": [
       "--mode", "live",
-      "--data-dir", "/var/lib/openradioinspector-pi-rc",
-      "--task-book", "/var/lib/openradioinspector-pi-rc/tasks.json",
+      "--data-dir", "/var/lib/@PACKAGE@",
+      "--task-book", "/var/lib/@PACKAGE@/tasks.json",
       "--host", "127.0.0.1", "--port", "8770",
       "--archive-max-bytes", "68719476736",
       "--allow-serial", "--stdin-lifeline"

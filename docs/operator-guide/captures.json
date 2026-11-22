@@ -279,6 +279,49 @@
           "waterfall_rows_visible_in_png": 9
         }
       ]
+    },
+    {
+      "client": "OpenRadioInspector Field, native Kotlin/Compose",
+      "host": "Android 12 (API 31) emulator with ARM64 ABI translation",
+      "source_revision": "4dcd0ea948f435671dd207066bdaaae987166c8a",
+      "release_version": "0.1.0, code 1 (engineering)",
+      "installed_apk_sha256": "4cf2fb0263ad474d1d36fb6c3c64ba2982965292ab662223074eb08452ba6836",
+      "github_run_id": 45061401605,
+      "github_artifact_id": 14769583593,
+      "capture": "adb screencap after verification of native USB setup controls. No physical USB device.",
+      "captures": [
+        {
+          "file": "images/android-field-usb.png",
+          "sha256": "6e4c0c0889f54eec94cc5498773e9772a6338a064791c8090bbd20b811c08681",
+          "pixels": [
+            320,
+            640
+          ],
+          "theme": "dark",
+          "scenario": "USB setup before connecting the field receiver, GPS recording disabled"
+        }
+      ]
+    },
+    {
+      "client": "OpenRadioInspector iPhone Field, native SwiftUI",
+      "release_version": "0.1.0, build 1 (engineering)",
+      "host": "Xcode 27.2 (27B52), iPhone 18 Pro Max simulator, iOS 27.2 (24B8117)",
+      "source_revision": "221b9ddbf7ec0239cedccd8f6f529382a567e8f7",
+      "capture_time_utc": "2026-11-22T19:22:06.780Z",
+      "source": "contracts/fixtures/field-archive-v1.orifield",
+      "source_sha256": "20fb086277535734f118ab4e2884cdfd14437281001717ff491f0c6db1af923a",
+      "capture": "FieldUITests/testOfflineDemoNavigatesFromNoteToOriginalValuesAndGPS, XCUIApplication screenshot PNG exported directly from a passing local .xcresult",
+      "captures": [
+        {
+          "file": "images/iphone-field-archive.png",
+          "sha256": "1672084ce1f88dc964d67bb36346607651606f7238d1019a872bf3ddc56834c9",
+          "pixels": [
+            1320,
+            2868
+          ],
+          "scenario": "Offline synthetic field session with a four-point spectrum, receiver observation in s_meter_count, GPS, note and receiver gap."
+        }
+      ]
     }
   ]
 }

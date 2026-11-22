@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "SpektrKomandy",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "SpektrKomandy", targets: ["SpektrKomandy"]),
     ],

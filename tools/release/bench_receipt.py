@@ -8,14 +8,14 @@ import sqlite3
 
 from . import release_acceptance as gate
 from .macos_rc_package import digest, read_json
-from .release_artifacts import ARTIFACTS, TARGETS, check_manifest, require, verify_sums
+from .release_artifacts import ARTIFACTS, DEBIAN_VERSIONS, LINUX_AMD64, LINUX_CI, TARGETS, check_manifest, require, verify_sums
 
 
 def blank(fields):
     return dict.fromkeys(fields.split())
 
 
-def template(platform, revision, artifact_hash, manifest_hash, run_id):
+def template(platform, revision, artifact_hash, manifest_hash, run_id, *, native_ci=None):
     profiles = ('binary-v1', 'sse', 'three-clients') if platform == 'macos' else ('three-clients',)
     loads = {}
     for name in profiles:
@@ -26,13 +26,20 @@ def template(platform, revision, artifact_hash, manifest_hash, run_id):
                            offered=blank('sweeps observations pcm_samples'), archived=blank('sweeps observations pcm_samples'),
                            concurrent_clients=None, displays=[dict(client=n + 1, presented_sweeps=None, presented_sweep_ids_sha256=None)
                                                                for n in range(displays)])
+    install = dict.fromkeys((*gate.INSTALL_CHECKS, 'prior_artifact_sha256', 'report_sha256'))
+    hardware = blank('physical devices seconds sweeps observations unexplained_losses duplicates report_sha256')
+    workflows = dict.fromkeys(gate.required_workflows(platform))
+    if platform == LINUX_AMD64:
+        require(native_ci is not None, 'a frozen Debian CI manifest is required')
+        workflows[LINUX_CI] = native_ci['run_id']
+        install = {version: dict(install, artifact_sha256=None) for version in DEBIAN_VERSIONS}
+        hardware.update(blank('os_id os_version architecture artifact_sha256 coverage_sha256'))
+        loads['three-clients'].update(blank('producer_report_sha256 history_report_sha256'))
     return dict(schema_version=1, platform=platform, target=TARGETS[platform], source_revision=revision,
                 artifact_sha256=artifact_hash, manifest_sha256=manifest_hash, build_run_id=run_id,
-                software_runs=dict.fromkeys(gate.required_workflows(platform)),
+                software_runs=workflows,
                 protocol_passed=None, protocol_report_sha256=None,
-                installation=blank('offline clean_install upgrade rollback new_measurements_preserved manual_opened_offline '
-                                   'prior_artifact_sha256 report_sha256'), loads=loads,
-                hardware=blank('physical devices seconds sweeps observations unexplained_losses duplicates report_sha256'),
+                installation=install, loads=loads, hardware=hardware,
                 scan={key: blank('start_hz stop_hz step_hz passes direct_elapsed_seconds installed_elapsed_seconds '
                                  'direct_profile_sha256 installed_profile_sha256 direct_reference_sha256 export_sha256 report_sha256')
                       for key in ('10000', '30000')},
@@ -69,10 +76,30 @@ def checked_file(path, expected):
     return path
 
 
+def compare_linux_bench(row, folder, hardware):
+    for version, accepted in row['installation'].items():
+        original = read_json(checked_file(folder / f'installation-debian-{version}.json', accepted['report_sha256']))
+        expected = dict(os_id='debian', os_version=version, architecture='amd64', source_revision=row['source_revision'])
+        expected.update({k: v for k, v in accepted.items() if k != 'report_sha256'})
+        require(all(original.get(k) == v and type(original.get(k)) is type(v) for k, v in expected.items()),
+                'private offline lifecycle differs from the signed Debian host, package or observations')
+    expected = {k: v for k, v in row['hardware'].items() if k != 'report_sha256'}
+    expected['source_revision'] = row['source_revision']
+    require(all(hardware.get(k) == v and type(hardware.get(k)) is type(v) for k, v in expected.items()),
+            'private hardware run differs from the signed Debian host, package or observations')
+
+
 def compare_private(row, manifest, folder):
     from benchmarks.ori_bench import panorama_storage, scan_rate
     checked_file(folder / 'protocol.json', row['protocol_report_sha256'])
-    installation = read_json(checked_file(folder / 'installation.json', row['installation']['report_sha256']))
+    hw = read_json(checked_file(folder / 'hardware.json', row['hardware']['report_sha256']), 32 * 1024 * 1024)
+    if row['platform'] == LINUX_AMD64:
+        from . import linux_bench
+        compare_linux_bench(row, folder, hw)
+        linux_bench.verify_load(row, folder, manifest)
+        linux_bench.verify_hardware(row, folder, manifest)
+    else:
+        installation = read_json(checked_file(folder / 'installation.json', row['installation']['report_sha256']))
     if row['platform'] == 'windows':
         expected = dict(result='passed', phase='final_uninstall', package_rollback='passed',
                         network_check='disconnected_at_all_phase_checks', revision=row['source_revision'],
@@ -82,7 +109,6 @@ def compare_private(row, manifest, folder):
     actual_display = display_ledger(folder / 'three-client-ledger.sqlite')
     require(all(row['loads']['three-clients'][k] == v for k, v in actual_display.items()),
             'signed client counts or presented sweep digests differ from the original display ledger')
-    hw = read_json(checked_file(folder / 'hardware.json', row['hardware']['report_sha256']), 32 * 1024 * 1024)
     loads = {p: checked_file(folder / f'load-{p}.json', v['report_sha256']) for p, v in row['loads'].items()}
     if row['platform'] == 'macos':
         from benchmarks.ori_bench.mac_acceptance.hardware import require_load_pair
@@ -149,11 +175,11 @@ def main():
     identity = (args.platform, row['source_revision'], row['artifact']['sha256'], digest(manifest), args.build_run)
     if args.operation == 'template':
         with args.receipt.open('x', encoding='utf-8', newline='\n') as out:
-            json.dump(template(*identity), out, indent=2)
+            json.dump(template(*identity, native_ci=row.get('native_ci')), out, indent=2)
             out.write('\n')
         return
     form = read_json(args.receipt)
-    gate.validate_receipt(form, *identity)
+    gate.validate_receipt(form, *identity, native_ci=row.get('native_ci'))
     if args.private_reports:
         compare_private(form, row, args.private_reports)
     print('Validated receipt SHA-256', digest(args.receipt))

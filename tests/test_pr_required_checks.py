@@ -125,6 +125,14 @@ class PushPathTests(unittest.TestCase):
                 self.assertEqual(patterns, expected)
 
 
+class RequiredWorkflowTests(unittest.TestCase):
+    def test_each_subscribed_pr_event_requests_both_protected_verdicts(self):
+        workflow = (ROOT / ".github/workflows/pr-checks.yml").read_text()
+        caller = workflow.split("\n  pr:\n", 1)[1]
+        self.assertIn("uses: ./.github/workflows/conditional-checks.yml", caller)
+        self.assertNotIn("\n    if:", caller, "A skipped caller leaves both required contexts expected")
+
+
 class RequiredVerdictTests(unittest.TestCase):
     suites = {
         "clients": ("web", "native-bridge", "windows-installer"),

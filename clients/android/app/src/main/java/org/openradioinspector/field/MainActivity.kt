@@ -70,6 +70,7 @@ private fun OperatorConsole(service: FieldService?) {
     MaterialTheme(colorScheme = consoleColors) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             var tab by rememberSaveable { mutableIntStateOf(0) }
+            var privacy by rememberSaveable { mutableStateOf(false) }
             var exportId by rememberSaveable { mutableStateOf<String?>(null) }
             var exportUri by rememberSaveable { mutableStateOf<String?>(null) }
             val export = rememberLauncherForActivityResult(exportDocument()) {
@@ -86,8 +87,10 @@ private fun OperatorConsole(service: FieldService?) {
                 }
             }
             Column(Modifier.safeDrawingPadding().imePadding()) {
-                Text("Полевой приём", style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Полевой приём", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { privacy = true }) { Text("Конфиденциальность") }
+                }
                 val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
                 val consoleState = service?.state?.collectAsStateWithLifecycle()?.value
                 if (service == null || consoleState == null) {
@@ -113,8 +116,31 @@ private fun OperatorConsole(service: FieldService?) {
                     }
                 }
             }
+            if (privacy) FieldPrivacyPolicy { privacy = false }
         }
     }
+}
+
+@Composable
+private fun FieldPrivacyPolicy(close: () -> Unit) {
+    val context = LocalContext.current
+    val paragraphs = remember(context) {
+        val link = Regex("""\[([^\]]+)]\([^)]+\)""")
+        context.assets.open("privacy.md").bufferedReader().use { it.readText() }
+            .trim().split(Regex("""\r?\n\s*\r?\n""")).drop(1)
+            .map { paragraph -> link.replace(paragraph) { it.groupValues[1] } }
+    }
+    AlertDialog(onDismissRequest = close, title = { Text("Политика конфиденциальности") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            for (paragraph in paragraphs) {
+                if (paragraph.startsWith("#")) {
+                    Text(paragraph.trimStart('#', ' '), style = MaterialTheme.typography.titleMedium)
+                } else {
+                    Text(paragraph)
+                }
+            }
+        }
+    }, confirmButton = { TextButton(onClick = close) { Text("Закрыть") } })
 }
 
 @Composable

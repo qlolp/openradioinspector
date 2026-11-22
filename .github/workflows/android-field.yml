@@ -4,14 +4,25 @@ on:
   pull_request:
     paths:
       - 'clients/android/**'
+      - 'docs/field/privacy.md'
       - 'crates/**'
       - 'tools/field_archive.py'
+      - 'tools/field/android_release.py'
+      - 'tools/field/android_upgrade.py'
+      - 'tools/field/android_notices.py'
+      - 'tools/release/native_notices.py'
+      - 'tests/test_android_notices.py'
+      - 'tools/field/play_distribution.py'
       - 'tests/test_field_archive.py'
+      - 'tests/test_android_distribution.py'
+      - 'tests/android_distribution_integration.py'
       - 'contracts/fixtures/field-archive-v1.orifield'
       - 'macos/SpektrKomandy/**'
       - 'Cargo.*'
       - 'rust-toolchain.toml'
       - '.github/workflows/android-field.yml'
+      - '.github/workflows/android-field-bundle.yml'
+      - '.github/workflows/android-field-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -46,6 +57,12 @@ jobs:
         working-directory: clients/android
         run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:bundleRelease
 
+      - name: Regenerate the runtime notices from locked inputs without network resolution
+        working-directory: clients/android
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: ./gradlew --offline --no-daemon --rerun-tasks :app:collectFieldNotices
+
       - name: Verify signing, privacy, ABI and 16 KiB page alignment
         working-directory: clients/android
         run: |
@@ -54,6 +71,8 @@ jobs:
           apk="$outputs/apk/debug/app-debug.apk"
           bundle="$outputs/bundle/release/app-release.aab"
           tools="$ANDROID_HOME/build-tools/36.0.0"
+          cmp ../../docs/field/privacy.md <(unzip -p "$apk" assets/privacy.md)
+          cmp ../../docs/field/privacy.md <(unzip -p "$bundle" base/assets/privacy.md)
           "$tools/apksigner" verify --verbose --print-certs "$apk"
           "$tools/zipalign" -c -P 16 -v 4 "$apk"
           "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/field-badging"
@@ -70,6 +89,13 @@ jobs:
           grep -F PAGE_ALIGNMENT_16K "$RUNNER_TEMP/field-bundle-config"
           (cd "$outputs" && sha256sum apk/debug/app-debug.apk bundle/release/app-release.aab) > "$outputs/SHA256SUMS"
           cat "$outputs/SHA256SUMS"
+
+      - name: Rehearse release verification with two disposable certificates
+        env:
+          FIELD_TEST_AAB: ${{ github.workspace }}/clients/android/app/build/outputs/bundle/release/app-release.aab
+          FIELD_TEST_DEBUG_APK: ${{ github.workspace }}/clients/android/app/build/outputs/apk/debug/app-debug.apk
+          FIELD_TEST_BUNDLETOOL: ${{ runner.temp }}/bundletool.jar
+        run: python3 -m unittest -v tests.test_android_distribution tests.test_android_notices tests.android_distribution_integration
 
       - name: Retain Field build for sideload and Play rehearsal
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

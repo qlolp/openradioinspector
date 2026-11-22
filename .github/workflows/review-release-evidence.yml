@@ -5,7 +5,7 @@ on:
       platform:
         description: Platform that completed the private bench protocol
         type: choice
-        options: [macos, windows, pi]
+        options: [macos, windows, pi, linux-amd64]
         required: true
       build_run:
         description: Successful native signing/package workflow run ID

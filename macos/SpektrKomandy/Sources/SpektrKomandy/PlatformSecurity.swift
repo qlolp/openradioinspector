@@ -25,6 +25,8 @@ public struct PlatformNodeSecurityStatus: Decodable, Equatable, Sendable {
     public enum Mode: String, Decodable, Sendable { case lanTLS = "lan_tls", legacyLoopback = "legacy_loopback" }
     public let mode: Mode
     public let pairingRequired: Bool
+    public let readerPairing: Bool?
+    public let accessScope: String?
 }
 
 /// Only this validated cookie may cross into a separate WKHTTPCookieStore.
@@ -73,10 +75,19 @@ extension PlatformClient {
     /// The operator opens the limited pairing window on the core. This method
     /// submits exactly one code; it never opens a window or retries a code.
     public func pairNative(pairingCode: String, label: String) async throws -> PlatformBearerCredential {
+        try await pairNative(pairingCode: pairingCode, label: label, requiredScope: nil)
+    }
+
+    func pairNative(pairingCode: String, label: String, requiredScope: String?) async throws -> PlatformBearerCredential {
         try requireTLS()
-        struct Body: Encodable, Sendable { let pairingCode: String; let label: String; let client = "native" }
-        struct Reply: Decodable, Sendable { let paired: Bool; let credential: String; let token: String }
-        let body = Body(pairingCode: pairingCode, label: label)
+        struct Body: Encodable, Sendable {
+            let pairingCode: String
+            let label: String
+            let client = "native"
+            let requiredScope: String?
+        }
+        struct Reply: Decodable, Sendable { let paired: Bool; let credential, token: String; let accessScope: String? }
+        let body = Body(pairingCode: pairingCode, label: label, requiredScope: requiredScope)
         let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
         guard !pairingCode.isEmpty, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               try encoder.encode(body).count <= 4096 else {
@@ -84,7 +95,7 @@ extension PlatformClient {
         }
         do {
             let reply: Reply = try await post("/security/pair", body: body, expectedStatuses: [200])
-            guard reply.paired, reply.credential == "bearer" else {
+            guard reply.paired, reply.credential == "bearer", requiredScope == nil || reply.accessScope == requiredScope else {
                 throw PlatformError.invalidResponse("Сервер не подтвердил сопряжение native-клиента")
             }
             return try PlatformBearerCredential(token: reply.token)

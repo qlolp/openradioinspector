@@ -1,5 +1,5 @@
 //! LAN request policy, short-lived one-time pairing, and hash-only device credentials.
-//! Route adapters must call BOTH `AccessPolicy::check` and `Credentials::authorize`.
+//! Route adapters must check transport policy and enforce the scope of the authenticated credential.
 use crate::{
     Error, Result,
     lease::{Lease, atomic_private, private_directory, read_private},
@@ -25,6 +25,22 @@ fn digest(secret: &str) -> String {
 }
 fn equal(left: &str, right: &str) -> bool {
     bool::from(left.as_bytes().ct_eq(right.as_bytes()))
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialScope {
+    Operator,
+    Reader,
+}
+
+// Historical nodes compare only the untagged SHA-256 of an operator token.
+// A reader record must remain unusable by that verifier across a downgrade.
+fn reader_digest(secret: &str) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"OpenRadioInspector LAN reader credential v1\0");
+    hash.update(secret.as_bytes());
+    format!("reader-v1:{}", URL_SAFE_NO_PAD.encode(hash.finalize()))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -81,6 +97,14 @@ impl Credentials {
         )
     }
     pub fn issue(&mut self, label: &str, now: u64) -> Result<String> {
+        self.issue_scoped(label, now, CredentialScope::Operator)
+    }
+    pub fn issue_scoped(
+        &mut self,
+        label: &str,
+        now: u64,
+        scope: CredentialScope,
+    ) -> Result<String> {
         if label.is_empty() || label.len() > 128 || label.chars().any(char::is_control) {
             return Err(Error::Unsafe("invalid device label".into()));
         }
@@ -91,36 +115,56 @@ impl Credentials {
         }
         let token = random_secret();
         store.tokens.push(Record {
-            hash: digest(&token),
+            hash: match scope {
+                CredentialScope::Operator => digest(&token),
+                CredentialScope::Reader => reader_digest(&token),
+            },
             label: label.into(),
             created_at_unix: now,
         });
         self.save(&store)?;
         Ok(token)
     }
+    /// An unscoped legacy caller requires operator authority.
     pub fn authorize(&self, token: &str) -> Result<()> {
+        match self.credential_scope(token)? {
+            CredentialScope::Operator => Ok(()),
+            CredentialScope::Reader => Err(Error::Unauthorized),
+        }
+    }
+    /// Authenticate the token from the private store before dispatching a scoped operation.
+    pub fn credential_scope(&self, token: &str) -> Result<CredentialScope> {
         if token.len() != 43 {
             return Err(Error::Unauthorized);
         }
         let _lock = self.lock()?;
         let store = self.load()?;
-        let hash = digest(token);
-        let authorized = store
-            .tokens
-            .iter()
-            .fold(false, |found, record| equal(&hash, &record.hash) | found);
-        if authorized {
-            Ok(())
-        } else {
-            Err(Error::Unauthorized)
+        let operator_hash = digest(token);
+        let reader_hash = reader_digest(token);
+        let mut scope = None;
+        for record in &store.tokens {
+            let matched = if equal(&operator_hash, &record.hash) {
+                CredentialScope::Operator
+            } else if equal(&reader_hash, &record.hash) {
+                CredentialScope::Reader
+            } else {
+                continue;
+            };
+            if scope.replace(matched).is_some() {
+                return Err(Error::Unauthorized);
+            }
         }
+        scope.ok_or(Error::Unauthorized)
     }
     pub fn revoke(&mut self, token: &str) -> Result<bool> {
         let _lock = self.lock()?;
         let mut store = self.load()?;
         let before = store.tokens.len();
-        let hash = digest(token);
-        store.tokens.retain(|record| !equal(&hash, &record.hash));
+        let operator_hash = digest(token);
+        let reader_hash = reader_digest(token);
+        store.tokens.retain(|record| {
+            !equal(&operator_hash, &record.hash) && !equal(&reader_hash, &record.hash)
+        });
         let removed = before != store.tokens.len();
         if removed {
             self.save(&store)?;
@@ -133,6 +177,7 @@ impl Credentials {
 /// One installation-wide window limits brute-force attempts even across source IPs.
 pub struct PairingWindow {
     hash: String,
+    scope: CredentialScope,
     began: u64,
     expires: u64,
     remaining: u32,
@@ -140,6 +185,14 @@ pub struct PairingWindow {
 }
 impl PairingWindow {
     pub fn begin(now: u64, duration_secs: u64, attempts: u32) -> Result<(Self, String)> {
+        Self::begin_scoped(now, duration_secs, attempts, CredentialScope::Operator)
+    }
+    pub fn begin_scoped(
+        now: u64,
+        duration_secs: u64,
+        attempts: u32,
+        scope: CredentialScope,
+    ) -> Result<(Self, String)> {
         if duration_secs == 0 || duration_secs > 300 || attempts == 0 || attempts > 10 {
             return Err(Error::Unsafe(
                 "pairing allows 1–300 seconds and 1–10 attempts".into(),
@@ -152,6 +205,7 @@ impl PairingWindow {
         Ok((
             Self {
                 hash: digest(&code),
+                scope,
                 began: now,
                 expires,
                 remaining: attempts,
@@ -161,15 +215,27 @@ impl PairingWindow {
         ))
     }
     pub fn redeem(&mut self, code: &str, now: u64) -> Result<()> {
+        self.redeem_scoped(code, now, Some(CredentialScope::Operator))
+            .map(drop)
+    }
+    pub fn redeem_scoped(
+        &mut self,
+        code: &str,
+        now: u64,
+        required: Option<CredentialScope>,
+    ) -> Result<CredentialScope> {
         if self.used || now < self.began || now >= self.expires || self.remaining == 0 {
             return Err(Error::PairingUnavailable);
         }
         self.remaining -= 1;
-        if code.len() != 43 || !equal(&self.hash, &digest(code)) {
+        if code.len() != 43
+            || !equal(&self.hash, &digest(code))
+            || required.is_some_and(|scope| scope != self.scope)
+        {
             return Err(Error::Unauthorized);
         }
         self.used = true;
-        Ok(())
+        Ok(self.scope)
     }
 }
 

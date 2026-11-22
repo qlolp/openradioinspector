@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / 'tools/release'))
 import macos_rc_package as package
 sys.path.insert(0, str(ROOT))
 from tools.release import developer_id
+from tools.release.native_notices import copy_notices, link_asn1_impl_licenses
 from tools.release.operator_manual import stage_manual
 from tools.release.release_artifacts import freeze
 
@@ -62,26 +63,23 @@ def notices(destination, metadata, sysroot):
         key = pending.pop()
         if key in selected: continue
         selected.add(key); pending.extend(nodes[key]['dependencies'])
-    entries = []
+    entries = {}
     for key in sorted(selected):
         item = packages[key]
+        name, version, source = item['name'], item['version'], item['source']
         base = Path(item['manifest_path']).parent.resolve()
-        label = item['name'] + '-' + item['version']
-        files = []
-        for source in sorted(base.iterdir()):
-            if source.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE')) and source.is_file():
-                if not source.resolve().is_relative_to(base) or source.stat().st_size > 4 * 1024 * 1024:
-                    raise ValueError('unsafe license file: ' + label)
-                target = destination / 'crates' / label / source.name
-                target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)
-                files.append(str(target.relative_to(destination)))
-        entries.append(dict(name=item['name'], version=item['version'], license=item['license'],
-                            source=item['source'] or 'OpenRadioInspector workspace', notice_files=files))
+        files = copy_notices(base, destination / 'crates' / f'{name}-{version}', destination,
+                             item.get('license_file'), max_bytes=4 * 1024 * 1024)
+        if not source and not files:
+            files = ['OpenRadioInspector-MIT.txt']
+        entries[name, version, source] = dict(name=name, version=version, license=item['license'],
+            source=source or 'OpenRadioInspector workspace', notice_files=files)
+    link_asn1_impl_licenses(entries, destination)
     for name in ['COPYRIGHT-library.html', 'COPYRIGHT.html']:
         source = sysroot / 'share/doc/rust' / name
         if not source.is_file(): raise ValueError('Rust distribution copyright file missing')
         shutil.copyfile(source, destination / ('Rust-' + name))
-    package.write_json(destination / 'cargo-build-dependency-closure.json', entries)
+    package.write_json(destination / 'cargo-build-dependency-closure.json', list(entries.values()))
     (destination / 'README.txt').write_text(
         'Native SwiftUI + Rust personal RC. No Python interpreter, DuckDB, PortAudio or Node runtime is bundled.\n'
         'System Apple frameworks/Swift runtime are provided by macOS. Cargo entries include build dependencies; '

@@ -3,6 +3,7 @@ import type {JSONValue, JSONObject, Integer} from './codec.ts';
 export type {JSONValue, JSONObject, Integer} from './codec.ts';
 
 export type AudioEvidenceInfoEncoding = "pcm16_le";
+export type BrowserPairingAccessScope = "operator" | "reader";
 export type BrowserPairingCredential = "browser_cookie";
 export type HistoryJobOperation = "export" | "summary" | "occupancy";
 export type HistoryJobPhase = "snapshot" | "running" | "completed" | "cancelled" | "failed";
@@ -14,12 +15,15 @@ export type MeasurementQualificationStatus = "supported" | "unverified" | "parti
 export type MeasurementWebSocketEncoding = "protobuf";
 export type MeasurementWebSocketSubprotocol = "ori.measurements.v1.protobuf";
 export type MeasurementWebSocketTransport = "websocket";
+export type NativePairingAccessScope = "operator" | "reader";
 export type NativePairingCredential = "bearer";
 export type PairedRecheckResultInstrument = "tinySA" | "AR-DV1";
 export type PairedRecheckResultMethodology = "paired-local-recheck-v1";
 export type PairedRecheckResultState = "missing_evidence" | "evaluated";
 export type PairingInputClient = "browser" | "native";
+export type PairingInputRequiredScope = "operator" | "reader";
 export type ScanPlanRevisionHardwareValidation = "not_run";
+export type SecurityStatusAccessScope = "operator" | "reader";
 export type SecurityStatusMode = "legacy_loopback" | "lan_tls";
 export type SignalRecognitionState = "new" | "similar" | "changed";
 export interface AudioEvidenceInfo {
@@ -63,6 +67,7 @@ export interface AudioRangeMark {
 }
 
 export interface BrowserPairing {
+  access_scope?: BrowserPairingAccessScope;
   credential: BrowserPairingCredential;
   paired: true;
   [key: string]: unknown;
@@ -261,6 +266,7 @@ export interface MeasurementWebSocket {
 }
 
 export interface NativePairing {
+  access_scope?: NativePairingAccessScope;
   credential: NativePairingCredential;
   paired: true;
   token: string;
@@ -330,6 +336,7 @@ export interface PairingInput {
   client?: PairingInputClient;
   label: string;
   pairing_code: string;
+  required_scope?: PairingInputRequiredScope;
   [key: string]: unknown;
 }
 
@@ -370,8 +377,10 @@ export interface ScanPlanRevision {
 }
 
 export interface SecurityStatus {
+  access_scope?: SecurityStatusAccessScope;
   mode: SecurityStatusMode;
   pairing_required: boolean;
+  reader_pairing?: boolean;
   [key: string]: unknown;
 }
 
@@ -635,6 +644,14 @@ const schemas = {...baselineSchemas, ...{
   "BrowserPairing": {
     "additionalProperties": false,
     "properties": {
+      "access_scope": {
+        "description": "Locally granted scope. Returned for every reader pairing and every exchange with required_scope.",
+        "enum": [
+          "operator",
+          "reader"
+        ],
+        "type": "string"
+      },
       "credential": {
         "enum": [
           "browser_cookie"
@@ -1794,6 +1811,14 @@ const schemas = {...baselineSchemas, ...{
   "NativePairing": {
     "additionalProperties": false,
     "properties": {
+      "access_scope": {
+        "description": "Locally granted scope. Returned for every reader credential and every exchange with required_scope.",
+        "enum": [
+          "operator",
+          "reader"
+        ],
+        "type": "string"
+      },
       "credential": {
         "enum": [
           "bearer"
@@ -2147,6 +2172,14 @@ const schemas = {...baselineSchemas, ...{
       },
       "pairing_code": {
         "type": "string"
+      },
+      "required_scope": {
+        "description": "Optional exact scope constraint on an operator-issued code. A mismatch spends an attempt and issues no credential.",
+        "enum": [
+          "operator",
+          "reader"
+        ],
+        "type": "string"
       }
     },
     "required": [
@@ -2354,6 +2387,14 @@ const schemas = {...baselineSchemas, ...{
   },
   "SecurityStatus": {
     "properties": {
+      "access_scope": {
+        "description": "Scope of the presented, verified LAN credential. Absent for a public or legacy-loopback status.",
+        "enum": [
+          "operator",
+          "reader"
+        ],
+        "type": "string"
+      },
       "mode": {
         "enum": [
           "legacy_loopback",
@@ -2362,6 +2403,10 @@ const schemas = {...baselineSchemas, ...{
         "type": "string"
       },
       "pairing_required": {
+        "type": "boolean"
+      },
+      "reader_pairing": {
+        "description": "True when this LAN listener supports server-enforced reader pairing. Reader clients require true before sending a code.",
         "type": "boolean"
       }
     },
@@ -5120,10 +5165,31 @@ export const runtimeOperations = [
   },
   {
     "backends": [
-      "python-legacy"
+      "rust-candidate"
     ],
     "capabilities": [],
-    "features": [],
+    "features": [
+      "sessions"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams",
+    "path": "/api/v1/sessions/{id}/streams",
+    "path_parameters": [
+      "id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy",
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "sessions"
+    ],
     "max_request_bytes": null,
     "method": "GET",
     "operation_id": "get_api_v1_sessions_id_streams_stream_id",
@@ -5757,6 +5823,25 @@ export const runtimeOperations = [
     "path": "/api/v1/sessions/{id}/sweeps/batch",
     "path_parameters": [
       "id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "measurement_archive"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_sweeps_sweep_id",
+    "path": "/api/v1/sessions/{id}/sweeps/{sweep_id}",
+    "path_parameters": [
+      "id",
+      "sweep_id"
     ],
     "query": [],
     "request_features": []

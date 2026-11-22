@@ -1,0 +1,15 @@
+- Path: libraries/stdlib/src/kotlin/collections
+      - License: Apache 2 ([license/third_party/gwt_license.txt][gwt])
+      - Origin: Derived from GWT, (C) 2007-08 Google Inc.
+
+- Path: libraries/stdlib/src/kotlin/time
+      - License: 3-clause BSD license ([license/third_party/threetenbp_license.txt][threetenbp])
+      - Origin: Copyright (c) 2007-present, Stephen Colebourne & Michael Nascimento Santos
+
+- Path: libraries/stdlib/jvm/src/kotlin/util/UnsignedJVM.kt
+      - License: Apache 2 ([license/third_party/guava_license.txt][guava])
+      - Origin: Derived from Guava's UnsignedLongs, (C) 2011 The Guava Authors
+
+- Path: libraries/stdlib/jvm/src/kotlin/util/MathJVM.kt
+      - License: Boost Software License 1.0 ([license/third_party/boost_LICENSE.txt][boost])
+      - Origin: Derived from boost special math functions, Copyright Eric Ford & Hubert Holin 2001.

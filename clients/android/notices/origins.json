@@ -1,0 +1,60 @@
+{
+  "Apache-2.0.txt": {
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+  },
+  "jni-rs-APACHE.txt": {
+    "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "url": "https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-APACHE"
+  },
+  "jni-rs-MIT.txt": {
+    "sha256": "fea1d5bf3dd71605ce5d7d2ff695c1837e914c77195e523a86b5391716477960",
+    "url": "https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-MIT"
+  },
+  "jni-sys-MIT.txt": {
+    "sha256": "1d85bd754b04ceec93e98e890edd1fa3c6a22e81bcb32135806beeccefa51cd1",
+    "url": "https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT"
+  },
+  "kotlin-COPYRIGHT.txt": {
+    "sha256": "8f1a1700adb5490604c6094fb137bf73f6c28d3ee554b58f3ff8ef975a79672d",
+    "url": "https://raw.githubusercontent.com/JetBrains/kotlin/f59375aebc65b867f1d9f50038fc8878f3f686d3/license/COPYRIGHT.txt"
+  },
+  "kotlin-boost_LICENSE.txt": {
+    "sha256": "8d8291caf1cee26d23acf3eb67c9f9a2d58f1c681b16a4fbe8cbfb9e3c0b5a9b",
+    "url": "https://raw.githubusercontent.com/JetBrains/kotlin/f59375aebc65b867f1d9f50038fc8878f3f686d3/license/third_party/boost_LICENSE.txt"
+  },
+  "kotlin-coroutines-NOTICE.txt": {
+    "sha256": "1ab6de67ef738bffae63f9aa6a8798a35e87341c83ea28d09c8dc8ca6993232a",
+    "url": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/5f8900478a8e20c073145b1608fbc71fe3d7378b/license/NOTICE.txt"
+  },
+  "kotlin-guava_license.txt": {
+    "file": "Apache-2.0.txt",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "url": "https://raw.githubusercontent.com/JetBrains/kotlin/f59375aebc65b867f1d9f50038fc8878f3f686d3/license/third_party/guava_license.txt"
+  },
+  "kotlin-gwt_license.txt": {
+    "file": "Apache-2.0.txt",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "url": "https://raw.githubusercontent.com/JetBrains/kotlin/f59375aebc65b867f1d9f50038fc8878f3f686d3/license/third_party/gwt_license.txt"
+  },
+  "kotlin-serialization-NOTICE.txt": {
+    "sha256": "ec77bba5c852830abfdefcdefbf4a22577ff4df79ec323a898d5100ca1d6f8d6",
+    "url": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/d4d066d72a9f92f06c640be5a36a22f75d0d7659/license/NOTICE.txt"
+  },
+  "kotlin-stdlib-sources.txt": {
+    "sha256": "f796b12bf3c7a7350e445a0798c49cfba9d798027e9c8e0a2070367cdbb777d2",
+    "url": "https://github.com/JetBrains/kotlin/blob/f59375aebc65b867f1d9f50038fc8878f3f686d3/license/README.md"
+  },
+  "kotlin-threetenbp_license.txt": {
+    "sha256": "d1bc53b493a3ab387b42717ed5c4b1976a5048996f81154278100bff86d39331",
+    "url": "https://raw.githubusercontent.com/JetBrains/kotlin/f59375aebc65b867f1d9f50038fc8878f3f686d3/license/third_party/threetenbp_license.txt"
+  },
+  "usb-serial-MIT.txt": {
+    "sha256": "6f467d3d79c5d31734881fb83e082e84512bde05d3f7893e0e8373fd0d2b5d2c",
+    "url": "https://raw.githubusercontent.com/mik3y/usb-serial-for-android/e1018ab31c118b7d2e15fc7c2e9c5b19f33eb1f1/LICENSE.txt"
+  },
+  "usb-serial-attributions.txt": {
+    "sha256": "f5c19c318972e9beb9236b4477d06f6664a43bcdf01522af432cdc2d990f337b",
+    "url": "https://github.com/mik3y/usb-serial-for-android/tree/e1018ab31c118b7d2e15fc7c2e9c5b19f33eb1f1/usbSerialForAndroid/src/main/java"
+  }
+}

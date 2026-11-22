@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -39,7 +40,8 @@ class PiReleaseTests(unittest.TestCase):
             for relative in ['clients/web/public/untracked.css', 'clients/web/public/ignored.csv',
                              'clients/web/public/node_modules/app.js', 'clients/web/.env.local',
                              'clients/web/src/ignored.csv', 'radioinspector/web/static/unknown.js',
-                             'crates/ori-extra/src/lib.rs', '.cargo/config.toml']:
+                             'crates/ori-extra/src/lib.rs', '.cargo/config.toml',
+                             'packaging/debian/templates/extra.csv', 'docs/debian-amd64.md']:
                 with self.subTest(relative=relative):
                     path = root / relative
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +59,33 @@ class PiReleaseTests(unittest.TestCase):
                        ELF + '(RUNPATH) [/opt/build]\n', ELF.replace('/lib/ld-linux-aarch64', '/opt/out/ld-linux-aarch64')):
             with self.subTest(output=output), patch.object(package, 'capture', return_value=output), self.assertRaises(ValueError):
                 package.inspect_elf(Path('ori-core'))
+
+    def test_amd64_uses_its_own_interpreter_libraries_and_debian_12_symbol_ceiling(self):
+        amd64 = ELF.replace('AArch64', 'Advanced Micro Devices X86-64').replace(
+            '/lib/ld-linux-aarch64.so.1', '/lib64/ld-linux-x86-64.so.2')
+        relr = amd64 + '  Name: GLIBC_ABI_DT_RELR\n'
+        with patch.object(package, 'capture', return_value=relr):
+            self.assertEqual(package.inspect_elf(Path('core'), package.AMD64)['highest_required_glibc_symbol'], '2.36')
+            with self.assertRaises(ValueError):
+                package.inspect_elf(Path('core'), package.PI)
+        for invalid in (ELF, amd64.replace('/lib64/', '/usr/local/lib64/'), amd64.replace('2.34', '2.37'),
+                        amd64.replace('little endian', 'big endian'), amd64.replace('ELF64', 'ELF32'),
+                        amd64 + ' (NEEDED) Shared library: [ld-linux-aarch64.so.1]',
+                        amd64 + ' Name: GLIBC_PRIVATE', amd64 + ' (RPATH) [/opt/lib]'):
+            with self.subTest(invalid=invalid), patch.object(package, 'capture', return_value=invalid):
+                with self.assertRaisesRegex(ValueError, 'amd64 Debian 12'):
+                    package.inspect_elf(Path('core'), package.AMD64)
+
+    def test_amd64_rejects_crossed_build_identity(self):
+        source = 'b' * 40
+        core = dict(component='ori-core', target_arch='x86_64', target_os='linux', version='0.1.0',
+                    source_revision=source, features={'serial': True, 'audio': False}, sqlite_version='3.54.1')
+        for field, wrong in [('target_arch', 'aarch64'), ('target_os', 'windows'), ('source_revision', 'a' * 40),
+                             ('component', 'ori-supervisor'), ('features', {'serial': False, 'audio': False})]:
+            with self.subTest(field=field), patch.object(package, 'inspect_elf', return_value={}), \
+                    patch.object(package, 'capture', return_value=json.dumps(dict(core, **{field: wrong}))):
+                with self.assertRaises(ValueError):
+                    package.inventory_components(Path('bin'), source, package.AMD64)
 
     def test_release_refuses_a_different_statically_linked_sqlite_engine(self):
         source = 'a' * 40
@@ -89,6 +118,57 @@ class PiReleaseTests(unittest.TestCase):
                 write.assert_called_once()
             with self.assertRaises(FileExistsError):
                 native_notices.collect(output, 'aarch64-unknown-linux-gnu')
+
+    def test_proc_macro_references_only_the_matching_upstream_workspace_licenses(self):
+        registry = 'registry+https://github.com/rust-lang/crates.io-index'
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            filenames = ['LICENSE-APACHE', 'LICENSE-MIT']
+            paths = ['cargo/asn1-rs-fixture/' + name for name in filenames]
+            expected = {}
+            for name, relative in zip(filenames, paths):
+                path = output / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(name.encode())
+                expected[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            proc_macro = {'notice_files': []}
+            crates = {('asn1-rs-impl', '0.2.0', registry): proc_macro,
+                      ('asn1-rs', 'fixture', registry): {'notice_files': paths}}
+            with patch.object(native_notices, 'ASN1_IMPL_LICENSES', expected):
+                native_notices.link_asn1_impl_licenses(crates, output)
+                self.assertEqual(proc_macro['notice_files'], paths)
+                self.assertEqual(proc_macro['notice_origin'], native_notices.ASN1_IMPL_LICENSE_ORIGIN)
+                (output / paths[0]).write_text('a different copyright holder')
+                with self.assertRaisesRegex(ValueError, 'exact upstream workspace licenses'):
+                    native_notices.link_asn1_impl_licenses(crates, output)
+
+    def test_notices_include_the_vite_polyfill_and_rolldown_helpers_embedded_in_the_webui(self):
+        with tempfile.TemporaryDirectory() as directory:
+            web = Path(directory) / 'web'
+            output = Path(directory) / 'out'
+            output.mkdir()
+            packages = {'': {}, 'node_modules/vitest': {'version': '1', 'dev': True}}
+            for name, licenses in [('react', ['LICENSE']), ('vite', ['LICENSE.md']),
+                                   ('rolldown', ['LICENSE', 'THIRD-PARTY-LICENSE'])]:
+                relative = f'node_modules/{name}'
+                packages[relative] = dict(version='1', dev=name != 'react', integrity='test-integrity')
+                installed = web / relative
+                installed.mkdir(parents=True)
+                (installed / 'package.json').write_text(json.dumps(dict(name=name, version='1', license='MIT')))
+                for license_file in licenses:
+                    (installed / license_file).write_text(f'{name} {license_file}')
+            (web / 'package-lock.json').write_text(json.dumps({'packages': packages}))
+            notices = {entry['name']: entry for entry in native_notices.web_notices(web, output)}
+            self.assertEqual(notices.keys(), {'react', 'vite', 'rolldown'})
+            self.assertEqual(notices['vite']['notice_files'], ['npm/vite/LICENSE.md'])
+            self.assertEqual(notices['rolldown']['notice_files'], ['npm/rolldown/LICENSE', 'npm/rolldown/THIRD-PARTY-LICENSE'])
+            for name, entry in notices.items():
+                self.assertEqual(entry['integrity'], 'test-integrity')
+                for file in entry['notice_files']:
+                    self.assertEqual((output / file).read_text(), f'{name} {Path(file).name}')
+            (web / 'node_modules/rolldown/THIRD-PARTY-LICENSE').unlink()
+            with self.assertRaises(FileNotFoundError):
+                native_notices.web_notices(web, output)
 
     def test_notices_include_nested_native_files_and_reject_an_escape(self):
         with tempfile.TemporaryDirectory() as directory:
