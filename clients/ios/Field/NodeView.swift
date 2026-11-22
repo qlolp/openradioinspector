@@ -29,21 +29,9 @@ struct NodeView: View {
                         Section("Сеансы") {
                             if model.sessions.isEmpty { Text("Архив узла пуст") }
                             ForEach(model.sessions, id: \.exactID) { session in
-                                NavigationLink(session.name) {
-                                    List {
-                                        let streams = session.streams.filter { $0.isReceiver || $0.role == "spectrum_analyzer" }
-                                        if streams.isEmpty { Text("В сеансе нет потоков измерений") }
-                                        ForEach(streams, id: \.exactID) { stream in
-                                            NavigationLink(stream.device + " · " + stream.id) {
-                                                if stream.isReceiver {
-                                                    ReceiverHistory(model: model, session: session.id, stream: stream.id)
-                                                } else {
-                                                    RemoteSpectrum(model: model, session: session.id, stream: stream.id)
-                                                }
-                                            }
-                                        }
-                                    }.navigationTitle(session.name)
-                                }
+                                NavigationLink {
+                                    ReaderStreams(model: model, session: session)
+                                } label: { Text(verbatim: session.name) }
                             }
                         }
                         Section("Последние события") {
@@ -116,6 +104,29 @@ struct NodeView: View {
             Button("Отозвать на узле и удалить", role: .destructive) { Task { await model.forget(revoke: true) } }
             Button("Удалить только с iPhone", role: .destructive) { Task { await model.forget(revoke: false) } }
         }
+    }
+}
+
+private struct ReaderStreams: View {
+    let model: NodeModel
+    let session: PlatformSession
+
+    var body: some View {
+        let streams = session.streams.filter { $0.isReceiver || $0.role == "spectrum_analyzer" }
+        List {
+            if streams.isEmpty { Text("В сеансе нет потоков измерений") }
+            ForEach(streams, id: \.exactID) { stream in
+                NavigationLink {
+                    if stream.isReceiver {
+                        ReceiverHistory(model: model, session: session.id, stream: stream.id)
+                    } else {
+                        RemoteSpectrum(model: model, session: session.id, stream: stream.id)
+                    }
+                } label: {
+                    Text(verbatim: stream.device + " · " + stream.id)
+                }
+            }
+        }.navigationTitle(session.name)
     }
 }
 
