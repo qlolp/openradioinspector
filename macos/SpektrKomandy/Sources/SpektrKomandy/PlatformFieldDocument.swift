@@ -107,7 +107,7 @@ private struct FieldMeasurement: Decodable {
 public enum FieldRecordDetail: Sendable {
     case sweep(PlatformSweep, String)
     case observation(PlatformObservation, String)
-    case event(String)
+    case event(description: String, raw: String)
 }
 
 /// An immutable index of verified source offsets. Raw sample arrays live only
@@ -147,7 +147,8 @@ public struct PlatformFieldDocument: Sendable {
             if let sweep = decoded.sweep { return .sweep(sweep, raw) }
             if let observation = decoded.observation { return .observation(observation, raw) }
         }
-        return .event(raw)
+        let event = try JSONDecoder().decode(FieldEvent.self, from: bytes)
+        return .event(description: event.text ?? event.reason ?? row.summary, raw: raw)
     }
 
     public init(opening url: URL) throws {

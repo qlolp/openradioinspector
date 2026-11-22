@@ -116,9 +116,15 @@ private struct NativeFieldBrowser: View {
     var body: some View {
         VStack(alignment: .leading) {
             Text("Выезд " + document.sessionID).font(.title2).textSelection(.enabled)
-            ForEach(document.sources, id: \.exactIDForField) { source in
-                Text(source.device + " · " + source.profile + " · " + source.id).font(.caption)
-            }
+            DisclosureGroup("Источники (\(document.sources.count))") {
+                ScrollView {
+                    VStack(alignment: .leading) {
+                        ForEach(document.sources, id: \.exactIDForField) { source in
+                            Text(source.device + " · " + source.profile + " · " + source.id)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 85)
+            }.font(.caption)
             Text("Свипы: \(document.sweepCount) · Наблюдения: \(document.observationCount) · Только чтение")
                 .foregroundStyle(.secondary)
             Picker("Раздел", selection: Binding(get: { section }, set: {
@@ -138,7 +144,7 @@ private struct NativeFieldBrowser: View {
                     }.tag(row.id)
                 }.frame(minWidth: 270)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
                         if let selected, let row = document.row(selected) {
                             Text(row.id.kind.title + " " + row.id.identifier.rawValue).font(.headline)
                             Text("Поток " + row.id.stream.rawValue + " · " + row.timeUTC)
@@ -185,8 +191,9 @@ private struct NativeFieldDetailView: View {
         case .observation(let observation, let raw):
             Text("\(observation.frequencyHz) Гц · \(observation.mode) · \(observation.level.map { String($0) } ?? "—") \(observation.levelUnit)")
             DisclosureGroup("Исходная запись") { Text(verbatim: raw).font(.caption.monospaced()) }
-        case .event(let raw):
-            Text(verbatim: raw).font(.caption.monospaced())
+        case .event(let description, let raw):
+            Text(verbatim: description)
+            DisclosureGroup("Исходная запись") { Text(verbatim: raw).font(.caption.monospaced()) }
         }
     }
 }
