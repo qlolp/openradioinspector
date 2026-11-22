@@ -133,7 +133,7 @@ class FieldService : Service() {
             val request = Capture(config, device)
             if (usb.hasPermission(device)) begin(request) else {
                 pending = request
-                events.update { it.copy(running = true, sessionId = null, status = "Ожидание разрешения USB") }
+                events.update { FieldState(running = true, sessions = it.sessions, status = "Ожидание разрешения USB") }
                 val intent = Intent(USB_PERMISSION).setPackage(packageName).putExtra("request", request.id)
                 val grant = PendingIntent.getBroadcast(this, request.id.hashCode(), intent,
                     PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE)
@@ -231,7 +231,12 @@ class FieldService : Service() {
             problem = e
         } finally {
             job.bridge = null
-            var reason = job.stopReason.get() ?: problem?.let { "Ошибка записи: ${it.message}" }
+            val requested = job.stopReason.get()
+            var reason = when {
+                problem == null -> requested
+                requested == null -> "Ошибка записи: ${problem.message}"
+                else -> "$requested. Ошибка обмена: ${problem.message}"
+            }
             try {
                 write {
                     try {
