@@ -28,6 +28,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Install the shared SDK test fixture dependencies
+        run: python -m pip install '.[serial,test]'
       - name: Run shared decoder and reader tests
         run: |
           xcrun swift test --package-path contracts/protobuf/swift-stream
@@ -37,7 +42,10 @@ jobs:
           toolchain: '1.99.1'
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - name: Build replay core for simulator TLS and reader checks
-        run: cargo build --locked -p ori-core
+        run: |
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          export CC="$(xcrun --sdk macosx --find clang)" CXX="$(xcrun --sdk macosx --find clang++)"
+          cargo build --locked -p ori-core
       - name: Test the iPhone app on the simulator and compile for devices
         env:
           ORI_FIELD_CORE: ${{ github.workspace }}/target/debug/ori-core
