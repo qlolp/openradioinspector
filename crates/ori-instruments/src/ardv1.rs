@@ -86,6 +86,7 @@ pub struct ArDv1<T> {
     sequence: u64,
     tune_sequence: u64,
     verify_frequency: bool,
+    tune_settle: Duration,
     mode_readback: bool,
     settled_at: Option<Instant>,
     scope: Option<ScopeRun>,
@@ -106,13 +107,24 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             sequence: 0,
             tune_sequence: 0,
             verify_frequency: false,
+            tune_settle: RX_SETTLE,
             mode_readback: false,
             settled_at: None,
             scope: None,
             verified_dv1: false,
         })
     }
-    pub fn with_frequency_readback(mut self) -> Result<Self> {
+    pub fn with_frequency_readback(self) -> Result<Self> {
+        self.with_readback_settle(RX_SETTLE)
+    }
+
+    pub fn with_readback_settle(mut self, settle: Duration) -> Result<Self> {
+        if settle > Duration::from_secs(1) {
+            return Err(InstrumentError::InvalidRequest(
+                "AR-DV1 settling exceeds one second".into(),
+            ));
+        }
+        self.tune_settle = settle;
         if self.requested.profile != ReceiverProfile::MonitorV1 {
             return Err(InstrumentError::UnsupportedProfile(
                 "receiver RX readback requires ardv1-monitor-v1".into(),
@@ -219,6 +231,34 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         }
         Ok(())
     }
+    /// On generic USB bridges, establish the supported receiver family using only
+    /// queries before enabling result codes or sending any receive controls.
+    pub async fn identify_monitor(&mut self) -> Result<()> {
+        if self.requested.profile != ReceiverProfile::MonitorV1 {
+            return Err(InstrumentError::UnsupportedProfile(
+                "expected ardv1-monitor-v1".into(),
+            ));
+        }
+        for command in ["VR", "RN"] {
+            let reply = self.connection.line(command).await?;
+            let (code, value) = body("identify", command, &reply)?;
+            let recognized = match command {
+                "VR" => value == "VR2504A",
+                _ => value.strip_prefix("RN").is_some_and(|serial| {
+                    serial.len() == 8
+                        && (serial.starts_with("0952") || serial.starts_with("09560"))
+                        && serial.bytes().all(|b| b.is_ascii_digit())
+                }),
+            };
+            if !matches!(code, None | Some("20")) || !recognized {
+                return self.failed(InstrumentError::UnsupportedProfile(
+                    "unknown AR-DV1 monitor identity".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub async fn prepare(&mut self) -> Result<()> {
         self.connection.ensure()?;
         if self.ready {
@@ -287,7 +327,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.source = "command_acknowledged";
         self.tune_sequence += 1;
         if self.verify_frequency {
-            self.settled_at = Some(Instant::now() + RX_SETTLE);
+            self.settled_at = Some(Instant::now() + self.tune_settle);
         }
         Ok(())
     }
@@ -477,27 +517,53 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         };
         Ok((level, squelch, status, None))
     }
+    async fn restore_scope_raster(&mut self) -> Result<()> {
+        if let Some((step, shift)) = self
+            .scope
+            .as_mut()
+            .and_then(|scope| scope.saved_raster.take())
+        {
+            self.acknowledge("close", &format!("VFA {step} {shift}"))
+                .await?;
+            if self.transact("close", "ST").await? != step
+                || self.transact("close", "SH").await? != shift
+            {
+                return self.failed(InstrumentError::Protocol(
+                    "AR-DV1 did not confirm VFO raster restoration".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Continue a completed bounded scope on the same identified connection.
+    pub async fn continue_scope(&mut self, next: ReceiverScope) -> Result<()> {
+        self.connection.ensure()?;
+        if !self
+            .scope
+            .as_ref()
+            .is_some_and(|scope| scope.index == scope.config.points)
+        {
+            return Err(InstrumentError::UnsafeState(
+                "previous AR-DV1 scope is incomplete".into(),
+            ));
+        }
+        self.restore_scope_raster().await?;
+        self.scope = Some(ScopeRun {
+            config: next,
+            index: 0,
+            saved_raster: None,
+        });
+        Ok(())
+    }
+
     pub async fn close(&mut self) -> Result<()> {
         if self.connection.closed() {
             return Ok(());
         }
         let result = if self.ready && !self.connection.tainted() {
             async {
-                if let Some((step, shift)) = self
-                    .scope
-                    .as_mut()
-                    .and_then(|scope| scope.saved_raster.take())
-                {
-                    self.acknowledge("close", &format!("VFA {step} {shift}"))
-                        .await?;
-                    if self.transact("close", "ST").await? != step
-                        || self.transact("close", "SH").await? != shift
-                    {
-                        return Err(InstrumentError::Protocol(
-                            "AR-DV1 did not confirm VFO raster restoration".into(),
-                        ));
-                    }
-                }
+                self.restore_scope_raster().await?;
                 self.acknowledge("close", "EX").await
             }
             .await
