@@ -60,6 +60,8 @@ data class FieldState(
     val gpsRequested: Boolean = false,
     val status: String = "Готово",
     val sessionId: String? = null,
+    val measurementId: String? = null,
+    val measurementKind: String? = null,
     val frequenciesHz: List<Long> = emptyList(),
     val values: List<Double> = emptyList(),
     val unit: String = "",

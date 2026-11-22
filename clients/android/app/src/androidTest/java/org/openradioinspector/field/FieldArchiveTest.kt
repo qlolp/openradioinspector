@@ -53,6 +53,30 @@ class FieldArchiveTest {
         }
     }
 
+    @Test fun sizeLimitLeavesLastCommittedRowAndTerminalGapExportable() {
+        val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
+        val root = Files.createTempDirectory(cache.toPath(), "field-limit-test").toFile()
+        val id = UUID.randomUUID().toString()
+        val config = FieldConfig(9, "tinysa", 100_000_000, 101_000_000, 0)
+        try {
+            FieldArchive.create(root, id, FieldDevice(9, "Synthetic analyzer", listOf("tinysa")), config, dataLimit = 650).use { store ->
+                val text = "я".repeat(100)
+                assertTrue(store.note(text))
+                val failure = assertThrows(IllegalStateException::class.java) { store.note(text) }
+                store.finish(failure.message)
+            }
+            val work = java.io.File(root, "staging").apply { mkdir() }
+            val file = FieldExporter.build(FieldArchive.database(root, id), work)
+            java.util.zip.ZipFile(file).use { archive ->
+                val lines = archive.getInputStream(archive.getEntry("events.ndjson")).bufferedReader().use { it.readLines() }
+                assertEquals(listOf("note", "gap"), lines.map { JSONObject(it).getString("kind") })
+                assertFalse(JSONObject(lines.first()).has("sweep_id"))
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun surveyTilesRetainCommonPassIdentifierAtDesktopContractPath() {
         val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
         val root = Files.createTempDirectory(cache.toPath(), "field-survey-test").toFile()
@@ -101,10 +125,15 @@ class FieldArchiveTest {
                     time = now
                     elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
                 })
-                val sample = store.measurement("""{"frequency_hz":145500000,"mode":"FM","level":41,"level_unit":"s_meter_count","squelch_open":true,"raw_squelch_status":1,"interval":{"started_at":"$utc","ended_at":"$utc"},"metadata":{"scan_total":1,"scan_index":0,"scan_pass":1}}""", config)
+                val raw = """{"frequency_hz":145500000,"mode":"FM","level":41,"level_unit":"s_meter_count","squelch_open":true,"raw_squelch_status":1,"interval":{"started_at":"$utc","ended_at":"$utc"},"metadata":{"scan_total":1,"scan_index":0,"scan_pass":1}}"""
+                val sample = store.measurement(raw, config)
                 assertEquals(fix.id, sample.receiver?.fixId)
                 assertEquals(listOf(41.0), sample.values)
-                store.note("Проверка")
+                val newer = store.measurement(raw, config)
+                assertNotEquals(sample.id, newer.id)
+                assertFalse(store.note("Неверный тип", "sweep", sample.id))
+                assertFalse(store.note("Нет источника", "observation", UUID.randomUUID().toString()))
+                assertTrue(store.note("Проверка", "observation", sample.id))
                 // Simulate process loss after committed rows, before finish().
             }
             FieldArchive.recover(file)
@@ -114,7 +143,7 @@ class FieldArchiveTest {
                     assertTrue(cursor.moveToFirst())
                     cursor.getString(0)
                 }
-                val row = JSONObject(one("SELECT json FROM observations"))
+                val row = JSONObject(one("SELECT json FROM observations ORDER BY seq LIMIT 1"))
                 val gps = JSONObject(one("SELECT json FROM events WHERE kind='gps'"))
                 val note = JSONObject(one("SELECT json FROM events WHERE kind='note'"))
                 assertEquals(row.getString("id"), note.getString("observation_id"))

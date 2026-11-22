@@ -17,8 +17,8 @@ import org.json.JSONObject
 
 /** Call on a worker thread with a fresh ACTION_CREATE_DOCUMENT URI. */
 object FieldExporter {
-    private const val maxArchive = 0xffff_fffeL
-    private const val maxLine = 16 * 1024 * 1024 + 1024
+    internal const val maxArchive = 0xffff_fffeL
+    internal const val maxLine = 16 * 1024 * 1024 + 1024
     private const val trackStart = "{\"type\":\"FeatureCollection\",\"features\":["
 
     fun export(context: Context, database: File, destination: Uri) {
@@ -149,7 +149,7 @@ object FieldExporter {
         return archive
     }
 
-    private fun feature(event: JSONObject): JSONObject {
+    internal fun feature(event: JSONObject): JSONObject {
         val coordinates = JSONArray().put(event.getDouble("longitude")).put(event.getDouble("latitude"))
         if (!event.isNull("altitude_m")) coordinates.put(event.getDouble("altitude_m"))
         val properties = JSONObject()

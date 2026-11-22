@@ -55,8 +55,8 @@ class FieldExportInstrumentedTest {
                     .put("frequencies_hz", JSONArray(listOf(100_000_001L, 100_000_003L)))
                     .put("levels", JSONArray(listOf(-100.125, -32.75))).put("level_unit", "dBm")
                     .put("settings", JSONObject().put("simulated", true))
-                capture.measurement(source.toString(), plan)
-                capture.note("Synthetic field marker")
+                val sample = capture.measurement(source.toString(), plan)
+                capture.note("Synthetic field marker", "sweep", sample.id)
                 capture.finish("End of synthetic capture")
             }
             val output = FieldExporter.build(database, File(root, "closed").apply { mkdir() })

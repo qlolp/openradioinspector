@@ -47,6 +47,7 @@ class FieldService : Service() {
         val id = UUID.randomUUID().toString()
         val stopReason = AtomicReference<Stop?>()
         @Volatile var bridge: UsbBridge? = null
+        var finishing = false // guarded by synchronized(job)
         var archive: FieldArchive? = null // archive executor only
         var wake: PowerManager.WakeLock? = null
         var listener: LocationListener? = null
@@ -210,7 +211,8 @@ class FieldService : Service() {
                         val sample = write { requireNotNull(job.archive).measurement(raw, job.config) }
                         events.update { current ->
                             val previous = if (sample.frequencies == current.frequenciesHz) current.waterfall else emptyList()
-                            current.copy(status = "Идёт запись", frequenciesHz = sample.frequencies,
+                            current.copy(status = "Идёт запись", measurementId = sample.id,
+                                measurementKind = if (sample.receiver == null) "sweep" else "observation", frequenciesHz = sample.frequencies,
                                 values = sample.values, unit = sample.unit, sequence = current.sequence + 1,
                                 waterfall = if (sample.receiver == null) (previous + listOf(sample.values)).takeLast(64) else emptyList(),
                                 receiverSamples = sample.receiver?.let { (current.receiverSamples + it).takeLast(256) }
@@ -232,6 +234,7 @@ class FieldService : Service() {
         } catch (e: LinkageError) {
             problem = e
         } finally {
+            synchronized(job) { job.finishing = true }
             job.bridge = null
             val requested = job.stopReason.get()
             var reason = when {
@@ -310,14 +313,22 @@ class FieldService : Service() {
         }
     }
 
-    fun addNote(text: String) {
-        val job = active ?: return
-        if (state.value.sessionId != job.id || job.stopReason.get() != null) return
+    fun addNote(text: String, sessionId: String, measurementKind: String?, measurementId: String?): Boolean {
+        val job = active ?: return false
+        if (sessionId != job.id || state.value.sessionId != sessionId || job.stopReason.get() != null) return false
         if (text.isBlank() || text.length > 4096) {
             events.update { it.copy(status = "Заметка должна содержать от 1 до 4096 символов") }
-            return
+            return false
         }
-        record(job) { it.note(text.trim()) }
+        synchronized(job) {
+            if (job.finishing) return false
+            record(job) { archive ->
+                if (!archive.note(text.trim(), measurementKind, measurementId)) {
+                    events.update { it.copy(status = "Заметка не сохранена: источник не найден") }
+                }
+            }
+        }
+        return true
     }
 
     fun stop() {

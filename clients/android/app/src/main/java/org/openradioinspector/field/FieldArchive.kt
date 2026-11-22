@@ -36,16 +36,17 @@ internal fun FieldConfig.nativePlan(): JSONObject = JSONObject().put("kind", kin
 
 internal data class CommittedSample(
     val frequencies: List<Long>, val values: List<Double>, val unit: String,
-    val progress: Long, val total: Long, val receiver: FieldSample?,
+    val progress: Long, val total: Long, val receiver: FieldSample?, val id: String,
 )
 
 /** Accessed only from the service's ordered archive executor. */
 internal class FieldArchive private constructor(
     private val db: SQLiteDatabase, val sessionId: String, private val streamId: String,
+    private val dataLimit: Long = DATA_LIMIT,
 ) : Closeable {
     private val gpsCoverage = GpsCoverage(SystemClock.elapsedRealtime())
     private var pass = 1L
-    private var lastMeasurement: Pair<String, String>? = null
+    private var dataBytes = 0L
     private val recentFixes = ArrayDeque<Pair<FieldFix, Long>>()
 
     private fun envelope(kind: String): JSONObject = JSONObject()
@@ -53,18 +54,44 @@ internal class FieldArchive private constructor(
         .put("session_id", sessionId).put("stream_id", streamId)
         .put("time_utc", Instant.now().toString())
 
-    private fun appendEvent(event: JSONObject) {
+    private fun admit(bytes: Long) {
+        if (bytes > dataLimit - dataBytes) {
+            dataBytes = dataLimit
+            error("Достигнут предел размера архива V1. Начните новый сеанс")
+        }
+        dataBytes += bytes
+    }
+
+    private fun appendEvent(event: JSONObject, terminal: Boolean = false) {
+        val raw = event.toString()
+        val bytes = raw.toByteArray().size + 1L
+        val featureBytes = if (event.getString("kind") == "gps") {
+            FieldExporter.feature(event).toString().toByteArray().size + 2L // comma and LF
+        } else 0L
+        require(maxOf(bytes, featureBytes) <= FieldExporter.maxLine)
+        if (!terminal) admit(bytes + featureBytes)
         db.insertOrThrow("events", null, ContentValues().apply {
             put("id", event.getString("id"))
             put("kind", event.getString("kind"))
-            put("json", event.toString())
+            put("json", raw)
         })
     }
 
-    fun note(text: String) {
+    fun note(text: String, measurementKind: String? = null, measurementId: String? = null): Boolean {
+        if (text.isBlank() || text.length > 4096 || (measurementKind == null) != (measurementId == null)) return false
         val event = envelope("note").put("text", text)
-        lastMeasurement?.let { (key, id) -> event.put(key, id) }
+        if (measurementKind != null && measurementId != null) {
+            val table = when (measurementKind) {
+                "sweep" -> "sweeps"
+                "observation" -> "observations"
+                else -> return false
+            }
+            val exists = db.rawQuery("SELECT 1 FROM $table WHERE id=?", arrayOf(measurementId)).use { it.moveToFirst() }
+            if (!exists) return false
+            event.put("${measurementKind}_id", measurementId)
+        }
         appendEvent(event)
+        return true
     }
 
     fun gap(reason: String) = appendEvent(envelope("gap").put("reason", reason))
@@ -131,21 +158,27 @@ internal class FieldArchive private constructor(
         (survey ?: context).put("pass_id", "$streamId-$measuredPass")
         val unit = source.getString("level_unit")
         require(frequencies.isNotEmpty() && frequencies.size == values.size) { "Invalid native sample geometry" }
+        val rawMeasurement = source.toString()
+        val bytes = rawMeasurement.toByteArray().size + 64L // largest V1 measurement envelope, including LF
+        require(bytes <= FieldExporter.maxLine) { "Измерение превышает размер строки V1" }
+        admit(bytes)
         db.insertOrThrow(if (receiver) "observations" else "sweeps", null, ContentValues().apply {
             put("id", id)
             put("fix_id", fixId)
-            put("json", source.toString())
+            put("json", rawMeasurement)
         })
         if (progress == total) pass = measuredPass + 1
-        lastMeasurement = (if (receiver) "observation_id" else "sweep_id") to id
         return CommittedSample(frequencies, values, unit, progress, total,
-            if (receiver) FieldSample(frequencies.single(), values.single(), utc, id, fixId) else null)
+            if (receiver) FieldSample(frequencies.single(), values.single(), utc, id, fixId) else null, id)
     }
 
     fun finish(interruption: String?) {
         db.beginTransaction()
         try {
-            if (interruption != null) gap(interruption)
+            if (interruption != null) {
+                // A final gap also fits after the last admissible data row and during crash recovery.
+                appendEvent(envelope("gap").put("reason", interruption.take(512)), terminal = true)
+            }
             db.execSQL("UPDATE sessions SET closed_at=? WHERE id=?", arrayOf(Instant.now().toString(), sessionId))
             db.setTransactionSuccessful()
         } finally {
@@ -156,6 +189,10 @@ internal class FieldArchive private constructor(
     override fun close() = db.close()
 
     companion object {
+        // Reserve the full manifest, ZIP directory, document framing and one terminal gap.
+        // A V1 capture always has four members. Its individual payloads are bounded by their sum.
+        private const val DATA_LIMIT = FieldExporter.maxArchive - 256 * 1024 - 16 * 1024
+
         fun database(root: File, id: String): File {
             require(UUID.fromString(id).toString() == id) { "Invalid session ID" }
             return File(File(root, id), "capture.sqlite")
@@ -174,7 +211,13 @@ internal class FieldArchive private constructor(
             }
         }
 
-        fun create(root: File, id: String, device: FieldDevice, config: FieldConfig): FieldArchive {
+        fun create(root: File, id: String, device: FieldDevice, config: FieldConfig, dataLimit: Long = DATA_LIMIT): FieldArchive {
+            require(dataLimit in 0..DATA_LIMIT)
+            val plan = config.nativePlan().put("baud", config.checkedBaud())
+                .put("gps", config.gps).put("continuous", config.continuous)
+            require(plan.toString().toByteArray().size + JSONObject.quote(device.label).toByteArray().size < 256 * 1024 - 4096) {
+                "Конфигурация превышает лимит манифеста V1"
+            }
             val file = database(root, id)
             check(file.parentFile!!.mkdirs()) { "Cannot create capture directory" }
             val options = SQLiteDatabase.OpenParams.Builder()
@@ -192,8 +235,6 @@ internal class FieldArchive private constructor(
                     }
                     db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, json TEXT NOT NULL)")
                     db.execSQL("CREATE INDEX events_kind ON events(kind,seq)")
-                    val plan = config.nativePlan().put("baud", config.checkedBaud())
-                        .put("gps", config.gps).put("continuous", config.continuous)
                     db.insertOrThrow("sessions", null, ContentValues().apply {
                         put("id", id)
                         put("stream_id", streamId)
@@ -206,7 +247,7 @@ internal class FieldArchive private constructor(
                 } finally {
                     db.endTransaction()
                 }
-                return FieldArchive(db, id, streamId)
+                return FieldArchive(db, id, streamId, dataLimit)
             } catch (e: Throwable) {
                 db.close()
                 throw e

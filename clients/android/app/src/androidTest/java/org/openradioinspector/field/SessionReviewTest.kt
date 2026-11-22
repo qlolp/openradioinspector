@@ -37,7 +37,7 @@ class SessionReviewTest {
                         .put("level_unit", "s_meter_count").put("metadata", JSONObject())
                     last = it.measurement(obs.toString(), config).receiver!!.measurementId
                 }
-                it.note("Контроль")
+                it.note("Контроль", "observation", last)
                 it.gap("GPS отключён")
                 it.gps(gps)
                 it.finish(null)
