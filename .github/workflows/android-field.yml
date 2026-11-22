@@ -5,6 +5,10 @@ on:
     paths:
       - 'clients/android/**'
       - 'crates/**'
+      - 'tools/field_archive.py'
+      - 'tests/test_field_archive.py'
+      - 'contracts/fixtures/field-archive-v1.orifield'
+      - 'macos/SpektrKomandy/**'
       - 'Cargo.*'
       - 'rust-toolchain.toml'
       - '.github/workflows/android-field.yml'
@@ -93,7 +97,30 @@ jobs:
           working-directory: clients/android
           script: |
             adb shell getprop ro.product.cpu.abilist | grep -F arm64-v8a
-            ./gradlew --no-daemon --stacktrace :app:connectedDebugAndroidTest
+            ./gradlew --no-daemon --stacktrace -Pandroid.testInstrumentationRunnerArguments.publishFieldInterop=true :app:connectedDebugAndroidTest
+            bash ci/capture-emulator-ui.sh
+            adb pull /sdcard/Download/ORIFieldInterop "$RUNNER_TEMP/field-download"
+
+      - name: Verify the Android export with the offline reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=("$RUNNER_TEMP/field-download/"*)
+          test "${#files[@]}" -eq 1
+          test -f "${files[0]}"
+          mkdir -p "$RUNNER_TEMP/field-interop"
+          cp "${files[0]}" "$RUNNER_TEMP/field-interop/synthetic.orifield"
+          python3 tools/field_archive.py verify "$RUNNER_TEMP/field-interop/synthetic.orifield" > "$RUNNER_TEMP/field-interop/manifest.json"
+          python3 -m unittest tests.test_field_archive
+
+      - name: Retain verified synthetic Android export
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: field-interop-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/field-interop
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Retain Android test results
         if: always()
@@ -103,5 +130,28 @@ jobs:
           path: |
             clients/android/app/build/test-results/testDebugUnitTest/
             clients/android/app/build/outputs/androidTest-results/connected/
+            clients/android/app/build/outputs/emulator-ui/
           if-no-files-found: ignore
           retention-days: 14
+
+  macos-field-reader:
+    needs: field
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: field-interop-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/field-interop
+      - name: Select the project Swift toolchain
+        run: bash macos/ci/select-xcode.sh
+      - name: Open the Kotlin-generated archive and follow source links
+        env:
+          ORI_FIELD_EMULATOR_ARCHIVE: ${{ runner.temp }}/field-interop/synthetic.orifield
+        run: |
+          test -s "$ORI_FIELD_EMULATOR_ARCHIVE"
+          swift test --package-path macos/SpektrKomandy --filter FieldDocumentTests.testAndroidEmulatorExport

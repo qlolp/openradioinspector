@@ -1,6 +1,8 @@
 package org.openradioinspector.field
 
+import android.content.ContentValues
 import android.location.Location
+import android.provider.MediaStore
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -87,6 +89,20 @@ class FieldExportInstrumentedTest {
                     .getJSONArray("features").getJSONObject(0)
                 assertEquals(fixId, point.getString("id"))
                 assertEquals("[0.125,-0.25,42.5]", point.getJSONObject("geometry").getJSONArray("coordinates").toString())
+            }
+            if (InstrumentationRegistry.getArguments().getString("publishFieldInterop") == "true") {
+                // Only the CI emulator exports this synthetic capture to its shared Downloads.
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "synthetic.orifield")
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/ORIFieldInterop/")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = checkNotNull(resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values))
+                FieldExporter.export(context, database, uri)
+                val published = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+                assertEquals(1, resolver.update(uri, published, null, null))
             }
         } finally {
             root.deleteRecursively()
