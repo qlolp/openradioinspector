@@ -31,7 +31,7 @@
 | Установить, что именно прошло проверку | [Версия установленных пакетов, интеграция в main и аппаратура](release/status.md) · [Условия 0.4.0](release/0.4.0.md) |
 | Проверить изменение без приборов | [Штатные синтетические проверки](release-validation.md) · [Проверки ядра и пультов](modernization-verification.md) · [Обязательные проверки main](release/branch-protection.md) |
 | Воспроизвести нагрузку и принять пакеты | [Синтетическая нагрузка](modernization-concurrent-load.md) · [Стендовые проверки](release/hardware-acceptance.md) · [Полный протокол Mac](release/macos-post-test-comprehensive-acceptance.md) |
-| Подготовить установщик и публикацию | [Поставка по платформам](platform-architecture.md#сборка-и-поставка) · [Подпись и публикация](release/public-distribution.md) · [Происхождение и лицензии](release/provenance.md) |
+| Подготовить установщик и публикацию | [Критерии для всех платформ и магазинов](release/all-platforms.md) · [Поставка по платформам](platform-architecture.md#сборка-и-поставка) · [Подпись и публикация](release/public-distribution.md) · [Происхождение и лицензии](release/provenance.md) |
 
 Локальные ссылки и заголовки во всех руководствах можно проверить из корня командой `python -m tools.audit.doc_links`. Для разбора GitHub Flavored Markdown нужен Pandoc. При упаковке отдельная проверка сверяет все снимки офлайн-руководства с их SHA-256. [Проверка ссылок](../tools/audit/doc_links.py) · [Сборка руководства](../tools/release/operator_manual.py) · [Ведомость снимков](operator-guide/captures.json)
 

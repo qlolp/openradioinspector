@@ -19,6 +19,7 @@ RF Explorer 3G Combo серии Standard можно выбрать для отд
 | Mac с Apple Silicon | DMG с нативным SwiftUI-приложением и пользовательской службой | Откройте настройки приборов и подключения и запустите службу. [Первое подключение на Mac](docs/macos-observation-console.md) |
 | Galaxy S22 Ultra, Android 12+ | Тестовое приложение OpenRadioInspector Field для одного USB-прибора | Установите ARM64 APK и выберите прибор для выезда. [Сборка и установка](clients/android/README.md) · [Проверка на телефоне](docs/field/release.md) |
 | Linux‑ПК x86‑64 | Инженерный Debian-пакет с локальным ядром и WebUI | Установка на Debian 12 и 13. [Сборка, запуск и откат](docs/debian-amd64.md) |
+| iPhone | Тестовый SwiftUI-клиент для просмотра выезда или архива узла по локальной сети | Откройте файл `.orifield` из «Файлов» или введите код доступа для чтения на сопряжённом узле. TestFlight запланирован после приёмки Android. [Запуск и ограничения](clients/ios/README.md) |
 
 Полевые клиенты используют формат выезда `.orifield`. Информация о публичных версиях и целевых стендах собрана в [условиях выпуска](docs/release/all-platforms.md). [Поддержка](docs/field/support.md) · [Конфиденциальность](docs/field/privacy.md)
 
