@@ -17,6 +17,7 @@ RF Explorer 3G Combo серии Standard можно выбрать для отд
 | Raspberry Pi 5, 8 ГБ, SSD, Raspberry Pi OS 64-bit | Debian-пакет с ядром и WebUI | Откройте на Pi `http://127.0.0.1:8770/modern/`. [Установка на Pi](docs/pi-rc1.md) |
 | Windows 11 x64 | Установщик NSIS с Tauri и WebView2 | Выберите локальный узел или подключитесь к сопряжённому удалённому ядру. [Установка на Windows](docs/windows-standalone-rc.md) |
 | Mac с Apple Silicon | DMG с нативным SwiftUI-приложением и пользовательской службой | Откройте настройки приборов и подключения и запустите службу. [Первое подключение на Mac](docs/macos-observation-console.md) |
+| Galaxy S22 Ultra, Android 12+ | Тестовое приложение OpenRadioInspector Field для одного USB-прибора | Установите ARM64 APK и выберите прибор для выезда. [Сборка и установка](clients/android/README.md) · [Проверка на телефоне](docs/field/release.md) |
 
 ## Работа с измерениями
 
