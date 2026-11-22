@@ -12,6 +12,10 @@
 
 Текущая ревизия меняется при слиянии PR. По первой ссылке виден полный SHA коммита, по второй — прогоны для ветки и их фактический исход. Протокол установленного пакета следует искать по SHA исходников **и** хешу установочного файла из таблицы. [Последний коммит main](https://github.com/qlolp/openradioinspector/commits/main/) · [Прогоны main](https://github.com/qlolp/openradioinspector/actions?query=branch%3Amain)
 
+### Нагрузка ядра перед интеграцией RF Explorer · 22 ноября
+
+Перед слиянием PR #224 на `c26bb773` отдельно прошли два 30-минутных синтетических прогона, на ARM64 и Windows x64. Каждый подтвердил 18 000 из 18 000 предложенных панорам, 18 000 из 18 000 наблюдений и сохранность всех 86 400 000 аудиоотсчётов. В обоих исходных отчётах указано `hardware_tested=false`. [Интеграция RF Explorer](https://github.com/qlolp/openradioinspector/pull/224) · [Протокол ARM64](https://github.com/qlolp/openradioinspector/actions/runs/45057591689/artifacts/14769254109) · [Протокол Windows](https://github.com/qlolp/openradioinspector/actions/runs/45057591689/artifacts/14769514007)
+
 ### Debian amd64 и Raspberry Pi · 22 ноября
 
 На `babdaa9c` файл `openradioinspector-linux_0.4.0-1_amd64.deb` имеет размер 9 693 276 байт и SHA-256 `6aa99092b2636a3e23e6b58670da9ccc98a84d614f6695603ee8939f12264168`. В изолированных гостевых Debian 12 и 13 прошли чистая установка без сети, обновление, откат, перезапуск службы и чтение восстановленного архива схемы 6. На каждом этапе проверены пять ресурсов WebUI. Испытания USB-приборов на физическом Linux-ПК ещё предстоят. [Скачать инженерный DEB и манифест](https://github.com/qlolp/openradioinspector/actions/runs/45060277173/artifacts/14769566194) · [Журналы Debian 12 и 13](https://github.com/qlolp/openradioinspector/actions/runs/45060277173)
