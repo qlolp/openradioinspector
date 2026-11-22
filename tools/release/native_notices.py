@@ -53,14 +53,14 @@ def selected_packages(metadata, roots):
     return [packages[key] for key in sorted(selected)]
 
 
-def copy_notices(source, destination, output, *declared):
+def copy_notices(source, destination, output, *declared, max_bytes=16 * 1024 * 1024):
     # Include nested notices for bundled C libraries as well as top-level license files.
     candidates = {path for path in source.rglob('*') if path.is_file()
                   and path.name.upper().startswith(('LICENSE', 'LICENCE', 'COPYING', 'COPYRIGHT', 'NOTICE', 'UNLICENSE'))}
     candidates.update(source / name for name in declared if name)
     names = []
     for path in sorted(candidates):
-        if not path.resolve(strict=True).is_relative_to(source.resolve()) or path.stat().st_size > 16 * 1024 * 1024:
+        if not path.resolve(strict=True).is_relative_to(source.resolve()) or path.stat().st_size > max_bytes:
             raise ValueError(f'Invalid notice in {source.name}: {path.name}')
         target = destination / path.relative_to(source)
         target.parent.mkdir(exist_ok=True, parents=True)
