@@ -187,27 +187,10 @@ final class WorkbenchUITests: XCTestCase {
         app.buttons["workbench.settings"].click()
         let closeSettings = app.buttons["settings.close"]
         XCTAssertTrue(closeSettings.waitForExistence(timeout: 10))
-        let sheet = app.sheets.containing(.button, identifier: "settings.close").firstMatch
-        let settings = sheet.exists ? sheet : app
-        let open = settings.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Подключить приборы")).firstMatch
-        if !open.exists {
-            let triangle = settings.disclosureTriangles["Сеанс и приборы"]
-            guard triangle.waitForExistence(timeout: 10) else {
-                XCTFail("Session and devices disclosure is missing. \(settings.debugDescription)")
-                return
-            }
-            // SwiftUI exposes the disclosure header as a wide accessibility element.
-            // The triangle sits at its leading edge; the center can hit empty space.
-            let leading = triangle.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-            leading.withOffset(CGVector(dx: min(triangle.frame.width / 2, 8), dy: 0)).click()
-            if !open.waitForExistence(timeout: 2), triangle.exists {
-                triangle.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [])
-            }
-        }
-        guard open.waitForExistence(timeout: 10) else {
-            XCTFail("The connection action is missing after expanding the device section. \(settings.debugDescription)")
-            return
-        }
+        let open = app.buttons["connection.open-devices"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        XCTAssertTrue(open.isHittable)
+        XCTAssertTrue(open.isEnabled)
         open.click()
         choose("RF Explorer 3G Combo", in: app)
         choose("Автообзор 10 кГц", in: app)

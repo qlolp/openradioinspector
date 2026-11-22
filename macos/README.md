@@ -24,7 +24,7 @@ app identity, signing, Info.plist generation, and app bundle packaging.
 
 With the bundled Rust development core, first open **Подключение → Локальное
 ядро на этом Mac → Запустить локальное ядро**. Once connected, open
-**Сеанс и приборы → Подключить приборы…**.
+**Подключить приборы…** next to the core status.
 Select **RF Explorer 3G Combo**. For an automatic survey with 10 kHz between bins:
 
 1. Choose **Автообзор 10 кГц**.
