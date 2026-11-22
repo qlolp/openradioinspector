@@ -24,7 +24,7 @@ from tools.release.macos_rc_package import digest
 
 RELEASE = '0.4.0-rc.1'
 TEMPLATES = ROOT / 'packaging/debian/templates'
-DEPENDENCIES = 'libc6 (>= 2.36), libgcc-s1, systemd, init-system-helpers'
+DEPENDENCIES = 'libc6 (>= 2.36), libgcc-s1, ca-certificates, systemd, init-system-helpers'
 SYSTEM_LIBRARIES = {'libc.so.6', 'libgcc_s.so.1', 'libm.so.6',
                     'libpthread.so.0', 'libdl.so.2', 'librt.so.1'}
 

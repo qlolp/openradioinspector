@@ -111,6 +111,8 @@ class PiReleaseTests(unittest.TestCase):
                     self.assertEqual(hashlib.sha256((products / file).read_bytes()).hexdigest(), sha)
                 for field, expected in [('Package', name), ('Architecture', arch), ('Version', '0.4.0-1')]:
                     self.assertEqual(subprocess.check_output(['dpkg-deb', '-f', deb, field], text=True).strip(), expected)
+                dependencies = subprocess.check_output(['dpkg-deb', '-f', deb, 'Depends'], text=True).strip()
+                self.assertIn('ca-certificates', dependencies.split(', '))
                 installed = root / 'extracted'
                 subprocess.run(['dpkg-deb', '-R', deb, installed], check=True)
                 unit = (installed / 'usr/lib/systemd/system' / f'{name}.service').read_text()

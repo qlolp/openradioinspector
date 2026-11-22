@@ -70,8 +70,13 @@ else
     launcher=(ip netns exec "$ns")
 fi
 cleanup() {
+    result=$?
     systemctl stop "$unit" >/dev/null 2>&1 || true
     journalctl -b -u "$unit" --no-pager > "$report/service.log" || true
+    if [ "$result" -ne 0 ]; then
+        dpkg-query --show ca-certificates systemd >&2 || true
+        cat "$report/service.log" >&2
+    fi
     if [ -d "$dropin" ]; then rm -f -- "$dropin/network.conf"; rmdir -- "$dropin"; fi
     systemctl daemon-reload
     if [ "$arch" = arm64 ]; then ip netns delete "$ns"; fi
