@@ -32,10 +32,11 @@ trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true; xcrun simctl delete
 xcrun simctl boot "$udid"
 xcrun simctl bootstatus "$udid" -b
 destination="platform=iOS Simulator,id=$udid"
+host_arch="$(uname -m)"
 if [[ -n "${ORI_FIELD_CORE:-}" ]]; then
     xcodebuild -project clients/ios/Field.xcodeproj -scheme Field \
         -destination "$destination" -derivedDataPath "$output/DerivedData" \
-        CODE_SIGN_IDENTITY=- build-for-testing
+        ONLY_ACTIVE_ARCH=YES ARCHS="$host_arch" CODE_SIGN_IDENTITY=- build-for-testing
     plans=("$output"/DerivedData/Build/Products/*.xctestrun)
     [[ ${#plans[@]} -eq 1 && -f "${plans[0]}" ]]
     python3 clients/ios/ci/reader_fixture.py "$ORI_FIELD_CORE" "${plans[0]}" "$destination" "$output/Field.xcresult"
@@ -43,7 +44,7 @@ else
     xcodebuild -project clients/ios/Field.xcodeproj -scheme Field \
         -destination "$destination" -derivedDataPath "$output/DerivedData" \
         -resultBundlePath "$output/Field.xcresult" -parallel-testing-enabled NO \
-        CODE_SIGN_IDENTITY=- test
+        ONLY_ACTIVE_ARCH=YES ARCHS="$host_arch" CODE_SIGN_IDENTITY=- test
 fi
 xcodebuild -project clients/ios/Field.xcodeproj -scheme Field -configuration Release \
     -destination 'generic/platform=iOS' -derivedDataPath "$output/DerivedData" \
