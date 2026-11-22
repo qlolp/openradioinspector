@@ -1,0 +1,69 @@
+name: Sign Android Field upload bundle
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-field-upload
+  cancel-in-progress: false
+
+jobs:
+  upload-bundle:
+    if: github.ref_protected && github.ref == 'refs/heads/main'
+    environment: android-field-signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - id: version
+        name: Reserve the build's monotonic Play versionCode
+        env:
+          PLAY_MAX: ${{ vars.FIELD_PLAY_MAX_VERSION_CODE }}
+        run: python3 -m tools.field.android_release version "$GITHUB_RUN_NUMBER" "$PLAY_MAX" >> "$GITHUB_OUTPUT"
+
+      - name: Select pinned build tools
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          rustup target add aarch64-linux-android
+          echo '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  clients/android/gradle/wrapper/gradle-wrapper.jar' | sha256sum -c -
+          curl --fail --location --silent --show-error --retry 3 -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.2/bundletool-all-1.18.2.jar
+          echo "378b5434cd1378bef6b2bc527b8c7f0ff2584b273830335bce54d6d0813c8584  $RUNNER_TEMP/bundletool.jar" | sha256sum -c -
+
+      - name: Test and compile the ARM64 production AAB
+        env:
+          CODE: ${{ steps.version.outputs.code }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          cargo test --locked -p ori-android-field
+          python3 -m unittest tests.test_android_distribution
+          (cd clients/android && ./gradlew --no-daemon --stacktrace "-PfieldVersionCode=$CODE" :app:testReleaseUnitTest :app:bundleRelease)
+          python3 -m tools.field.android_release verify-bundle clients/android/app/build/outputs/bundle/release/app-release.aab "$NAME" "$CODE" "$RUNNER_TEMP/bundletool.jar"
+
+      - name: Verify upload identity and sign the tested bundle
+        env:
+          FIELD_UPLOAD_KEYSTORE_B64: ${{ secrets.FIELD_UPLOAD_KEYSTORE_B64 }}
+          FIELD_UPLOAD_ALIAS: ${{ secrets.FIELD_UPLOAD_ALIAS }}
+          FIELD_UPLOAD_STORE_PASSWORD: ${{ secrets.FIELD_UPLOAD_STORE_PASSWORD }}
+          FIELD_UPLOAD_KEY_PASSWORD: ${{ secrets.FIELD_UPLOAD_KEY_PASSWORD }}
+          FIELD_UPLOAD_CERT_SHA256: ${{ vars.FIELD_UPLOAD_CERT_SHA256 }}
+          FIELD_PLAY_CERT_SHA256: ${{ vars.FIELD_PLAY_CERT_SHA256 }}
+          FIELD_PLAY_MAX_VERSION_CODE: ${{ vars.FIELD_PLAY_MAX_VERSION_CODE }}
+        run: |
+          mkdir "$RUNNER_TEMP/upload"
+          bash clients/android/ci/sign-upload.sh clients/android/app/build/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/upload/field-upload.aab"
+          (cd "$RUNNER_TEMP/upload" && sha256sum field-upload.aab > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-field-upload-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/upload
+          if-no-files-found: error
+          retention-days: 90

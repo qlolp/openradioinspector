@@ -15,8 +15,10 @@ android {
         applicationId = "org.openradioinspector.field"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        val fieldCode = providers.gradleProperty("fieldVersionCode").orNull?.toInt() ?: 1
+        require(fieldCode in 1..2100000000) { "Invalid Play versionCode" }
+        versionCode = fieldCode
+        versionName = providers.gradleProperty("fieldVersionName").get()
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
