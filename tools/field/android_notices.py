@@ -1,5 +1,6 @@
 """Stage and verify the notices for the locked, shipped Android Field runtime."""
 import argparse
+from collections import defaultdict
 import hashlib
 from io import BytesIO
 import json
@@ -104,12 +105,30 @@ def artifact_notices(archive, output, prefix=""):
     return result
 
 
+def reviewed_runtime_files(resolved, pins):
+    observations = defaultdict(list)
+    for row in resolved:
+        path = Path(row["file"])
+        observations[row["coordinate"]].append((row, path, digest(path)))
+    missing = sorted(pins.keys() - observations.keys())
+    errors = ["Missing " + ", ".join(missing)] if missing else []
+    files = {}
+    for coord, observed in sorted(observations.items()):
+        expected = pins.get(coord)
+        if expected is None or any(actual != expected for _, _, actual in observed):
+            details = "\n".join(f"  {row['artifact']} [{row['variant']}] file={path.name} sha256={actual}"
+                                for row, path, actual in observed)
+            errors.append(f"{coord} expected sha256={expected or 'unreviewed'}\n{details}")
+        else:
+            # Gradle may return the same pinned AAR through several selected variants.
+            files[coord] = observed[0][1]
+    require(not errors, "Android releaseRuntimeClasspath artifact changed:\n" + "\n".join(errors))
+    return files
+
+
 def maven_components(output, resolved, pins, origins):
-    require(resolved.keys() == pins.keys(), "Android releaseRuntimeClasspath differs from reviewed components")
     components = {}
-    for coord, file in sorted(resolved.items()):
-        path = Path(file)
-        require(digest(path) == pins[coord], f"Android artifact changed: {coord}")
+    for coord, path in reviewed_runtime_files(resolved, pins).items():
         license_id, extra = ("Apache-2.0", ()) if coord.startswith("androidx.") else MAVEN[coord]
         with ZipFile(path) as archive:
             files = artifact_notices(archive, output)

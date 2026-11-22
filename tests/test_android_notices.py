@@ -81,12 +81,42 @@ class AndroidNoticesTests(unittest.TestCase):
                 archive.writestr("AndroidManifest.xml", b"fixture")
             pins = {notices.USB: notices.digest(aar)}
             origins = notices.read_json(notices.SOURCES / "origins.json")
-            actual = notices.maven_components(root, {notices.USB: aar}, pins, origins)["maven:" + notices.USB]
+            row = dict(coordinate=notices.USB, artifact="usb.aar", variant="release", file=str(aar))
+            actual = notices.maven_components(root, [row], pins, origins)["maven:" + notices.USB]
             self.assertEqual(actual["license"], "MIT AND Apache-2.0")
             self.assertEqual(set(actual["notices"]), {"usb-serial-MIT.txt", "usb-serial-attributions.txt", "Apache-2.0.txt"})
-            for inputs in ({}, {notices.USB: aar, "other": aar}):
+            for inputs in ([], [row, dict(row, coordinate="other")]):
                 with self.assertRaisesRegex(ValueError, "Classpath"):
                     notices.maven_components(root, inputs, pins, origins)
             aar.write_bytes(b"unexpected dependency bytes")
             with self.assertRaisesRegex(ValueError, "artifact changed"):
-                notices.maven_components(root, {notices.USB: aar}, pins, origins)
+                notices.maven_components(root, [row], pins, origins)
+
+    def test_gradle_release_and_adhoc_variants_must_each_match_the_reviewed_aar(self):
+        coord = "androidx.core:core:1.13.1"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "text").mkdir()
+            release = root / "core-1.13.1.aar"
+            with ZipFile(release, "w") as archive:
+                archive.writestr("LICENSE", b"AndroidX license")
+            repeated = root / "other-cache" / release.name
+            repeated.parent.mkdir()
+            repeated.write_bytes(release.read_bytes())
+            primary = dict(coordinate=coord, artifact="core-1.13.1.aar", variant="releaseVariantReleaseRuntimePublication",
+                           file=str(release))
+            adhoc = dict(primary, variant="adhoc", file=str(repeated))
+            pins = {coord: notices.digest(release)}
+            origins = notices.read_json(notices.SOURCES / "origins.json")
+            components = notices.maven_components(root, [primary, adhoc], pins, origins)
+            self.assertEqual(list(components), ["maven:" + coord])
+            self.assertEqual(components["maven:" + coord]["artifact_sha256"], pins[coord])
+
+            repeated.write_bytes(b"unreviewed classified dependency")
+            alternate = dict(adhoc, artifact="core-1.13.1-alternate.aar")
+            for rows in ([primary, alternate], [alternate, primary]):
+                with self.assertRaises(ValueError) as fault:
+                    notices.maven_components(root, rows, pins, origins)
+                for detail in (coord, primary["variant"], alternate["variant"], alternate["artifact"],
+                               release.name, pins[coord], notices.digest(repeated)):
+                    self.assertIn(detail, str(fault.exception))

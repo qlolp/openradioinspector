@@ -1,4 +1,6 @@
 import groovy.json.JsonOutput
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 
 plugins {
     id("com.android.application")
@@ -43,22 +45,33 @@ android {
 }
 
 val workspaceRoot = rootProject.file("../..")
-val runtimeClasspath = providers.provider { configurations.getByName("releaseRuntimeClasspath") }
+// Request the original archives AGP uses for the AAB's dependencies.pb.
+val runtimeArtifacts = providers.provider {
+    configurations.getByName("releaseRuntimeClasspath").incoming.artifactView {
+        attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-aar-or-jar")
+    }.artifacts
+}
 val collectFieldNotices by tasks.registering(Exec::class) {
     description = "Collect notices from the locked Field binary's Rust and Android runtime inputs"
     workingDir = workspaceRoot
-    inputs.files(runtimeClasspath)
+    val resolved = runtimeArtifacts.map { collection ->
+        collection.artifacts.map { artifact ->
+            val id = artifact.id.componentIdentifier
+            require(id is ModuleComponentIdentifier) { "Unreviewed runtime component: ${artifact.id.displayName}" }
+            mapOf("coordinate" to "${id.group}:${id.module}:${id.version}", "artifact" to artifact.id.displayName,
+                "variant" to artifact.variant.displayName, "file" to artifact.file.absolutePath)
+        }.sortedWith(compareBy({ it["coordinate"] }, { it["variant"] }, { it["artifact"] }))
+    }
+    inputs.files(runtimeArtifacts.map { it.artifactFiles })
+    inputs.property("resolvedRuntimeArtifacts", resolved)
     inputs.files(fileTree(workspaceRoot) {
         include("LICENSE", "Cargo.lock", "Cargo.toml", "crates/**/Cargo.toml", "rust-toolchain.toml",
             "clients/android/notices/**", "tools/release/native_notices.py", "tools/field/android_notices.py")
     })
     outputs.dir(noticeAssets)
     doFirst {
-        val artifacts = runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts
-        val paths = artifacts.associate { it.moduleVersion.id.toString() to it.file.absolutePath }
-        check(paths.size == artifacts.size) { "Ambiguous Android runtime artifact coordinates" }
         val inventory = temporaryDir.resolve("resolved.json")
-        inventory.writeText(JsonOutput.toJson(paths))
+        inventory.writeText(JsonOutput.toJson(resolved.get()))
         val python = if (System.getProperty("os.name").startsWith("Windows")) "python" else "python3"
         commandLine(python, "-m", "tools.field.android_notices", "collect", "--resolved", inventory,
             "--assets", noticeAssets.get().asFile)
