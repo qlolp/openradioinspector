@@ -1,0 +1,88 @@
+name: Android Field
+
+on:
+  pull_request:
+    paths:
+      - 'clients/android/**'
+      - 'crates/**'
+      - 'Cargo.*'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/android-field.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-field-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  field:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Select JDK 17, API 36 and NDK r28c
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          rustup target add aarch64-linux-android
+          echo "81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  clients/android/gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
+
+      - name: Test native parser and capture bridge
+        run: cargo test --locked -p ori-android-field
+
+      - name: Run JVM tests and build the APK and AAB
+        working-directory: clients/android
+        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:bundleRelease
+
+      - name: Verify signing, privacy, ABI and 16 KiB page alignment
+        working-directory: clients/android
+        run: |
+          set -euxo pipefail
+          outputs=app/build/outputs
+          apk="$outputs/apk/debug/app-debug.apk"
+          bundle="$outputs/bundle/release/app-release.aab"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/apksigner" verify --verbose --print-certs "$apk"
+          "$tools/zipalign" -c -P 16 -v 4 "$apk"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/field-badging"
+          grep -F "package: name='org.openradioinspector.field'" "$RUNNER_TEMP/field-badging"
+          grep -Fx "sdkVersion:'31'" "$RUNNER_TEMP/field-badging"
+          grep -Fx "targetSdkVersion:'36'" "$RUNNER_TEMP/field-badging"
+          if grep -Eq "android.permission.(INTERNET|ACCESS_BACKGROUND_LOCATION)'" "$RUNNER_TEMP/field-badging"; then exit 1; fi
+          python3 ci/verify-packages.py "$apk" "$bundle"
+          jar="$RUNNER_TEMP/bundletool.jar"
+          curl --fail --location --silent --show-error --retry 3 -o "$jar" https://github.com/google/bundletool/releases/download/1.18.2/bundletool-all-1.18.2.jar
+          echo "378b5434cd1378bef6b2bc527b8c7f0ff2584b273830335bce54d6d0813c8584  $jar" | sha256sum -c -
+          java -jar "$jar" validate --bundle="$bundle"
+          java -jar "$jar" dump config --bundle="$bundle" > "$RUNNER_TEMP/field-bundle-config"
+          grep -F PAGE_ALIGNMENT_16K "$RUNNER_TEMP/field-bundle-config"
+          sha256sum "$apk" "$bundle" > "$outputs/SHA256SUMS"
+          cat "$outputs/SHA256SUMS"
+
+      - name: Retain Field build for sideload and Play rehearsal
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-field-arm64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            clients/android/app/build/outputs/apk/debug/app-debug.apk
+            clients/android/app/build/outputs/bundle/release/app-release.aab
+            clients/android/app/build/outputs/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Retain JVM test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-field-tests-${{ github.event.pull_request.head.sha || github.sha }}
+          path: clients/android/app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
