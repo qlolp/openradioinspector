@@ -8,8 +8,8 @@ final class FieldUITests: XCTestCase {
         app.buttons["open-demo"].tap()
         let note = app.buttons["row-note"]
         XCTAssertTrue(note.waitForExistence(timeout: 15))
-        let archive = XCTAttachment(screenshot: app.screenshot())
-        archive.name = "Field-synthetic-archive"
+        let archive = XCTAttachment(data: app.screenshot().pngRepresentation, uniformTypeIdentifier: "public.png")
+        archive.name = "Field-synthetic-archive.png"
         archive.lifetime = .keepAlways
         add(archive)
         note.tap()

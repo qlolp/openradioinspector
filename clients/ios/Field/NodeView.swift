@@ -53,7 +53,7 @@ struct NodeView: View {
                         Button("Удалить сопряжение", role: .destructive) { confirming = true }.disabled(model.busy)
                     }
                 } else {
-                    Section("Локальный Mac или Raspberry Pi") {
+                    Section {
                         TextField("https://имя.local:порт", text: $address)
                             .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             .onChange(of: address) { checked = false }
@@ -71,6 +71,8 @@ struct NodeView: View {
                             code = ""
                             Task { await model.pair(address: address, certificate: certificate, code: submitted) }
                         }.disabled(model.busy || !checked || address.isEmpty || code.isEmpty)
+                    } header: {
+                        Text("Локальный Mac или Raspberry Pi")
                     } footer: {
                         Text("На узле создайте одноразовый код с правами reader. Выберите публичный сертификат его CA в формате PEM или DER.")
                     }
