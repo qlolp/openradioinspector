@@ -18,9 +18,12 @@ from tools.release import release_artifacts as bundles, release_acceptance as ga
 
 REV = 'b' * 40
 HASH = 'e' * 64
+NATIVE_CI = {'run_id': 100, 'run_attempt': 2,
+             'installations': {'12': {'environment_sha256': '1' * 64, 'lifecycle_sha256': HASH},
+                               '13': {'environment_sha256': '2' * 64, 'lifecycle_sha256': HASH}}}
 
 
-def receipt(platform):
+def receipt(platform, artifact_hash=HASH, manifest_hash=HASH):
     counts = {'sweeps': 18000, 'observations': 18000, 'pcm_samples': 0 if platform == 'macos' else 86400000}
     work = {'seconds': 1800, 'points_per_sweep': 4096, 'history_points_per_sweep': 290,
             'pcm_rate_hz': None if platform == 'macos' else 48000, 'pcm_channels': None if platform == 'macos' else 1,
@@ -41,8 +44,8 @@ def receipt(platform):
     storage = {'sweeps': 512, 'native': True, 'verified_sweeps': 512, 'verified_events': 512,
                'v6_source_sha256': HASH, 'v7_source_sha256': HASH, 'v6_growth_bytes': 10000, 'v7_growth_bytes': 7000,
                'v6_main_bytes': 20000, 'v7_main_bytes': 14000}
-    return {'schema_version': 1, 'platform': platform, 'target': gate.TARGETS[platform], 'source_revision': REV,
-            'build_run_id': 42, 'artifact_sha256': HASH, 'manifest_sha256': HASH,
+    row = {'schema_version': 1, 'platform': platform, 'target': gate.TARGETS[platform], 'source_revision': REV,
+            'build_run_id': 42, 'artifact_sha256': artifact_hash, 'manifest_sha256': manifest_hash,
             'software_runs': {workflow: 100 + i for i, workflow in enumerate(gate.required_workflows(platform))},
             'installation': {'offline': True, 'clean_install': True, 'upgrade': True, 'rollback': True,
                              'new_measurements_preserved': True, 'manual_opened_offline': True,
@@ -53,6 +56,11 @@ def receipt(platform):
             'hardware': {'physical': True, 'devices': ['tinySA Ultra', 'AR-DV1'], 'seconds': 28800,
                          'sweeps': 4852, 'observations': 4312, 'unexplained_losses': 0,
                          'duplicates': 0, 'report_sha256': '5' * 64}}
+    if platform == bundles.LINUX_AMD64:
+        row['hardware'].update(os_id='debian', os_version='13', architecture='amd64', artifact_sha256=artifact_hash)
+        row['installation'] = {version: dict(row['installation'], artifact_sha256=artifact_hash, report_sha256=c * 64)
+                               for version, c in [('12', '8'), ('13', '9')]}
+    return row
 
 
 class ReceiptTests(unittest.TestCase):
@@ -203,7 +211,7 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bundles.verify_sums(root, {'first.deb', 'second.json'})
 
-    def test_each_prerelease_requires_accepted_mac_and_stable_copies_all_three_exact_packages(self):
+    def test_independent_linux_and_combined_release_copy_their_exact_accepted_packages(self):
         # No network or external credentials. The promotion code receives the same files
         # as a native workflow would deliver, with short-lived test-only witness keys.
         with tempfile.TemporaryDirectory() as tmp:
@@ -212,6 +220,7 @@ class PublicationTests(unittest.TestCase):
             subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)], check=True)
             public_key = key.with_suffix('.pub').read_text().strip()
             public = {}
+            flags = {}
             candidates = {}
             signed = {}
             for platform, filename in bundles.ARTIFACTS.items():
@@ -221,13 +230,16 @@ class PublicationTests(unittest.TestCase):
                 proof = {'macos': {'kind': 'developer-id', 'certificate_sha1': 'c' * 40, 'team_id': 'ABCD123456',
                                    'app_ticket': 'be551760-c774-42c5-bb86-fd738ed6b1cb', 'dmg_ticket': '31d00aaf-76dc-4c6f-892a-da934655da32',
                                    'stapled': True, 'timestamp': True, 'hardened_runtime': True},
-                         'pi': {'kind': 'debian-sha256'}, 'windows': {'kind': 'authenticode', 'certificate_sha1': 'd' * 40,
+                         'pi': {'kind': 'debian-sha256'}, 'linux-amd64': {'kind': 'debian-sha256'},
+                         'windows': {'kind': 'authenticode', 'certificate_sha1': 'd' * 40,
                              'timestamp': 'RFC3161-SHA256', 'verified': ['ori-core', 'ori-supervisor', 'ui', 'nsis']}}[platform]
                 source = {'source_revision': REV, 'release_version': '0.4.0', 'manual_sha256': HASH,
                           'components': {name: {'sha256': HASH} for name in ('ori-core', 'ori-supervisor')}}
-                bundles.freeze(platform, source, {'source_revision': REV, 'signing': proof, 'ui_sha256': HASH}, raw, candidate)
-                row = dict(receipt(platform), artifact_sha256=bundles.digest(raw),
-                           manifest_sha256=bundles.digest(candidate / f'{platform}-manifest.json'))
+                evidence = {'source_revision': REV, 'signing': proof, 'ui_sha256': HASH}
+                if platform == bundles.LINUX_AMD64:
+                    evidence['native_ci'] = NATIVE_CI
+                bundles.freeze(platform, source, evidence, raw, candidate)
+                row = receipt(platform, bundles.digest(raw), bundles.digest(candidate / f'{platform}-manifest.json'))
                 receipt_path = root / (platform + '.json')
                 receipt_path.write_text(json.dumps(row) + '\n')
                 subprocess.run(['ssh-keygen', '-q', '-Y', 'sign', '-f', str(key), '-n',
@@ -239,9 +251,11 @@ class PublicationTests(unittest.TestCase):
             class RepositoryFixture:
                 revision = REV
 
-                def run(self, run_id, workflow, platform=None):
+                def run(self, run_id, workflow, platform=None, *, attempt=None):
                     if workflow == publish.BUILDER and run_id != 42:
                         raise ValueError('unexpected test build')
+                    if workflow == bundles.LINUX_CI:
+                        self_test.assertEqual((run_id, attempt), (100, 2))
 
                 def published(self, platform, number, destination):
                     tag = publish.platform_tag(platform, number)
@@ -256,6 +270,7 @@ class PublicationTests(unittest.TestCase):
                 def publish(self, folder, tag, prerelease):
                     self_test.assertNotIn(tag, public)
                     public[tag] = {file.name: file.read_bytes() for file in folder.iterdir()}
+                    flags[tag] = prerelease
 
             self_test = self
             repo = RepositoryFixture()
@@ -265,16 +280,35 @@ class PublicationTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory(dir=root) as outputs, patch.dict(os.environ, signed.get(platform, {})):
                     publish.promote(repo, platform, numbers, 42, candidates.get(platform), Path(outputs))
 
-            with patch.dict(os.environ, {'ORI_WITNESS_' + platform.upper(): public_key for platform in candidates}):
+            with patch.dict(os.environ, {'ORI_WITNESS_' + platform.upper().replace('-', '_'): public_key for platform in candidates}):
                 with self.assertRaisesRegex(ValueError, 'prerelease missing'):
                     invoke('windows')
                 with self.assertRaisesRegex(ValueError, 'prerelease missing'):
                     invoke('stable')
+                with self.assertRaisesRegex(ValueError, 'prerelease missing'):
+                    invoke('linux-amd64-stable')
+                with patch.dict(os.environ, {'ORI_WITNESS_LINUX_AMD64': ''}), self.assertRaisesRegex(ValueError, 'authorized Ed25519'):
+                    invoke('linux-amd64')
                 self.assertFalse(public)
+                invoke('linux-amd64')
+                invoke('linux-amd64-stable')
+                linux_rc = public.pop('linux-amd64-v0.4.0-rc.1')
+                linux_final = public.pop('linux-amd64-v0.4.0')
+                self.assertIs(flags['linux-amd64-v0.4.0-rc.1'], True)
+                self.assertIs(flags['linux-amd64-v0.4.0'], False)
+                self.assertEqual(set(json.loads(linux_final['release.json'])['artifacts']), {'linux-amd64'})
+                self.assertEqual(linux_final.keys(), publish.platform_assets('linux-amd64') | {'SHA256SUMS'})
+                for name in publish.platform_assets('linux-amd64') - {'release.json'}:
+                    self.assertEqual(linux_final[name], linux_rc[name])
+                deb = bundles.ARTIFACTS['linux-amd64']
+                self.assertEqual(linux_final[deb], (candidates['linux-amd64'] / deb).read_bytes())
                 for platform in ('macos', 'pi', 'windows'):
                     invoke(platform)
                 invoke('stable')
-                for platform, filename in bundles.ARTIFACTS.items():
+                self.assertEqual(set(json.loads(public['v0.4.0']['release.json'])['artifacts']), {'macos', 'windows', 'pi'})
+                self.assertNotIn(deb, public['v0.4.0'])
+                for platform in ('macos', 'windows', 'pi'):
+                    filename = bundles.ARTIFACTS[platform]
                     standalone = public[publish.platform_tag(platform, 1)]
                     self.assertEqual(public['v0.4.0'][filename], standalone[filename])
                     self.assertEqual(standalone[filename], (candidates[platform] / filename).read_bytes())

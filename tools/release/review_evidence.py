@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import release_acceptance as gate
 from .macos_rc_package import digest, read_json
-from .publish_release import BUILDER, Repository, collect_dispatch_file
+from .publish_release import BUILDER, Repository, collect_dispatch_file, verify_software_runs
 from .release_artifacts import ARTIFACTS, check_manifest, require, verify_sums
 
 
@@ -32,9 +32,9 @@ def main():
     check_manifest(build, args.platform, repo.revision, args.candidate / name)
     collect_dispatch_file(args.out.parent, args.out.name, 'ORI_RECEIPT_B64', 48 * 1024)
     receipt = read_json(args.out)
-    gate.validate_receipt(receipt, args.platform, repo.revision, build['artifact']['sha256'], digest(manifest), args.run_id)
-    for workflow, run_id in receipt['software_runs'].items():
-        repo.run(run_id, workflow)
+    gate.validate_receipt(receipt, args.platform, repo.revision, build['artifact']['sha256'], digest(manifest), args.run_id,
+                          native_ci=build.get('native_ci'))
+    verify_software_runs(repo, receipt, build)
     with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
         out.write(f'digest={digest(args.out)}\n')
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:

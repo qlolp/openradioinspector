@@ -5,14 +5,17 @@ import re
 import subprocess
 import tempfile
 
-from .release_artifacts import TARGETS, keys, require, sha
+from .release_artifacts import DEBIAN_VERSIONS, LINUX_AMD64, LINUX_CI, TARGETS, keys, require, sha
 
 
 NAMESPACE = 'openradioinspector-0.4.0-acceptance'
 COMMON = ('windows-core.yml', 'modern-core.yml', 'desktop-packages.yml')
+INSTALL_CHECKS = ('offline', 'clean_install', 'upgrade', 'rollback', 'new_measurements_preserved', 'manual_opened_offline')
 
 
 def required_workflows(platform):
+    if platform == LINUX_AMD64:
+        return (LINUX_CI,)
     return (*COMMON, *{'macos': (), 'windows': ('modern-clients.yml',), 'pi': ('modern-clients.yml', 'pi-rc.yml')}[platform])
 
 
@@ -92,7 +95,16 @@ def validate_comparisons(scan, storage):
             require(integer(old, 1) and integer(new, 1) and new * 10 <= old * 7, 'v7 savings are below 30 percent')
 
 
-def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_id):
+def validate_installation(record, artifact_hash, *, linux):
+    fields = [*INSTALL_CHECKS, 'prior_artifact_sha256', 'report_sha256']
+    keys(record, fields + (['artifact_sha256'] if linux else []), 'offline lifecycle')
+    require(all(record[k] is True for k in INSTALL_CHECKS) and sha(record['prior_artifact_sha256'])
+            and record['prior_artifact_sha256'] != artifact_hash, 'offline install, upgrade or distinct rollback missing')
+    if linux:
+        require(record['artifact_sha256'] == artifact_hash, 'offline lifecycle used another Debian package')
+
+
+def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_id, *, native_ci=None):
     keys(row, ['schema_version', 'platform', 'target', 'source_revision', 'artifact_sha256', 'manifest_sha256',
                'build_run_id', 'software_runs', 'installation', 'loads', 'hardware', 'scan', 'storage', 'protocol_report_sha256',
                'protocol_passed'], 'platform acceptance')
@@ -104,25 +116,33 @@ def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_
     keys(row['software_runs'], required_workflows(platform), 'software workflow runs')
     ids = list(row['software_runs'].values())
     require(all(integer(n, 1) for n in ids) and len(set(ids)) == len(ids), 'invalid CI run IDs')
-    install = row['installation']
-    checks = ('offline', 'clean_install', 'upgrade', 'rollback', 'new_measurements_preserved', 'manual_opened_offline')
-    keys(install, [*checks, 'prior_artifact_sha256', 'report_sha256'], 'offline lifecycle')
-    require(all(install[k] is True for k in checks) and sha(install['prior_artifact_sha256'])
-            and install['prior_artifact_sha256'] != artifact_hash, 'offline install, upgrade or distinct rollback missing')
+    linux = platform == LINUX_AMD64
+    if linux:
+        require(native_ci and row['software_runs'][LINUX_CI] == native_ci['run_id'],
+                'acceptance must cite the native CI run that installed the frozen DEB')
+        keys(row['installation'], DEBIAN_VERSIONS, 'Debian offline lifecycles')
+        installations = list(row['installation'].values())
+    else:
+        installations = [row['installation']]
+    for install in installations:
+        validate_installation(install, artifact_hash, linux=linux)
     loads = row['loads']
     keys(loads, ('binary-v1', 'sse', 'three-clients') if platform == 'macos' else ('three-clients',), 'installed load reports')
     for profile, load in loads.items():
         validate_load(load, platform, profile)
     validate_comparisons(row['scan'], row['storage'])
     hardware = row['hardware']
-    keys(hardware, ['physical', 'devices', 'seconds', 'sweeps', 'observations', 'unexplained_losses',
-                    'duplicates', 'report_sha256'], 'physical run')
+    fields = ['physical', 'devices', 'seconds', 'sweeps', 'observations', 'unexplained_losses', 'duplicates', 'report_sha256']
+    keys(hardware, fields + (['os_id', 'os_version', 'architecture', 'artifact_sha256'] if linux else []), 'physical run')
+    if linux:
+        require(hardware['os_id'] == 'debian' and hardware['os_version'] == '13' and hardware['architecture'] == 'amd64'
+                and hardware['artifact_sha256'] == artifact_hash, 'physical run must use the frozen DEB on Debian 13 amd64')
     require(hardware['physical'] is True and hardware['devices'] == ['tinySA Ultra', 'AR-DV1']
             and number(hardware['seconds'], 8 * 60 * 60)
             and all(integer(hardware[k], 1) for k in ('sweeps', 'observations'))
             and all(type(hardware[k]) is int and hardware[k] == 0 for k in ('unexplained_losses', 'duplicates')),
             'physical two-device acceptance incomplete')
-    hashes = [install['report_sha256'], hardware['report_sha256'], row['protocol_report_sha256'],
+    hashes = [*(install['report_sha256'] for install in installations), hardware['report_sha256'], row['protocol_report_sha256'],
               *(entry['report_sha256'] for section in (loads, row['scan'], row['storage']) for entry in section.values())]
     require(row['protocol_passed'] is True and all(sha(h) for h in hashes) and len(set(hashes)) == len(hashes),
             'distinct successful acceptance reports required')

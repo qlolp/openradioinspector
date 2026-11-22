@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Accepted prerelease to publish, or all three accepted platforms for stable
+        description: Accepted platform RC, combined Mac/Windows/Pi stable, or independent Linux amd64 stable
         required: true
         type: choice
-        options: [macos, windows, pi, stable]
+        options: [macos, windows, pi, stable, linux-amd64, linux-amd64-stable]
       build_run:
         description: Successful Freeze native candidate workflow run ID (platform prerelease)
         type: string
@@ -15,6 +15,10 @@ on:
         description: Published/proposed immutable RC tag numbers by platform
         type: string
         default: '{"macos":1,"windows":1,"pi":1}'
+      linux_rc:
+        description: Independent Linux amd64 RC number to publish or promote
+        type: string
+        default: '1'
       receipt_b64:
         description: Base64 of the sanitized signed platform acceptance JSON (prerelease only)
         type: string
@@ -23,7 +27,7 @@ on:
         type: string
 
 concurrency:
-  group: immutable-0.4.0-publication
+  group: ${{ (inputs.platform == 'linux-amd64' || inputs.platform == 'linux-amd64-stable') && 'immutable-linux-amd64-0.4.0-publication' || 'immutable-0.4.0-publication' }}
   cancel-in-progress: false
 permissions:
   actions: read
@@ -52,7 +56,7 @@ jobs:
           PLATFORM: ${{ inputs.platform }}
           RUN_ID: ${{ inputs.build_run }}
         run: python3 -m tools.release.publish_release origin "$PLATFORM" --build-run "$RUN_ID"
-      - if: inputs.platform != 'stable'
+      - if: inputs.platform != 'stable' && inputs.platform != 'linux-amd64-stable'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           github-token: ${{ github.token }}
@@ -79,9 +83,11 @@ jobs:
           ORI_WITNESS_MACOS: ${{ vars.MACOS_ACCEPTANCE_PUBLIC_KEY }}
           ORI_WITNESS_WINDOWS: ${{ vars.WINDOWS_ACCEPTANCE_PUBLIC_KEY }}
           ORI_WITNESS_PI: ${{ vars.PI_ACCEPTANCE_PUBLIC_KEY }}
+          ORI_WITNESS_LINUX_AMD64: ${{ vars.LINUX_AMD64_ACCEPTANCE_PUBLIC_KEY }}
           PLATFORM: ${{ inputs.platform }}
           RUN_ID: ${{ inputs.build_run }}
           RC_NUMBERS: ${{ inputs.rc_numbers }}
+          LINUX_RC: ${{ inputs.linux_rc }}
         run: |
           python3 -m tools.release.publish_release publish "$PLATFORM" --build-run "$RUN_ID" \
-            --candidate "$RUNNER_TEMP/candidate" --numbers "$RC_NUMBERS"
+            --candidate "$RUNNER_TEMP/candidate" --numbers "$RC_NUMBERS" --linux-rc "$LINUX_RC"
