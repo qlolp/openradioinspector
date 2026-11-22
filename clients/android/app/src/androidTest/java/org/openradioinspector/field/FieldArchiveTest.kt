@@ -15,6 +15,44 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class FieldArchiveTest {
+    @Test fun providerLossPersistsOneGapAndSplitsTheNextGpsSegment() {
+        val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
+        val root = Files.createTempDirectory(cache.toPath(), "field-gps-test").toFile()
+        val id = UUID.randomUUID().toString()
+        val config = FieldConfig(9, "tinysa", 100_000_000, 101_000_000, 0, gps = true)
+        fun fix() = Location("gps").apply {
+            latitude = 12.0
+            longitude = 13.0
+            time = System.currentTimeMillis()
+            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        }
+        try {
+            FieldArchive.create(root, id, FieldDevice(9, "Synthetic GPS", listOf("tinysa")), config).use { store ->
+                val before = store.gps(fix())
+                store.gpsDisabled()
+                store.gpsDisabled()
+                val after = store.gps(fix())
+                assertTrue(after.fresh)
+                assertNotEquals(before.segmentId, after.segmentId)
+                store.finish(null)
+            }
+            SQLiteDatabase.openDatabase(FieldArchive.database(root, id).path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                db.rawQuery("SELECT kind,json FROM events ORDER BY seq", null).use { cursor ->
+                    val kinds = mutableListOf<String>()
+                    val segments = mutableListOf<String>()
+                    while (cursor.moveToNext()) {
+                        kinds += cursor.getString(0)
+                        if (cursor.getString(0) == "gps") segments += JSONObject(cursor.getString(1)).getString("segment_id")
+                    }
+                    assertEquals(listOf("gps", "gap", "gps"), kinds)
+                    assertEquals(2, segments.distinct().size)
+                }
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun surveyTilesRetainCommonPassIdentifierAtDesktopContractPath() {
         val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
         val root = Files.createTempDirectory(cache.toPath(), "field-survey-test").toFile()

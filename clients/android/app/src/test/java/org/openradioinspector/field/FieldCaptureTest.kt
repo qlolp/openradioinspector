@@ -24,6 +24,23 @@ class FieldCaptureTest {
         assertThrows(IllegalArgumentException::class.java) { range.copy(kind = "tinysa_rx").checkedBaud() }
     }
 
+    @Test fun gpsSilenceCreatesOneGapUntilFreshFixStartsAnotherSegment() {
+        val coverage = GpsCoverage(0)
+        assertTrue(coverage.receive(500, 500))
+        assertFalse(coverage.check(15_500))
+        assertTrue(coverage.check(15_501))
+        assertFalse(coverage.check(30_000))
+        assertFalse(coverage.lose(30_000))
+        assertFalse(coverage.receive(500, 30_000))
+        assertEquals(1L, coverage.segment)
+        assertTrue(coverage.receive(30_000, 30_001))
+        assertEquals(2L, coverage.segment)
+        assertTrue(coverage.lose(30_002))
+        assertFalse(coverage.receive(30_001, 30_003))
+        assertTrue(coverage.receive(30_004, 30_005))
+        assertEquals(3L, coverage.segment)
+    }
+
     @Test fun lastCommittedTileEndsOnePass() {
         assertFalse(range.passComplete(1, 1001))
         assertFalse(range.passComplete(1000, 1001))

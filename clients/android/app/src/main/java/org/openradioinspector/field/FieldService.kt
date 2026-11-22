@@ -41,9 +41,11 @@ class FieldService : Service() {
     inner class LocalBinder : Binder() { val service get() = this@FieldService }
 
     /** All lifecycle changes run on main. Only bridge/cancellation cross into the USB worker. */
+    private data class Stop(val message: String, val operator: Boolean)
+
     private class Capture(val config: FieldConfig, val device: UsbDevice) {
         val id = UUID.randomUUID().toString()
-        val stopReason = AtomicReference<String?>()
+        val stopReason = AtomicReference<Stop?>()
         @Volatile var bridge: UsbBridge? = null
         var archive: FieldArchive? = null // archive executor only
         var wake: PowerManager.WakeLock? = null
@@ -133,7 +135,7 @@ class FieldService : Service() {
             val request = Capture(config, device)
             if (usb.hasPermission(device)) begin(request) else {
                 pending = request
-                events.update { FieldState(running = true, sessions = it.sessions, status = "Ожидание разрешения USB") }
+                events.update { FieldState(running = true, gpsRequested = config.gps, sessions = it.sessions, status = "Ожидание разрешения USB") }
                 val intent = Intent(USB_PERMISSION).setPackage(packageName).putExtra("request", request.id)
                 val grant = PendingIntent.getBroadcast(this, request.id.hashCode(), intent,
                     PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE)
@@ -175,7 +177,7 @@ class FieldService : Service() {
             startForeground(NOTIFICATION, notification(job), types)
             job.wake = requireNotNull(getSystemService(PowerManager::class.java))
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ori:field-capture").apply { acquire() }
-            events.update { FieldState(running = true, status = "Открытие прибора", sessions = it.sessions) }
+            events.update { FieldState(running = true, gpsRequested = job.config.gps, status = "Открытие прибора", sessions = it.sessions) }
             thread(name = "field-capture") { capture(job) }
         } catch (e: Exception) {
             deviceOwner.compareAndSet(job, null)
@@ -233,14 +235,14 @@ class FieldService : Service() {
             job.bridge = null
             val requested = job.stopReason.get()
             var reason = when {
-                problem == null -> requested
+                problem == null -> requested?.message
                 requested == null -> "Ошибка записи: ${problem.message}"
-                else -> "$requested. Ошибка обмена: ${problem.message}"
+                else -> "${requested.message}. Ошибка обмена: ${problem.message}"
             }
             try {
                 write {
                     try {
-                        job.archive?.use { it.finish(reason) }
+                        job.archive?.use { it.finish(if (requested?.operator == true && problem == null) null else reason) }
                     } finally {
                         job.archive = null
                         openSessions.remove(job.id)
@@ -275,18 +277,32 @@ class FieldService : Service() {
                 if (active !== job || job.stopReason.get() != null) return
                 record(job) { store ->
                     val point = store.gps(fix)
-                    events.update { it.copy(latitude = point.latitude, longitude = point.longitude,
+                    events.update { it.copy(latitude = point.latitude.takeIf { point.fresh },
+                        longitude = point.longitude.takeIf { point.fresh },
                         track = (it.track + point).takeLast(512)) }
                 }
             }
             override fun onProviderDisabled(provider: String) {
-                if (active === job) record(job) { it.gap("GPS отключён") }
+                if (active === job) record(job) { archive ->
+                    archive.gpsDisabled()
+                    events.update { it.copy(latitude = null, longitude = null) }
+                }
             }
             override fun onProviderEnabled(provider: String) {}
             @Deprecated("Legacy callback") override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
         try {
             job.listener = listener
+            val checkFreshness = object : Runnable {
+                override fun run() {
+                    if (active !== job || job.stopReason.get() != null) return
+                    record(job) { archive ->
+                        if (archive.gpsTimeout()) events.update { it.copy(latitude = null, longitude = null) }
+                    }
+                    main.postDelayed(this, 1000)
+                }
+            }
+            main.postDelayed(checkFreshness, 1000)
             location.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1_000L, 0f, listener, Looper.getMainLooper())
             if (!location.isProviderEnabled(LocationManager.GPS_PROVIDER)) listener.onProviderDisabled(LocationManager.GPS_PROVIDER)
         } catch (e: Exception) {
@@ -309,11 +325,13 @@ class FieldService : Service() {
             pending = null
             idle("Запрос USB отменён")
         }
-        active?.let { cancel(it, "Запись остановлена оператором", immediate = false) }
+        active?.let { cancel(it, "Запись остановлена оператором", immediate = false, operator = true) }
     }
 
-    private fun cancel(job: Capture, reason: String, immediate: Boolean) {
-        job.stopReason.compareAndSet(null, reason)
+    private fun cancel(job: Capture, reason: String, immediate: Boolean, operator: Boolean = false) {
+        job.stopReason.updateAndGet { current ->
+            if (current == null || (current.operator && !operator)) Stop(reason, operator) else current
+        }
         events.update { it.copy(status = reason) }
         if (immediate) job.bridge?.interruptIo()
         else main.postDelayed({ if (active === job) job.bridge?.interruptIo() }, 3000)

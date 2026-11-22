@@ -47,7 +47,7 @@ data class FieldConfig(
 
 data class FieldFix(
     val latitude: Double, val longitude: Double, val accuracyM: Double?,
-    val utc: String, val id: String,
+    val utc: String, val id: String, val segmentId: String = "", val fresh: Boolean = true,
 )
 
 data class FieldSample(
@@ -57,6 +57,7 @@ data class FieldSample(
 
 data class FieldState(
     val running: Boolean = false,
+    val gpsRequested: Boolean = false,
     val status: String = "Готово",
     val sessionId: String? = null,
     val frequenciesHz: List<Long> = emptyList(),
@@ -75,3 +76,29 @@ data class FieldState(
 
 internal fun fixApplies(fixUtcMs: Long, sampleUtcMs: Long, fixElapsedMs: Long, nowElapsedMs: Long): Boolean =
     sampleUtcMs - fixUtcMs in 0..15_000 && nowElapsedMs - fixElapsedMs in 0..15_000
+
+/** Tracks GPS coverage against elapsed time even when wall time or the provider changes. */
+internal class GpsCoverage(startMs: Long) {
+    private var lastFreshMs = startMs
+    private var lostAtMs: Long? = null
+    var segment = 1L
+        private set
+
+    fun check(nowMs: Long): Boolean = nowMs - lastFreshMs > 15_000 && lose(lastFreshMs + 15_000)
+
+    fun lose(atMs: Long): Boolean {
+        if (lostAtMs != null) return false
+        lostAtMs = atMs
+        return true
+    }
+
+    fun receive(fixMs: Long, nowMs: Long): Boolean {
+        if (nowMs - fixMs !in 0L..15_000L) return false
+        val lost = lostAtMs
+        if (lost != null && fixMs < lost) return false
+        if (lost != null) segment++
+        lostAtMs = null
+        lastFreshMs = fixMs
+        return true
+    }
+}

@@ -43,6 +43,7 @@ internal data class CommittedSample(
 internal class FieldArchive private constructor(
     private val db: SQLiteDatabase, val sessionId: String, private val streamId: String,
 ) : Closeable {
+    private val gpsCoverage = GpsCoverage(SystemClock.elapsedRealtime())
     private var pass = 1L
     private var lastMeasurement: Pair<String, String>? = null
     private val recentFixes = ArrayDeque<Pair<FieldFix, Long>>()
@@ -68,16 +69,36 @@ internal class FieldArchive private constructor(
 
     fun gap(reason: String) = appendEvent(envelope("gap").put("reason", reason))
 
+    fun gpsTimeout(): Boolean {
+        if (!gpsCoverage.check(SystemClock.elapsedRealtime())) return false
+        recentFixes.clear()
+        gap("GPS: нет свежих координат 15 с")
+        return true
+    }
+
+    fun gpsDisabled() {
+        if (gpsCoverage.lose(SystemClock.elapsedRealtime())) {
+            recentFixes.clear()
+            gap("GPS отключён")
+        }
+    }
+
     fun gps(location: Location): FieldFix {
+        gpsTimeout()
+        val elapsed = location.elapsedRealtimeNanos / 1_000_000
+        val now = SystemClock.elapsedRealtime()
+        val fresh = fixApplies(location.time, System.currentTimeMillis(), elapsed, now) &&
+            gpsCoverage.receive(elapsed, now)
+        val segment = if (fresh) "$streamId-gps-${gpsCoverage.segment}" else UUID.randomUUID().toString()
         val utc = Instant.ofEpochMilli(location.time).toString()
         val accuracy = if (location.hasAccuracy()) location.accuracy.toDouble() else null
         val event = envelope("gps").put("time_utc", utc)
             .put("latitude", location.latitude).put("longitude", location.longitude)
-            .put("accuracy_m", accuracy)
+            .put("accuracy_m", accuracy).put("segment_id", segment).put("fresh", fresh)
         if (location.hasAltitude()) event.put("altitude_m", location.altitude)
         appendEvent(event)
-        val fix = FieldFix(location.latitude, location.longitude, accuracy, utc, event.getString("id"))
-        recentFixes.addLast(fix to location.elapsedRealtimeNanos / 1_000_000)
+        val fix = FieldFix(location.latitude, location.longitude, accuracy, utc, event.getString("id"), segment, fresh)
+        if (fresh) recentFixes.addLast(fix to elapsed)
         while (recentFixes.size > 32) recentFixes.removeFirst()
         return fix
     }
