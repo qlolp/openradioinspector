@@ -219,3 +219,62 @@ fn receiver_range_crosses_a_chunk_boundary_with_no_missing_or_duplicate_observat
     session.close().unwrap();
     worker.join().unwrap();
 }
+
+#[test]
+fn complete_synthetic_field_survey_passes_cover_both_requested_grids() {
+    for (start, stop, tiles, overlap) in [
+        (100_000_000u64, 400_000_000u64, 268u64, 15),
+        (15_000_000, 2_700_000_000, 2398, 75),
+    ] {
+        let (mut session, mut peer) = session(
+            json!({"kind":"rf_explorer_survey","start_hz":start,"stop_hz":stop,"step_hz":10000}),
+        );
+        let worker = thread::spawn(move || {
+            let mut query = [0; 4];
+            peer.read_exact(&mut query).unwrap();
+            assert_eq!(&query, b"#\x04C0");
+            peer.write_all(b"RF Explorer 01.34 27-Apr-22 01.04.05\r\n#C2-M:003,005,01.34\r\n#C2-F:0015000,1000000,-005,-119,0112,1,000,0015000,2700000,0600000,00030,-003,004\r\n").unwrap();
+            for tile in 0..tiles {
+                let hz = (start + tile * 1_120_000).min(stop - 1_110_000);
+                let mut command = [0; 32];
+                peer.read_exact(&mut command).unwrap();
+                assert_eq!(
+                    command.as_slice(),
+                    format!(
+                        "#\x20C2-F:{:07},{:07},-005,-119",
+                        hz / 1000,
+                        (hz + 1_110_000) / 1000
+                    )
+                    .as_bytes()
+                );
+                let mut bytes=format!("#C2-F:{:07},0010000,-005,-119,0112,1,000,0015000,2700000,0600000,00015,-003,004\r\n$Sp",hz/1000).into_bytes();
+                bytes.extend_from_slice(&[144; 112]);
+                bytes.extend_from_slice(b"\r\n");
+                peer.write_all(&bytes).unwrap();
+            }
+        });
+        let mut seen = vec![false; ((stop - start) / 10_000 + 1) as usize];
+        let mut duplicates = 0;
+        for tile in 1..=tiles {
+            let sample = next(&mut session);
+            let survey = &sample["settings"]["survey"];
+            assert_eq!(survey["pass"], 1);
+            assert_eq!(survey["tile"], tile);
+            assert_eq!(survey["tiles"], tiles);
+            let frequencies = sample["frequencies_hz"].as_array().unwrap();
+            assert_eq!(frequencies.len(), 112);
+            for frequency in frequencies {
+                let offset = frequency.as_u64().unwrap() - start;
+                assert!(offset.is_multiple_of(10_000));
+                duplicates += u64::from(std::mem::replace(
+                    &mut seen[(offset / 10_000) as usize],
+                    true,
+                ));
+            }
+        }
+        assert!(seen.into_iter().all(|covered| covered));
+        assert_eq!(duplicates, overlap);
+        session.close().unwrap();
+        worker.join().unwrap();
+    }
+}

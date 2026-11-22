@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use tokio::net::UnixStream;
 
 enum Capture {
-    Explorer(RfExplorer<UnixStream>),
+    Explorer(Box<RfExplorer<UnixStream>>),
     Tiny(Box<TinySa<UnixStream>>),
     Receiver(Box<Receiver>),
 }
@@ -21,11 +21,11 @@ impl Capture {
         let limits = IoLimits::default();
         let receiver = match plan {
             Plan::RfExplorerSweep { start_hz, stop_hz } => {
-                return Ok(Self::Explorer(RfExplorer::new(
+                return Ok(Self::Explorer(Box::new(RfExplorer::new(
                     io,
                     bounds(start_hz, stop_hz)?,
                     limits,
-                )?));
+                )?)));
             }
             Plan::RfExplorerSurvey {
                 start_hz,
@@ -35,11 +35,11 @@ impl Capture {
                 if step_hz.is_some_and(|step| step != 10_000) {
                     return Err(invalid("RF Explorer survey requires 10 kHz spacing"));
                 }
-                return Ok(Self::Explorer(RfExplorer::new_survey(
+                return Ok(Self::Explorer(Box::new(RfExplorer::new_survey(
                     io,
                     bounds(start_hz, stop_hz)?,
                     limits,
-                )?));
+                )?)));
             }
             Plan::TinysaRx {
                 start_hz,
