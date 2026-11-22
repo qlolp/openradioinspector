@@ -83,3 +83,11 @@ internal data class ScanForm(
             mode = if (kind == "ardv1_range") "FM" else mode, settleMs = settling, rbwHz = bandwidth, continuous = continuous)
     }
 }
+
+// The Compose click handler captures the frame used to draw the graph. New samples can
+// already be committed by the time the operator taps, or the executor writes the note.
+internal fun FieldState.submitDisplayedNote(text: String, enqueue: (String, String, String?, String?) -> Boolean): Boolean {
+    val origin = sessionId ?: return false
+    if (!running || text.isBlank() || text.length > 4096) return false
+    return enqueue(text.trim(), origin, measurementKind, measurementId)
+}

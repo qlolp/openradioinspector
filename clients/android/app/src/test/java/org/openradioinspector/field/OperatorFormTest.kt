@@ -7,6 +7,22 @@ class OperatorFormTest {
     private val form = ScanForm(7, "ardv1", "ardv1_range", "100", "102", "10000", "",
         "101", "10000", "200", "AM", false, true)
 
+    @Test fun noteTargetsTheDisplayedFrameEvenAfterAnotherMeasurementArrives() {
+        val visible = FieldState(running = true, sessionId = "session-1",
+            measurementKind = "sweep", measurementId = "displayed")
+        val nowRecording = visible.copy(measurementId = "newer")
+        val queued = mutableListOf<List<String?>>()
+        val enqueue = { text: String, id: String, kind: String?, source: String? ->
+            queued += listOf(text, id, kind, source)
+            true
+        }
+        assertTrue(visible.submitDisplayedNote("  ориентир  ", enqueue))
+        assertEquals(listOf("ориентир", "session-1", "sweep", "displayed"), queued.single())
+        assertNotEquals(nowRecording.measurementId, queued.single().last())
+        assertFalse(visible.copy(running = false).submitDisplayedNote("поздно", enqueue))
+        assertFalse(visible.submitDisplayedNote("ещё", { _, _, _, _ -> false }))
+    }
+
     @Test fun decimalMHzIsExact() {
         assertEquals(100_000_001L, parseMHz("100,000001"))
         assertEquals(100_000_010L, parseMHz("100.000010"))

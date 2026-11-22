@@ -312,11 +312,16 @@ private fun LivePanel(service: FieldService, state: FieldState) {
         }
         if (state.running && state.sessionId != null) {
             OutlinedTextField(note, { note = it }, label = { Text("Заметка оператора") },
-                isError = note.length > 4096, supportingText = { if (note.length > 4096) Text("Максимум 4096 символов") },
+                isError = note.length > 4096, supportingText = {
+                    when {
+                        note.length > 4096 -> Text("Максимум 4096 символов")
+                        state.measurementId == null -> Text("Привязка к сеансу")
+                        else -> Text("Исходное измерение ${state.measurementId}", style = MaterialTheme.typography.bodySmall)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth())
             OutlinedButton(enabled = note.isNotBlank() && note.length <= 4096, onClick = {
-                service.addNote(note.trim())
-                note = ""
+                if (state.submitDisplayedNote(note, service::addNote)) note = ""
             }) { Text("Добавить заметку") }
         }
     }
