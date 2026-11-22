@@ -13,7 +13,7 @@ App Review can use **Архив → Открыть учебный выезд** i
 1. Use a Rust core on the same Wi-Fi network with LAN TLS enabled and a certificate for its actual DNS name or IP address. Follow the node installation instructions. The HTTPS origin includes the node's configured port. [Node TLS setup](../../docs/rust-core.md)
 2. Transfer the public `.ori-runtime/security/public-ca.pem` to Files. On the node, display its SHA-256 fingerprint with `openssl x509 -in PATH/TO/public-ca.pem -noout -fingerprint -sha256`. Keep the CA private key on the node.
 3. Issue `ori-core pair --data-dir NODE_DATA_DIR --scope reader` on the node. In **Узел**, enter the HTTPS origin, choose the public CA certificate, compare the fingerprint with the node, confirm it and enter the one-time code. Allow Local Network when iOS prompts. The reader checks the server's hostname, certificate chain, current validity and reader scope. Trust is local to this pairing.
-4. Choose a session and an analyzer to see its most recent original spectrum. **История спектра** pages archived sweeps and opens each original. The event list shows the latest 64 committed entries after catching up from its cursor. An interrupted foreground connection resumes from the last validated page. Reopening the app starts from the 32 most recent node events. History remains pageable on the node.
+4. Choose a session and an analyzer to see its most recent original spectrum. **История спектра** pages archived sweeps and opens each original. Choose a receiver to see its recent observations, reported frequency, mode and original S-meter unit. The event list shows the latest 64 committed entries after catching up from its cursor. An interrupted foreground connection resumes from the last validated page. Reopening the app starts from the 32 most recent node events. History remains pageable on the node.
 5. **Отключиться** stops the foreground connection. **Удалить сопряжение** can revoke the current credential on the node or forget the local copy when offline. The credential, origin and CA are held together in the device-only Keychain. After a CA rotation, pair again with the replacement certificate.
 
 ## Build and distribution
@@ -24,6 +24,8 @@ Open `clients/ios/Field.xcodeproj` and choose scheme **Field**. CI uses Xcode 27
 xcrun swift test --package-path macos/SpektrKomandy
 bash clients/ios/ci/simulator.sh "$(mktemp -d)"
 ```
+
+For the TLS integration test, first build `cargo build --locked -p ori-core` and set `ORI_FIELD_CORE="$PWD/target/debug/ori-core"` for the script. CI supplies this binary and starts a disposable loopback replay core containing the checked-in synthetic measurement fixture. The iOS test rejects a different CA and hostname, pairs with a scoped code, inspects spectrum and receiver observations, resumes the committed event ledger and revokes the reader.
 
 The script creates its own iPhone simulator, runs app and UI tests, and compiles the Release configuration for a generic iOS device. The simulator tests use synthetic fixtures. The test bundle also opens the recorded Android-emulator export. CI does not upload to Apple or require a distribution certificate.
 

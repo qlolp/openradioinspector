@@ -7,6 +7,10 @@ final class FieldUITests: XCTestCase {
         app.buttons["open-demo"].tap()
         let note = app.buttons["row-note"]
         XCTAssertTrue(note.waitForExistence(timeout: 15))
+        let archive = XCTAttachment(screenshot: app.screenshot())
+        archive.name = "Field-synthetic-archive"
+        archive.lifetime = .keepAlways
+        add(archive)
         note.tap()
         let original = app.buttons["linked-sweep"]
         if !original.isHittable { app.swipeUp() }
@@ -18,5 +22,12 @@ final class FieldUITests: XCTestCase {
         if !fix.isHittable { app.swipeUp() }
         fix.tap()
         XCTAssertTrue(app.staticTexts["-0.25, 0.125"].waitForExistence(timeout: 8))
+        app.terminate()
+        app.launch()
+        app.buttons["open-demo"].tap()
+        let observation = app.buttons["row-observation"]
+        XCTAssertTrue(observation.waitForExistence(timeout: 10))
+        observation.tap()
+        XCTAssertTrue(app.staticTexts["s_meter_count"].waitForExistence(timeout: 8))
     }
 }

@@ -74,11 +74,7 @@ struct ArchiveRecord: View {
                         SweepSections(sweep: sweep)
                         rawRecord(raw)
                     case .observation(let observation, let raw):
-                        Section("Наблюдение") {
-                            LabeledContent("Частота, Гц", value: String(observation.frequencyHz))
-                            LabeledContent("Режим", value: observation.mode)
-                            LabeledContent(observation.levelUnit, value: observation.level.map { String($0) } ?? "—")
-                        }
+                        ObservationSection(observation: observation)
                         rawRecord(raw)
                     case .event(let description, let raw):
                         Section(key.kind.title) { Text(verbatim: description) }
@@ -150,6 +146,21 @@ struct SweepSections: View {
                     LabeledContent(String(sweep.frequenciesHz[index]) + " Гц", value: String(sweep.levels[index]) + " " + sweep.levelUnit)
                 }.navigationTitle("Исходные значения").textSelection(.enabled)
             }.accessibilityIdentifier("source-values")
+        }
+    }
+}
+
+struct ObservationSection: View {
+    let observation: PlatformObservation
+    var body: some View {
+        Section("Наблюдение") {
+            LabeledContent("Частота, Гц", value: String(observation.frequencyHz))
+            LabeledContent("Режим", value: observation.mode)
+            LabeledContent(observation.levelUnit, value: observation.level.map { String($0) } ?? "—")
+            LabeledContent("Начало", value: observation.interval.startedAt)
+            LabeledContent("Окончание", value: observation.interval.endedAt)
+            if let open = observation.squelchOpen { LabeledContent("Шумоподавитель", value: open ? "Открыт" : "Закрыт") }
+            if let mode = observation.decodedMode { LabeledContent("Определённый режим", value: mode) }
         }
     }
 }

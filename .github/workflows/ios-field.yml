@@ -5,6 +5,8 @@ on:
       - 'clients/ios/**'
       - 'macos/SpektrKomandy/**'
       - 'contracts/**'
+      - 'crates/ori-core/**'
+      - 'crates/ori-runtime/**'
       - '.github/workflows/ios-field.yml'
   workflow_dispatch:
 
@@ -30,7 +32,15 @@ jobs:
         run: |
           xcrun swift test --package-path contracts/protobuf/swift-stream
           xcrun swift test --package-path macos/SpektrKomandy
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.99.1'
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Build replay core for simulator TLS and reader checks
+        run: cargo build --locked -p ori-core
       - name: Test the iPhone app on the simulator and compile for devices
+        env:
+          ORI_FIELD_CORE: ${{ github.workspace }}/target/debug/ori-core
         run: bash clients/ios/ci/simulator.sh "$RUNNER_TEMP/ori-ios-field"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()

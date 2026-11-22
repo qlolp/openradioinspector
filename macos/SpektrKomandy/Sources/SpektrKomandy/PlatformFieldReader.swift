@@ -67,7 +67,10 @@ public struct PlatformFieldReader: Sendable {
 
     public func verify() async throws {
         let status = try await client.securityStatus()
-        guard client.hasBearerCredential, status.mode == .lanTLS, !status.pairingRequired,
+        if status.pairingRequired {
+            throw PlatformError.http(status: 401, code: "reader_pairing_required", message: "Узел запросил новое сопряжение.")
+        }
+        guard client.hasBearerCredential, status.mode == .lanTLS,
               status.readerPairing == true, status.accessScope == "reader" else {
             throw PlatformError.invalidResponse("Узел не подтвердил доступ для чтения. Проверьте сопряжение.")
         }
@@ -85,6 +88,14 @@ public struct PlatformFieldReader: Sendable {
         try await client.archiveOriginalSweep(sessionID: session, streamID: stream, sweepID: id)
     }
 
+    public func observations(session: String, stream: String) async throws -> [PlatformObservation] {
+        let rows = try await client.listObservations(sessionID: session, streamID: stream)
+        guard rows.allSatisfy({ PlatformExactID.same($0.sessionId, session) && PlatformExactID.same($0.streamId, stream) }) else {
+            throw PlatformError.invalidResponse("Узел вернул наблюдения другого потока.")
+        }
+        return rows
+    }
+
     public func events(after: Int64, limit: Int = 16) async throws -> [PlatformCommittedEvent] {
         guard after >= 0, (1...32).contains(limit) else { throw PlatformEventError.malformedEvent }
         do {
@@ -100,7 +111,7 @@ public struct PlatformFieldReader: Sendable {
 public struct PlatformFieldJournal: Sendable {
     public private(set) var cursor: Int64
     public private(set) var recent: [PlatformFieldEvent] = []
-    public init(watermark: Int64) { cursor = max(0, watermark - min(max(0, watermark), 32)) }
+    public init(watermark: Int64) { cursor = watermark <= 32 ? 0 : watermark - 32 }
 
     public mutating func append(_ page: [PlatformCommittedEvent]) throws {
         var next = cursor

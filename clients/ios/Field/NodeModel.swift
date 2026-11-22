@@ -64,7 +64,7 @@ final class NodeModel {
     func follow() async {
         guard let profile else { return }
         var backoff = 1
-        while !Task.isCancelled {
+        while !Task.isCancelled, running {
             do {
                 status = "Подключение…"
                 let node = try profile.reader()
@@ -72,8 +72,9 @@ final class NodeModel {
                 let watermark = try await node.watermark()
                 let inventory = try await node.sessions()
                 try Task.checkCancellation()
+                guard running else { return }
                 sessions = inventory
-                if journal == nil || journal!.cursor > watermark {
+                if journal.map({ $0.cursor > watermark }) ?? true {
                     journal = PlatformFieldJournal(watermark: watermark)
                 }
                 reader = node
@@ -81,20 +82,27 @@ final class NodeModel {
                 failure = nil
                 status = "Подключено · только чтение"
                 backoff = 1
-                while !Task.isCancelled {
-                    let page = try await node.events(after: journal!.cursor)
+                var pagesSincePause = 0
+                while !Task.isCancelled, running, var current = journal {
+                    let page = try await node.events(after: current.cursor)
                     try Task.checkCancellation()
+                    guard running else { return }
                     if !page.isEmpty {
-                        try journal!.append(page)
+                        try current.append(page)
+                        journal = current
                         if page.contains(where: { $0.eventType.hasPrefix("session.") || $0.eventType.hasPrefix("stream.") }) {
                             let refreshed = try await node.sessions()
                             try Task.checkCancellation()
                             sessions = refreshed
                         }
-                        revision += 1
+                        pagesSincePause += 1
                     }
-                    // Drain missed pages before resuming the foreground update interval.
-                    if page.isEmpty { try await Task.sleep(for: .seconds(2)) }
+                    // Coalesce a burst of archive pages before refreshing the visible spectrum.
+                    if page.isEmpty || pagesSincePause >= 4 {
+                        if pagesSincePause > 0 { revision += 1 }
+                        pagesSincePause = 0
+                        try await Task.sleep(for: .seconds(page.isEmpty ? 2 : 1))
+                    }
                 }
             } catch {
                 if Task.isCancelled { return }

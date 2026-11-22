@@ -30,6 +30,56 @@ final class FieldTests: XCTestCase {
         }
     }
 
+    func testReaderAgainstLocalRustTLSArchive() async throws {
+        struct Fixture: Decodable { let origin, code: String; let ca, otherCA: Data }
+        guard let input = ProcessInfo.processInfo.environment["ORI_READER_FIXTURE"] else {
+            throw XCTSkip("Set ORI_FIELD_CORE when running the simulator script for the disposable Rust TLS fixture.")
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(input.utf8))
+        XCTAssertEqual(try PlatformFieldReader.origin(fixture.origin).host, "127.0.0.1")
+        for (host, ca) in [(fixture.origin, fixture.otherCA),
+                           (fixture.origin.replacingOccurrences(of: "127.0.0.1", with: "localhost"), fixture.ca)] {
+            let wrong = try PlatformFieldReader(node: host, certificateDER: ca)
+            do { _ = try await wrong.pair(code: "unused"); XCTFail("Accepted an untrusted node") }
+            catch PlatformError.http { XCTFail("HTTP request reached a node with an untrusted chain or name") }
+            catch {}
+        }
+        let origin = try PlatformFieldReader(node: fixture.origin, certificateDER: fixture.ca)
+        let token = try await origin.pair(code: fixture.code)
+        let first = try PlatformFieldReader(node: fixture.origin, certificateDER: fixture.ca, credential: token)
+        try await first.verify()
+        let sessions = try await first.sessions()
+        let session = try XCTUnwrap(sessions.first)
+        let stream = try XCTUnwrap(session.streams.first { $0.role == "spectrum_analyzer" })
+        let receiver = try XCTUnwrap(session.streams.first { $0.isReceiver })
+        let page = try await first.history(session: session.id, stream: stream.id)
+        let row = try XCTUnwrap(page.items.first)
+        let sweep = try await first.sweep(session: session.id, stream: stream.id, id: row.id)
+        XCTAssertEqual(sweep.frequenciesHz, [100000001, 100000002, 100000003, 100000004])
+        XCTAssertEqual(sweep.levels[1].bitPattern, (-0.0 as Double).bitPattern)
+        let observations = try await first.observations(session: session.id, stream: receiver.id)
+        let observation = try XCTUnwrap(observations.first)
+        XCTAssertEqual(observation.frequencyHz, 100000003)
+        XCTAssertEqual(observation.level, 137)
+        XCTAssertEqual(observation.levelUnit, "s_meter_count")
+
+        var journal = PlatformFieldJournal(watermark: 0)
+        try journal.append(await first.events(after: journal.cursor, limit: 1))
+        let saved = journal.cursor
+        let resumed = try PlatformFieldReader(node: fixture.origin, certificateDER: fixture.ca, credential: token)
+        try await resumed.verify()
+        let watermark = try await resumed.watermark()
+        while journal.cursor < watermark {
+            let page = try await resumed.events(after: journal.cursor)
+            guard !page.isEmpty else { return XCTFail("Incomplete replay after reconnect") }
+            try journal.append(page)
+        }
+        XCTAssertGreaterThan(journal.cursor, saved)
+        XCTAssertTrue(journal.recent.contains { $0.type == "observation.received" })
+        try await resumed.revoke()
+        do { try await first.verify(); XCTFail("Revoked reader remained usable") } catch is PlatformError {}
+    }
+
     func testReaderProfileRoundTripsAndReplacesItsScopedKeychainItem() throws {
         let store = ReaderKeychain(service: "org.openradioinspector.test." + UUID().uuidString)
         defer { try? store.clear() }

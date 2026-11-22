@@ -31,11 +31,15 @@ struct NodeView: View {
                             ForEach(model.sessions, id: \.exactID) { session in
                                 NavigationLink(session.name) {
                                     List {
-                                        let streams = session.streams.filter { $0.role == "spectrum_analyzer" }
-                                        if streams.isEmpty { Text("Нет потоков спектра") }
+                                        let streams = session.streams.filter { $0.isReceiver || $0.role == "spectrum_analyzer" }
+                                        if streams.isEmpty { Text("В сеансе нет потоков измерений") }
                                         ForEach(streams, id: \.exactID) { stream in
                                             NavigationLink(stream.device + " · " + stream.id) {
-                                                RemoteSpectrum(model: model, session: session.id, stream: stream.id)
+                                                if stream.isReceiver {
+                                                    ReceiverHistory(model: model, session: session.id, stream: stream.id)
+                                                } else {
+                                                    RemoteSpectrum(model: model, session: session.id, stream: stream.id)
+                                                }
                                             }
                                         }
                                     }.navigationTitle(session.name)
@@ -210,6 +214,45 @@ private struct OriginalSweep: View {
                 let source = try await reader.sweep(session: session, stream: stream, id: id)
                 try Task.checkCancellation()
                 value = source
+            } catch { if !Task.isCancelled { failure = error.localizedDescription } }
+        }
+    }
+}
+
+
+private struct ReceiverHistory: View {
+    let model: NodeModel
+    let session, stream: String
+    @State private var rows: [PlatformObservation] = []
+    @State private var failure: String?
+
+    var body: some View {
+        List {
+            if rows.isEmpty && failure == nil { Text("Наблюдений пока нет") }
+            if let failure { Text(failure).foregroundStyle(.red) }
+            ForEach(rows.reversed(), id: \.exactID) { observation in
+                NavigationLink {
+                    List {
+                        LabeledContent("ID", value: observation.id)
+                        ObservationSection(observation: observation)
+                    }.navigationTitle("Наблюдение").textSelection(.enabled)
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(verbatim: String(observation.frequencyHz) + " Гц · " + observation.mode)
+                        Text(verbatim: (observation.level.map { String($0) } ?? "—") + " " + observation.levelUnit)
+                        Text(verbatim: observation.interval.startedAt).font(.caption)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Наблюдения")
+        .task(id: model.revision) {
+            guard let reader = model.reader else { return }
+            do {
+                let observations = try await reader.observations(session: session, stream: stream)
+                try Task.checkCancellation()
+                rows = observations
+                failure = nil
             } catch { if !Task.isCancelled { failure = error.localizedDescription } }
         }
     }
