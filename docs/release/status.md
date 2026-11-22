@@ -20,6 +20,10 @@
 
 На `46dfdc13` прошли 12 модульных тестов и все 10 проверок установленного приложения в эмуляторе Android 12 с трансляцией ARM64. В комплекте для разработки лежат `app-debug.apk` с SHA-256 `4b7fca72e2cbe609b9c41a4efeeb1a4a3dc1ffe7da94dd0833a918fc7df90d7e` и неподписанный `app-release.aab`. Частный USB-прогон каждого прибора на Galaxy S22 Ultra и переходы между установками Play и GitHub ещё предстоят. [Скачать инженерный комплект](https://github.com/qlolp/openradioinspector/actions/runs/45064511771/artifacts/14770743999) · [Результаты тестов](https://github.com/qlolp/openradioinspector/actions/runs/45064511771/artifacts/14770689591) · [Порядок публикации Field](../field/distribution.md)
 
+### iPhone Field · 22 ноября
+
+На `46dfdc13` успешно проверили чтение в симуляторе общего и Android-архивов `.orifield`, работу связки ключей, чтение данных реального Rust-ядра по TLS и навигацию SwiftUI без сети. Xcode также собрал приложение для устройства arm64 в конфигурации Release. На MacBook Air эти четыре сценария прошли отдельно. Установку через TestFlight и испытание на физическом iPhone предстоит выполнить во второй очереди. [Результат Xcode](https://github.com/qlolp/openradioinspector/actions/runs/45064511850/artifacts/14771363521) · [Журнал сборки](https://github.com/qlolp/openradioinspector/actions/runs/45064511850) · [Порядок приёмки iPhone](../../clients/ios/README.md)
+
 ### Debian amd64 и Raspberry Pi · 22 ноября
 
 На `46dfdc13` установочные проверки Debian 12 и 13 прошли с пакетом `openradioinspector-linux_0.4.0-1_amd64.deb` размером 9 906 028 байт. Его SHA-256 — `b5f46749ab32f37218c4e24cf9b11d6b2d541d3ce762d532b301b991416afd15`. [Скачать DEB и манифест](https://github.com/qlolp/openradioinspector/actions/runs/45064511833/artifacts/14770524688) · [Протоколы установки](https://github.com/qlolp/openradioinspector/actions/runs/45064511833)
