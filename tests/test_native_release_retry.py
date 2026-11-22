@@ -66,6 +66,14 @@ class NativeDraftRetryTests(unittest.TestCase):
             self.assertEqual(args[2], self.repo.base + f"releases/assets/{asset['id']}")
             output.write(self.blobs[PROOF])
             return
+        if args[:2] == ('-X', 'DELETE'):
+            self.assertTrue(self.state['draft'])
+            self.assertEqual(args[2], self.repo.base + 'releases/assets/591')
+            asset = next(a for a in self.state['assets'] if a['id'] == 591)
+            self.assertTrue(publish.empty_upload(asset))
+            self.assertNotIn(asset['name'], self.blobs)
+            self.state['assets'].remove(asset)
+            return
         if args[:2] == ('-X', 'POST'):
             self.assertFalse(self.state)
             self.state.update(data, id=4, assets=[])
@@ -135,6 +143,36 @@ class NativeDraftRetryTests(unittest.TestCase):
         self.assertFalse(self.blobs)
         self.run_promotion()
         self.assert_original_release(body)
+
+    def test_empty_starter_proof_after_502_recovers_only_the_reserved_bundle(self):
+        self.interrupt(0)
+        body = self.state['body']
+        self.state['assets'].append(dict(id=591, state='starter', size=0, name=PROOF, digest=None))
+        self.bundles = [self.renewed]
+        with self.assertRaisesRegex(ValueError, 'matches the SHA256SUMS'):
+            self.run_promotion()
+        self.assertEqual(self.state['assets'][0]['id'], 591)
+        self.bundles.append(self.original)
+        self.run_promotion()
+        self.assert_original_release(body)
+
+    def test_only_an_empty_placeholder_on_the_same_draft_can_be_removed(self):
+        self.interrupt(0)
+        path = self.root / PROOF
+        path.write_bytes(b'completed original bytes')
+        paths = {PROOF: path}
+        asset = dict(name=PROOF, id=591, state='starter', size=0, digest=None)
+        for bad in [dict(asset, size=3), dict(asset, digest='sha256:' + HASH), dict(asset, state='uploaded')]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                publish.existing_assets(dict(self.state, assets=[bad]), paths)
+        with self.assertRaises(ValueError):
+            publish.existing_assets(dict(self.state, draft=False, assets=[asset]), paths)
+        for live in [dict(self.state, draft=False), dict(self.state, target_commitish='f' * 40),
+                     dict(self.state, assets=[dict(asset, id=99)]), dict(self.state, assets=[dict(asset, size=1)])]:
+            with self.subTest(live=live), patch.object(self.repo, 'api', return_value=live), self.assertRaises(ValueError):
+                publish.recover_empty_uploads(self.repo, self.state, [asset], paths)
+        self.state['assets'] = [dict(asset, state='uploaded', size=path.stat().st_size, digest='sha256:' + bundles.digest(path))]
+        self.assertEqual(publish.recover_empty_uploads(self.repo, self.state, [asset], paths), {PROOF})
 
     def test_partially_uploaded_and_published_releases_reverify_stored_bytes(self):
         self.interrupt(2)

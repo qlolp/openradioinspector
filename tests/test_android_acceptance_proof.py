@@ -29,6 +29,24 @@ class AndroidWitnessTests(unittest.TestCase):
                 self.assertEqual(args[args.index(option) + 1], value)
             self.assertIn('--deny-self-hosted-runners', args)
 
+    def test_empty_upload_placeholder_still_requires_a_valid_reviewed_field_proof(self):
+        repo = SimpleNamespace(repo='owner/project', revision='b' * 40)
+        starter = dict(id=591, name=release.PROOF, state='starter', size=0, digest=None)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(release, 'github') as api, \
+                patch.object(release, 'verify_github_attestation') as verify:
+            root = Path(tmp)
+            out = root / 'approved'
+            out.mkdir()
+            (out / release.RECEIPT).write_bytes(b'fixture receipt')
+            with self.assertRaisesRegex(ValueError, 'attestation is required'):
+                release.seal_acceptance(repo, out, None, [starter])
+            proof = root / 'approved-proof.json'
+            proof.write_bytes(b'fixture proof')
+            release.seal_acceptance(repo, out, proof, [starter])
+            verify.assert_called_once_with(repo, out / release.RECEIPT, out / release.PROOF,
+                                           workflow='android-field-release.yml', branches=('main',))
+            api.assert_not_called()
+
     def test_missing_or_invalid_proof_cannot_create_a_draft_and_reruns_reuse_the_verified_first_proof(self):
         repo, play = shared.Repository.__new__(shared.Repository), Mock()
         repo.repo, repo.base, repo.revision = 'owner/project', 'repos/owner/project/', 'b' * 40

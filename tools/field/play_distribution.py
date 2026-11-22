@@ -16,7 +16,8 @@ from tools.field import android_notices
 from tools.field.android_release import (PACKAGE, PLAY_URL, fingerprint, signing_pins, validate_receipt,
                                          verify_apk, version)
 from tools.release.macos_rc_package import digest, read_json, write_json
-from tools.release.publish_release import (Repository, collect_dispatch_file, compare_remote, github, require_environment_approval,
+from tools.release.publish_release import (Repository, collect_dispatch_file, compare_remote, empty_upload, existing_assets, github,
+                                          recover_empty_uploads, require_environment_approval,
                                           verify_github_attestation, verify_remote_assets)
 from tools.release.release_artifacts import require, sha, verify_sums, write_sums
 
@@ -188,7 +189,7 @@ def seal_acceptance(repo, out, proof, existing_assets):
     destination = out / PROOF
     previous = [asset for asset in existing_assets if asset["name"] == PROOF]
     require(len(previous) <= 1, "ambiguous acceptance attestation")
-    if previous:
+    if previous and not empty_upload(previous[0]):
         asset = previous[0]
         require(0 < asset["size"] <= 128 * 1024, "invalid remote Field attestation size")
         with destination.open("xb") as stream:
@@ -247,12 +248,9 @@ def publish(repo, out, expected_sums, play, proof=None):
     paths = {path.name: path for path in out.iterdir()}
     endpoint = f"releases/{release['id']}"
     if release["draft"]:
+        present, interrupted = existing_assets(release, paths)
         repo.reserve_tag(tag, revision)
-        present = set()
-        for asset in release["assets"]:
-            require(asset["name"] in paths and asset["name"] not in present, "unexpected release draft asset")
-            compare_remote(asset, paths[asset["name"]])
-            present.add(asset["name"])
+        present.update(recover_empty_uploads(repo, release, interrupted, paths))
         # The final checksums include the nondeterministic proof. Upload the
         # proof first, so every interrupted upload can reconstruct the same list.
         for name in sorted(paths.keys() - present, key=lambda name: (name != PROOF, name)):

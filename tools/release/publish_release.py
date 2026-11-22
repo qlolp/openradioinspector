@@ -61,7 +61,7 @@ def github(*args, data=None, optional=False, token=None, output=None):
         if optional and b'(HTTP 404)' in proc.stderr:
             return None
         raise ValueError('GitHub API request failed: ' + proc.stderr.decode(errors='replace')[:500])
-    return None if output else json.loads(proc.stdout)
+    return None if output or not proc.stdout else json.loads(proc.stdout)
 
 
 def require_environment_approval(repo, environment):
@@ -172,14 +172,11 @@ class Repository:
             release = github('-X', 'POST', self.base + 'releases', data={**expected, 'draft': True})
         paths = {p.name: p for p in folder.iterdir()}
         endpoint = f"releases/{release['id']}"
-        existing = release['assets']
-        require(len({a['name'] for a in existing}) == len(existing) and all(a['name'] in paths for a in existing),
-                'unexpected assets on existing release')
-        for asset in existing:
-            compare_remote(asset, paths[asset['name']])
+        present, interrupted = existing_assets(release, paths)
         if release['draft']:
             self.reserve_tag(tag, self.revision)
-            missing = paths.keys() - {a['name'] for a in existing}
+            present.update(recover_empty_uploads(self, release, interrupted, paths))
+            missing = paths.keys() - present
             for name in sorted(missing, key=lambda name: (not name.endswith('-acceptance.proof'), name)):
                 subprocess.run(['gh', 'release', 'upload', tag, str(paths[name]), '--repo', self.repo], check=True)
             verify_remote_assets(self.api(endpoint), paths)
@@ -200,6 +197,47 @@ def release_body(revision, checksum):
 def compare_remote(asset, path):
     require(asset['state'] == 'uploaded' and asset['size'] == path.stat().st_size
             and asset.get('digest') == 'sha256:' + digest(path), 'remote release asset differs: ' + path.name)
+
+
+def empty_upload(asset):
+    # GitHub documents a zero-byte "starter" after a failed release asset upload.
+    return asset.get('state') == 'starter' and type(asset.get('size')) is int and asset['size'] == 0 and asset.get('digest') is None
+
+
+def existing_assets(release, paths):
+    assets = release['assets']
+    names = {asset['name'] for asset in assets}
+    require(len(names) == len(assets) and names <= paths.keys(), 'unexpected assets on existing release')
+    present, interrupted = set(), []
+    for asset in assets:
+        if release['draft'] and empty_upload(asset):
+            interrupted.append(asset)
+        else:
+            compare_remote(asset, paths[asset['name']])
+            present.add(asset['name'])
+    return present, interrupted
+
+
+def recover_empty_uploads(repo, release, interrupted, paths):
+    completed = set()
+    for asset in interrupted:
+        # Recheck the owned draft and the exact asset ID. The prior upload may
+        # have finished after its client lost the response.
+        live = repo.api(f"releases/{release['id']}")
+        require(live.get('draft') is True and all(live.get(k) == release.get(k)
+                for k in ('id', 'tag_name', 'target_commitish', 'body', 'name', 'prerelease')), 'release draft changed')
+        matching = [a for a in live['assets'] if a['name'] == asset['name']]
+        if not matching:
+            continue
+        require(len(matching) == 1 and matching[0]['id'] == asset['id'], 'interrupted asset identity changed')
+        current = matching[0]
+        if current['state'] == 'uploaded':
+            compare_remote(current, paths[current['name']])
+            completed.add(current['name'])
+        else:
+            require(empty_upload(current), 'interrupted asset contains unexpected data')
+            github('-X', 'DELETE', repo.base + f"releases/assets/{current['id']}")
+    return completed
 
 
 def verify_remote_assets(release, paths):
@@ -280,7 +318,7 @@ def select_prerelease_witness(repo, folder, platform, tag):
 
     previous = [asset for asset in release['assets'] if asset['name'] == proof.name]
     require(len(previous) <= 1, 'ambiguous platform witness')
-    if previous:
+    if previous and not empty_upload(previous[0]):
         asset = previous[0]
         require(asset['state'] == 'uploaded' and 0 < asset['size'] <= 128 * 1024, 'invalid existing platform witness')
         with proof.open('xb') as stream:
