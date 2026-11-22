@@ -24,6 +24,13 @@ def project_action(method):
     return run
 
 
+def _require_live_search_worker(statuses, stream_id):
+    worker = next((row for row in statuses if row['stream_id'] == stream_id), None)
+    if worker is None or not worker['alive'] or worker['state'] == 'error':
+        detail = worker.get('last_error') if worker else None
+        raise WorkerError(detail or 'Не удалось запустить узкий обзор')
+
+
 class ResearchOperations:
     def _lease(self, identifier, token, *, current=True):
         runtime = self.runtime.get(identifier)
@@ -131,13 +138,34 @@ class ResearchOperations:
             search=dict(session_id=session.id,stream_id=session.streams[0].id,event_id=event['id'],
                         center_frequency_hz=center,span_hz=span,detector_rowid=0,maximum_level=None)
             runtime['search']=search
-            project['session_ids']=(project['session_ids']+[session.id])[-128:];project['coverage']='narrow';project['state']='searching'
+            project['session_ids']=(project['session_ids']+[session.id])[-128:]
             self.store.put('project',project)
         try:
-            statuses=self.workers.start_session(session.id)
-            if any(x['state']=='error' for x in statuses):raise WorkerError('Не удалось запустить узкий обзор')
-        except Exception:
-            with self.lock:project['coverage']='paused';self.store.put('project',project)
+            statuses = self.workers.start_session(session.id)
+            _require_live_search_worker(statuses, search['stream_id'])
+            with self.lock:
+                if runtime['stop'].is_set() or runtime.get('error'):
+                    raise WorkerError('Охрана останавливается')
+                project = self.project(identifier)
+                _require_live_search_worker(self.workers.list_workers(session.id), search['stream_id'])
+                project['coverage'] = 'narrow'
+                if not runtime.get('device_faults'):
+                    project['state'] = 'searching'
+                self.store.put('project', project)
+        except Exception as exc:
+            message = str(exc)
+            try:
+                self.workers.stop_session(session.id)
+            except Exception as cleanup:
+                message = f'{message}. Не удалось остановить узкий обзор. {cleanup}'
+                raise WorkerError(message) from cleanup
+            finally:
+                with self.lock:
+                    runtime['search_error'] = message
+                    project = self.project(identifier)
+                    if project.get('coverage') == 'paused':
+                        project['last_error'] = message
+                        self.store.put('project', project)
             raise
         return self.search_status(identifier)
 
@@ -170,11 +198,14 @@ class ResearchOperations:
             search=runtime.get('search')
             if not search:return
             statuses=self.workers.list_workers(search['session_id'])
-            if any(not x['alive'] for x in statuses) and not runtime['manual'].get(self.project(identifier)['analyzer_stream_id'],{}).get('returning'):
-                runtime['search_error']='Узкий обзор остановлен; широкое покрытие остаётся на паузе'
-                project=self.project(identifier)
-                if project.get('coverage')!='paused':
-                    project.update(coverage='paused',last_error=runtime['search_error']);self.store.put('project',project)
+            if any(not row['alive'] for row in statuses):
+                project = self.project(identifier)
+                # The session exists before its worker starts. Only confirmed
+                # narrow coverage can be lost; return has its own restoring state.
+                if project.get('coverage') == 'narrow':
+                    runtime['search_error'] = 'Узкий обзор остановлен; широкое покрытие остаётся на паузе'
+                    project.update(coverage='paused', last_error=runtime['search_error'])
+                    self.store.put('project', project)
             view=dict(active_session_id=search['session_id'],analyzer_stream_id=search['stream_id'],detector_rowid=search.get('detector_rowid',0),detector_cursor=search.get('detector_cursor'))
             changed=False
             for rowid,sweep in self._pending_sweeps(view):
