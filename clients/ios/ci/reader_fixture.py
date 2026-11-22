@@ -57,8 +57,9 @@ def encoded_ca(directory):
 
 @contextlib.contextmanager
 def replay(executable):
-    # A short path also fits the Darwin sockaddr_un limit.
-    with tempfile.TemporaryDirectory(prefix='ori-ios-', dir='/tmp') as temp:
+    # Darwin's /tmp is a symlink. The core requires a symlink-free private
+    # state path, short enough for its Unix-domain operator socket.
+    with tempfile.TemporaryDirectory(prefix='ori-ios-', dir=Path('/tmp').resolve(strict=True)) as temp:
         root = Path(temp)
         data, alternate = root / 'core', root / 'other'
         for item in (data, alternate):
