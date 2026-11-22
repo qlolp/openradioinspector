@@ -10,12 +10,15 @@ from pathlib import Path
 FORBIDDEN = ('CD Ligtht 32314', 'docs/commercial-help-texts.md')
 
 
-def violations(repository, blocked, history=False, revision='HEAD'):
+def violations(repository, blocked, history=False, revision='HEAD', history_from=None):
     def git(*args):
         return subprocess.check_output(['git', '-C', str(repository), '-c', 'core.quotePath=false', *args])
     bad = []
-    if history:
-        for line in git('rev-list', '--objects', '--all').decode().splitlines():
+    if history or history_from is not None:
+        tip = '--all' if history_from is None else git(
+            'rev-parse', '--verify', '--end-of-options', history_from + '^{commit}'
+        ).decode().strip()
+        for line in git('rev-list', '--objects', tip).decode().splitlines():
             oid, _, path = line.partition(' ')
             if oid in blocked or any(path == p or path.startswith(p+'/') for p in FORBIDDEN):
                 bad.append((oid, path))
@@ -54,7 +57,10 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--repository', type=Path, default=Path('.'))
     p.add_argument('--blocked-blobs', type=Path, default=Path(__file__).with_name('blocked-blobs.txt'))
-    p.add_argument('--history', action='store_true')
+    history = p.add_mutually_exclusive_group()
+    history.add_argument('--history', action='store_true', help='Scan objects reachable from all local refs')
+    history.add_argument('--history-from', metavar='REV', help='Scan only objects reachable from this release revision')
+    p.add_argument('--summary-only', action='store_true', help='Report counts without asset names or object IDs')
     p.add_argument('--artifact', type=Path)
     p.add_argument('--directory', type=Path, help='Scan an unpacked desktop package')
     p.add_argument('--revision', default='HEAD')
@@ -70,12 +76,15 @@ def main():
                 if oid in blocked or any(name == p or name.startswith(p + '/') for p in FORBIDDEN):
                     bad.append((oid, name))
     else:
-        bad = artifact_violations(args.artifact, blocked) if args.artifact else violations(args.repository, blocked, args.history, args.revision)
-    for oid, path in bad:
-        print(f'Forbidden asset: {oid} {path}')
+        bad = artifact_violations(args.artifact, blocked) if args.artifact else violations(args.repository, blocked, args.history, args.revision, args.history_from)
+    if args.summary_only:
+        print(f'Matched entries: {len(bad)}; distinct denylisted objects: {len({oid for oid, _ in bad} & blocked)}')
+    else:
+        for oid, path in bad:
+            print(f'Forbidden asset: {oid} {path}')
     if bad:
         return 1
-    print('No known proprietary assets found in ' + (str(args.directory or args.artifact) if args.directory or args.artifact else ('reachable history' if args.history else args.revision)))
+    print('No known proprietary assets found in ' + (str(args.directory or args.artifact) if args.directory or args.artifact else ('reachable history' if args.history or args.history_from else args.revision)))
     return 0
 
 
