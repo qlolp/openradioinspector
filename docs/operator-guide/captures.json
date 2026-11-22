@@ -279,6 +279,28 @@
           "waterfall_rows_visible_in_png": 9
         }
       ]
+    },
+    {
+      "client": "OpenRadioInspector Field, native Kotlin/Compose",
+      "host": "Android 12 (API 31) emulator with ARM64 ABI translation",
+      "source_revision": "fc23e5b0164a8ba19d7709016b7b04e05cd87967",
+      "release_version": "0.1.0, code 1 (engineering)",
+      "installed_apk_sha256": "ab33863f2c4aa0e66935c237709ac1a2a119c74d814d5524b20d234fbc7102e5",
+      "github_run_id": 45041301657,
+      "github_artifact_id": 14761863412,
+      "capture": "adb screencap after verification of native USB setup controls. No physical USB device.",
+      "captures": [
+        {
+          "file": "images/android-field-usb.png",
+          "sha256": "632d778c0f8a0c2b44ca8c56840176eed794a912512b0ce17d8584051099a870",
+          "pixels": [
+            320,
+            640
+          ],
+          "theme": "dark",
+          "scenario": "USB setup before connecting the field receiver, GPS recording disabled"
+        }
+      ]
     }
   ]
 }
