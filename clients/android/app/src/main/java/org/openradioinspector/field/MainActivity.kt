@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+internal fun exportDocument() =
+    ActivityResultContracts.CreateDocument("application/vnd.openradioinspector.field+zip")
+
 private val consoleColors = darkColorScheme(
     primary = Color(0xff82dac5), secondary = Color(0xffabc8dc),
     background = Color(0xff101820), surface = Color(0xff17212a),
@@ -69,7 +72,7 @@ private fun OperatorConsole(service: FieldService?) {
             var tab by rememberSaveable { mutableIntStateOf(0) }
             var exportId by rememberSaveable { mutableStateOf<String?>(null) }
             var exportUri by rememberSaveable { mutableStateOf<String?>(null) }
-            val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) {
+            val export = rememberLauncherForActivityResult(exportDocument()) {
                 exportUri = it?.toString()
                 if (it == null) exportId = null
             }
