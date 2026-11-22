@@ -45,11 +45,28 @@ class OperatorScreenTest {
     private fun awaitNode(text: String): AccessibilityNodeInfo {
         val until = SystemClock.uptimeMillis() + 15000
         val automation = instrument.uiAutomation
+        var window = ""
+        val visibleLabels = mutableListOf<String>()
         do {
-            val nodes = automation.rootInActiveWindow?.findAccessibilityNodeInfosByText(text).orEmpty()
-            nodes.firstOrNull { it.isVisibleToUser && it.text?.toString() == text }?.let { return it }
+            val nodes = ArrayDeque<AccessibilityNodeInfo>()
+            visibleLabels.clear()
+            automation.rootInActiveWindow?.let {
+                nodes.addLast(it)
+                window = it.packageName.toString()
+            }
+            // Compose exposes a virtual provider whose children must be walked explicitly.
+            // Android's provider-side findAccessibilityNodeInfosByText does not search them.
+            while (nodes.isNotEmpty()) {
+                val node = nodes.removeFirst()
+                if (node.isVisibleToUser) {
+                    val labels = listOfNotNull(node.text?.toString(), node.contentDescription?.toString())
+                    if (text in labels) return node
+                    if (visibleLabels.size < 40) visibleLabels.addAll(labels)
+                }
+                for (i in 0 until node.childCount) node.getChild(i)?.let(nodes::addLast)
+            }
             SystemClock.sleep(100)
         } while (SystemClock.uptimeMillis() < until)
-        throw AssertionError("На экране не найден текст «$text»")
+        throw AssertionError("Не найден «$text». Окно $window, видимые подписи $visibleLabels")
     }
 }
