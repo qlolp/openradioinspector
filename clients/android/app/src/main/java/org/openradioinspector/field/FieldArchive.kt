@@ -43,6 +43,7 @@ internal data class CommittedSample(
 internal class FieldArchive private constructor(
     private val db: SQLiteDatabase, val sessionId: String, private val streamId: String,
 ) : Closeable {
+    private var pass = 1L
     private var lastMeasurement: Pair<String, String>? = null
     private val recentFixes = ArrayDeque<Pair<FieldFix, Long>>()
 
@@ -105,6 +106,8 @@ internal class FieldArchive private constructor(
         val survey = context.optJSONObject("survey")
         val progress = survey?.getLong("tile") ?: (context.optLong("scan_index", 0) + 1)
         val total = survey?.getLong("tiles") ?: context.optLong("scan_total", 1)
+        val measuredPass = survey?.getLong("pass") ?: context.optLong("scan_pass", pass)
+        (survey ?: context).put("pass_id", "$streamId-$measuredPass")
         val unit = source.getString("level_unit")
         require(frequencies.isNotEmpty() && frequencies.size == values.size) { "Invalid native sample geometry" }
         db.insertOrThrow(if (receiver) "observations" else "sweeps", null, ContentValues().apply {
@@ -112,15 +115,16 @@ internal class FieldArchive private constructor(
             put("fix_id", fixId)
             put("json", source.toString())
         })
+        if (progress == total) pass = measuredPass + 1
         lastMeasurement = (if (receiver) "observation_id" else "sweep_id") to id
         return CommittedSample(frequencies, values, unit, progress, total,
             if (receiver) FieldSample(frequencies.single(), values.single(), utc, id, fixId) else null)
     }
 
-    fun finish(gap: String?) {
+    fun finish(interruption: String?) {
         db.beginTransaction()
         try {
-            if (gap != null) gap(gap)
+            if (interruption != null) gap(interruption)
             db.execSQL("UPDATE sessions SET closed_at=? WHERE id=?", arrayOf(Instant.now().toString(), sessionId))
             db.setTransactionSuccessful()
         } finally {
@@ -152,7 +156,10 @@ internal class FieldArchive private constructor(
         fun create(root: File, id: String, device: FieldDevice, config: FieldConfig): FieldArchive {
             val file = database(root, id)
             check(file.parentFile!!.mkdirs()) { "Cannot create capture directory" }
-            val db = SQLiteDatabase.openOrCreateDatabase(file, null)
+            val options = SQLiteDatabase.OpenParams.Builder()
+                .addOpenFlags(SQLiteDatabase.CREATE_IF_NECESSARY or SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING)
+                .setSynchronousMode("FULL").build()
+            val db = SQLiteDatabase.openDatabase(file, options)
             try {
                 db.beginTransaction()
                 val streamId = UUID.randomUUID().toString()

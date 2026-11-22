@@ -57,6 +57,7 @@ class FieldService : Service() {
         private const val STOP = "org.openradioinspector.field.STOP"
         // Shared across service instances so recovery can never interleave two SQLite writers.
         private val writer = Executors.newSingleThreadExecutor()
+        private val deviceOwner = AtomicReference<Capture?>()
         private val openSessions = mutableSetOf<String>() // writer thread only
     }
 
@@ -64,8 +65,8 @@ class FieldService : Service() {
     val state: StateFlow<FieldState> get() = events
     private val main = Handler(Looper.getMainLooper())
     private val root get() = File(filesDir, "field")
-    private val usb get() = getSystemService(UsbManager::class.java)
-    private val location get() = getSystemService(LocationManager::class.java)
+    private val usb get() = requireNotNull(getSystemService(UsbManager::class.java)) { "USB Host недоступен" }
+    private val location get() = requireNotNull(getSystemService(LocationManager::class.java)) { "GPS недоступен" }
     private var active: Capture? = null
     private var pending: Capture? = null
     @Volatile private var destroyed = false
@@ -94,7 +95,7 @@ class FieldService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
+        requireNotNull(getSystemService(NotificationManager::class.java)).createNotificationChannel(
             NotificationChannel(CHANNEL, "Полевые измерения", NotificationManager.IMPORTANCE_LOW))
         val filter = IntentFilter(USB_PERMISSION).apply { addAction(UsbManager.ACTION_USB_DEVICE_DETACHED) }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
@@ -115,7 +116,8 @@ class FieldService : Service() {
         return START_NOT_STICKY
     }
 
-    fun devices(): List<FieldDevice> = usb.deviceList.values.mapNotNull { it.fieldDevice() }.sortedBy { it.id }
+    fun devices(): List<FieldDevice> = getSystemService(UsbManager::class.java)?.deviceList?.values.orEmpty()
+        .mapNotNull { it.fieldDevice() }.sortedBy { it.id }
 
     fun start(config: FieldConfig) {
         if (active != null || pending != null) return
@@ -162,16 +164,21 @@ class FieldService : Service() {
 
     @SuppressLint("WakelockTimeout")
     private fun begin(job: Capture) {
+        if (!deviceOwner.compareAndSet(null, job)) {
+            idle("Ожидание закрытия предыдущего сеанса")
+            return
+        }
         active = job
         try {
             val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
                 (if (job.config.gps) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
             startForeground(NOTIFICATION, notification(job), types)
-            job.wake = getSystemService(PowerManager::class.java)
+            job.wake = requireNotNull(getSystemService(PowerManager::class.java))
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ori:field-capture").apply { acquire() }
             events.update { FieldState(running = true, status = "Открытие прибора", sessions = it.sessions) }
             thread(name = "field-capture") { capture(job) }
         } catch (e: Exception) {
+            deviceOwner.compareAndSet(job, null)
             cleanup(job, "Ошибка запуска: ${e.message}")
         }
     }
@@ -227,12 +234,17 @@ class FieldService : Service() {
             var reason = job.stopReason.get() ?: problem?.let { "Ошибка записи: ${it.message}" }
             try {
                 write {
-                    job.archive?.use { it.finish(reason) }
+                    try {
+                        job.archive?.use { it.finish(reason) }
+                    } finally {
+                        job.archive = null
+                        openSessions.remove(job.id)
+                    }
                 }
             } catch (e: Exception) {
                 reason = "Ошибка закрытия архива: ${e.message}"
             } finally {
-                write { job.archive = null; openSessions.remove(job.id) }
+                deviceOwner.compareAndSet(job, null)
             }
             val message = reason ?: "Запись завершена"
             main.post { cleanup(job, message) }

@@ -58,8 +58,7 @@ internal class UsbBridge private constructor(
         val tx = ByteArray(8192)
         pumps += pump("field-usb-write") {
             val count = Os.read(peer, tx, 0, tx.size)
-            if (count <= 0) throw EOFException("Native output closed")
-            port.write(tx, count, 2000)
+            if (count == 0) interruptIo() else port.write(tx, count, 2000)
         }
     }
 
