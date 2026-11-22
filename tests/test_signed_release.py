@@ -253,6 +253,10 @@ class PublicationTests(unittest.TestCase):
             class RepositoryFixture:
                 revision = REV
 
+                def find_release(self, tag):
+                    self_test.assertNotIn(tag, public)
+                    return None
+
                 def run(self, run_id, workflow, platform=None, *, attempt=None):
                     if workflow == publish.BUILDER and run_id != 42:
                         raise ValueError('unexpected test build')

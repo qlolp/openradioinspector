@@ -1,6 +1,7 @@
 """Publish verified prebuilt packages to immutable GitHub Releases, or resume an owned draft."""
 import argparse
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,7 @@ import tempfile
 from . import release_acceptance as gate
 from .macos_rc_package import digest, read_json, write_json
 from .release_artifacts import (ARTIFACTS, LINUX_AMD64, LINUX_CI, LINUX_RELEASE_TAG, STABLE_PLATFORMS,
-                                check_manifest, keys, platform_tag, require, sha, verify_sums, write_sums)
+                                check_manifest, checksum_list, keys, platform_tag, require, sha, verify_sums, write_sums)
 
 
 BUILDER = 'signed-candidates.yml'
@@ -151,18 +152,20 @@ class Repository:
         require(index == release_index(tag, self.revision, {platform: row}), 'prerelease index differs')
         return row
 
+    def find_release(self, tag):
+        # The by-tag endpoint only promises published releases. Enumerate drafts too.
+        pages = github('--paginate', '--slurp', self.base + 'releases?per_page=100')
+        matches = [release for page in pages for release in page if release['tag_name'] == tag]
+        require(len(matches) <= 1, 'ambiguous release tag')
+        return matches[0] if matches else None
+
     def publish(self, folder, tag, prerelease):
         require_environment_approval(self, 'release-publication')
         self.immutable()
-        body = f'OpenRadioInspector 0.4.0\n\nSource commit `{self.revision}`\n\nSHA256SUMS `{digest(folder / "SHA256SUMS")}`'
+        body = release_body(self.revision, digest(folder / 'SHA256SUMS'))
         expected = dict(tag_name=tag, name=tag, body=body, target_commitish=self.revision, prerelease=prerelease)
-        # The by-tag endpoint only promises published releases. Enumerate drafts
-        # too, to safely resume after an interrupted asset upload.
-        pages = github('--paginate', '--slurp', self.base + 'releases?per_page=100')
-        matches = [r for page in pages for r in page if r['tag_name'] == tag]
-        require(len(matches) <= 1, 'ambiguous release tag')
-        if matches:
-            release = matches[0]
+        release = self.find_release(tag)
+        if release is not None:
             require(all(release.get(k) == v for k, v in expected.items()), 'different release already uses this tag')
         else:
             require(self.tag_ref(tag, optional=True) is None, 'existing tag has no matching release')
@@ -176,7 +179,8 @@ class Repository:
             compare_remote(asset, paths[asset['name']])
         if release['draft']:
             self.reserve_tag(tag, self.revision)
-            for name in sorted(paths.keys() - {a['name'] for a in existing}):
+            missing = paths.keys() - {a['name'] for a in existing}
+            for name in sorted(missing, key=lambda name: (not name.endswith('-acceptance.proof'), name)):
                 subprocess.run(['gh', 'release', 'upload', tag, str(paths[name]), '--repo', self.repo], check=True)
             verify_remote_assets(self.api(endpoint), paths)
             self.immutable()
@@ -187,6 +191,10 @@ class Repository:
         self.require_tag(tag, self.revision)
         verify_remote_assets(self.api(endpoint), paths)
         print(release['html_url'])
+
+
+def release_body(revision, checksum):
+    return f'OpenRadioInspector 0.4.0\n\nSource commit `{revision}`\n\nSHA256SUMS `{checksum}`'
 
 
 def compare_remote(asset, path):
@@ -215,15 +223,16 @@ def verify_github_attestation(repo, receipt, proof, *, workflow='review-release-
     raise ValueError('no valid GitHub attestation from the protected acceptance workflow at this source')
 
 
-def fetch_witness(repo, receipt, proof):
+def fetch_witness(repo, receipt, proof, matches=None):
     if os.getenv('ORI_SIGNATURE_B64'):
         collect_dispatch_file(proof.parent, proof.name, 'ORI_SIGNATURE_B64', 4096)
-        return
+        if matches is None or matches(proof):
+            return
     # Current GitHub responses can carry either inline data or an expiring
     # bundle_url. The official CLI handles both and writes one JSONL record per bundle.
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run(['gh', 'attestation', 'download', str(receipt.resolve()), '--repo', repo.repo,
-                        '--predicate-type', 'https://slsa.dev/provenance/v1', '--limit', '100'],
+                        '--predicate-type', 'https://slsa.dev/provenance/v1', '--limit', '1000' if matches is not None else '100'],
                        cwd=tmp, check=True)
         files = list(Path(tmp).glob('*.jsonl'))
         require(len(files) == 1, 'GitHub returned no acceptance bundles')
@@ -231,17 +240,58 @@ def fetch_witness(repo, receipt, proof):
             for raw in iter(lambda: records.readline(128 * 1024 + 1), b''):
                 require(len(raw) <= 128 * 1024, 'oversized GitHub acceptance bundle')
                 write_json(proof, json.loads(raw))
+                if matches is not None and not matches(proof):
+                    continue
                 try:
                     verify_github_attestation(repo, receipt, proof)
                 except ValueError:
                     continue
                 return
+    if matches is not None:
+        raise ValueError('no verified witness matches the SHA256SUMS reserved by this release')
     raise ValueError('submit an authorized SSH signature or complete the protected GitHub review of these exact bytes')
 
 
 def platform_assets(platform):
     return {ARTIFACTS[platform], f'{platform}-manifest.json', f'{platform}-acceptance.json',
             f'{platform}-acceptance.proof', 'release.json'}
+
+
+def select_prerelease_witness(repo, folder, platform, tag):
+    receipt = folder / f'{platform}-acceptance.json'
+    proof = folder / f'{platform}-acceptance.proof'
+    release = repo.find_release(tag)
+    if release is None:
+        fetch_witness(repo, receipt, proof)
+        return
+    body = release.get('body') or ''
+    checksum = body.removesuffix('`').rsplit('`', 1)[-1]
+    require(release.get('name') == tag and release.get('tag_name') == tag and release.get('prerelease') is True
+            and release.get('target_commitish') == repo.revision and sha(checksum)
+            and body == release_body(repo.revision, checksum), 'different release already uses this tag')
+
+    # Every byte except the single witness is fixed by the supplied candidate,
+    # receipt and derived index. Hash large packages once when matching bundles.
+    fixed = {name: digest(folder / name) for name in platform_assets(platform) - {proof.name}}
+
+    def matches(candidate):
+        encoded = checksum_list({**fixed, proof.name: digest(candidate)}).encode('ascii')
+        return hashlib.sha256(encoded).hexdigest() == checksum
+
+    previous = [asset for asset in release['assets'] if asset['name'] == proof.name]
+    require(len(previous) <= 1, 'ambiguous platform witness')
+    if previous:
+        asset = previous[0]
+        require(asset['state'] == 'uploaded' and 0 < asset['size'] <= 128 * 1024, 'invalid existing platform witness')
+        with proof.open('xb') as stream:
+            github('-H', 'Accept: application/octet-stream', repo.base + f"releases/assets/{asset['id']}", output=stream)
+        compare_remote(asset, proof)
+        require(matches(proof), 'existing platform witness or candidate differs from reserved SHA256SUMS')
+    else:
+        # The create-draft call may have succeeded before the first upload.
+        # An independently valid newer attestation cannot replace the reserved bytes.
+        fetch_witness(repo, receipt, proof, matches)
+    # accepted() verifies the chosen signature and subject before any public write.
 
 
 def release_index(tag, revision, packages):
@@ -302,10 +352,12 @@ def promote(repo, platform, numbers, run_id, candidate, root):
         for name in names:
             shutil.copyfile(candidate / name, out / name)
         collect_dispatch_file(out, f'{platform}-acceptance.json', 'ORI_RECEIPT_B64', 48 * 1024)
-        fetch_witness(repo, out / f'{platform}-acceptance.json', out / f'{platform}-acceptance.proof')
-        rows[platform] = accepted(repo, out, platform, run_id)
+        rows[platform] = read_json(out / f'{platform}-manifest.json')
         tag = platform_tag(platform, numbers[platform])
     write_json(out / 'release.json', release_index(tag, repo.revision, rows))
+    if platform not in FINAL_RELEASES:
+        select_prerelease_witness(repo, out, platform, tag)
+        accepted(repo, out, platform, run_id)
     write_sums(out)
     repo.publish(out, tag, platform not in FINAL_RELEASES)
 

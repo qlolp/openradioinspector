@@ -49,13 +49,17 @@ def keys(value, expected, label):
     require(isinstance(value, dict) and value.keys() == set(expected), f'incomplete or unexpected {label} fields')
 
 
+def checksum_list(hashes):
+    return ''.join(f'{hashes[name]}  {name}\n' for name in sorted(hashes))
+
+
 def sums(directory, names):
-    rows = []
-    for name in sorted(names):
+    hashes = {}
+    for name in names:
         path = directory / name
         require(path.is_file() and not path.is_symlink(), 'unexpected release asset type')
-        rows.append(f'{digest(path)}  {name}\n')
-    return ''.join(rows)
+        hashes[name] = digest(path)
+    return checksum_list(hashes)
 
 
 def write_sums(directory):
