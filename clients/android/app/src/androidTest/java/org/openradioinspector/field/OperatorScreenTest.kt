@@ -16,6 +16,18 @@ import org.junit.runner.RunWith
 class OperatorScreenTest {
     private val instrument = InstrumentationRegistry.getInstrumentation()
 
+    @Test fun privacyPolicyOpensOfflineFromLaunch() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            var button: AccessibilityNodeInfo? = awaitNode("Конфиденциальность")
+            while (button != null && !button.isClickable) button = button.parent
+            assertTrue(button?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+            awaitNode("Политика конфиденциальности")
+            val policy = instrument.targetContext.assets.open("privacy.md").bufferedReader().use { it.readText() }
+            assertTrue("9218907903@mail.ru" in policy)
+            assertTrue("Android" in policy)
+        }
+    }
+
     @Test fun archiveTabSurvivesActivityRecreationAndLandscape() {
         ActivityScenario.launch(MainActivity::class.java).use { activity ->
             awaitNode("USB-прибор")

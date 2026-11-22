@@ -45,7 +45,9 @@ jobs:
           cargo test --locked -p ori-android-field
           python3 -m unittest tests.test_android_distribution
           (cd clients/android && ./gradlew --no-daemon --stacktrace "-PfieldVersionCode=$CODE" :app:testReleaseUnitTest :app:bundleRelease)
-          python3 -m tools.field.android_release verify-bundle clients/android/app/build/outputs/bundle/release/app-release.aab "$NAME" "$CODE" "$RUNNER_TEMP/bundletool.jar"
+          aab=clients/android/app/build/outputs/bundle/release/app-release.aab
+          cmp docs/field/privacy.md <(unzip -p "$aab" base/assets/privacy.md)
+          python3 -m tools.field.android_release verify-bundle "$aab" "$NAME" "$CODE" "$RUNNER_TEMP/bundletool.jar"
 
       - name: Verify upload identity and sign the tested bundle
         env:

@@ -5,6 +5,11 @@ plugins {
 }
 
 val generatedJni = layout.buildDirectory.dir("generated/jniLibs")
+val policyAssets = layout.buildDirectory.dir("generated/fieldPolicyAssets")
+val copyPrivacyPolicy by tasks.registering(Sync::class) {
+    from(rootProject.file("../../docs/field/privacy.md"))
+    into(policyAssets)
+}
 android {
     namespace = "org.openradioinspector.field"
     compileSdk = 36
@@ -29,6 +34,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     sourceSets["main"].jniLibs.srcDir(generatedJni)
+    sourceSets["main"].assets.srcDir(policyAssets)
     packaging.jniLibs.useLegacyPackaging = false
 }
 
@@ -72,7 +78,7 @@ val nativeField by tasks.registering(Exec::class) {
         }
     }
 }
-tasks.named("preBuild") { dependsOn(nativeField) }
+tasks.named("preBuild") { dependsOn(nativeField, copyPrivacyPolicy) }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.05.01")

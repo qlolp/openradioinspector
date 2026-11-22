@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'clients/android/**'
+      - 'docs/field/privacy.md'
       - 'crates/**'
       - 'tools/field_archive.py'
       - 'tools/field/android_release.py'
@@ -61,6 +62,8 @@ jobs:
           apk="$outputs/apk/debug/app-debug.apk"
           bundle="$outputs/bundle/release/app-release.aab"
           tools="$ANDROID_HOME/build-tools/36.0.0"
+          cmp ../../docs/field/privacy.md <(unzip -p "$apk" assets/privacy.md)
+          cmp ../../docs/field/privacy.md <(unzip -p "$bundle" base/assets/privacy.md)
           "$tools/apksigner" verify --verbose --print-certs "$apk"
           "$tools/zipalign" -c -P 16 -v 4 "$apk"
           "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/field-badging"
