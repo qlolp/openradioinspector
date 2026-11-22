@@ -326,10 +326,8 @@ async fn quiet_fixture_grant(
     .unwrap_or(Err(QosError::Pressure))
 }
 
-// Freeze a known quiet *fixture* observation before admitting its original
-// grant. This test isolates post-ACK calibration: unrelated host scheduling
-// before the command must not be mistaken for the new hardware cadence.
-// The caller resumes immediately after the actual acknowledged operation.
+// Freeze a quiet observation before admitting the fixture's original grant.
+// A single delayed sample can precede QoS pressure on the next observation.
 async fn quiet_held_fixture_grant(
     observer: &AcquisitionPressure,
     qos: &BackgroundQos,
@@ -342,14 +340,14 @@ async fn quiet_held_fixture_grant(
             if !until(|| observer.probe.hold.entered.load(Ordering::Acquire) > before).await {
                 return Err(QosError::Pressure);
             }
-            match qos.register(cancellation.clone()) {
-                Ok(grant) => return Ok(grant),
-                Err(QosError::Pressure) => {
-                    observer.probe.hold.resume();
-                    tokio::time::sleep(Duration::from_millis(2)).await;
+            if observer.status().delayed_analyzers == 0 {
+                match qos.register(cancellation.clone()) {
+                    Err(QosError::Pressure) => {}
+                    admission => return admission,
                 }
-                Err(error) => return Err(error),
             }
+            observer.probe.hold.resume();
+            tokio::time::sleep(Duration::from_millis(2)).await;
         }
     })
     .await
@@ -785,8 +783,36 @@ async fn pending_pressure_decision_is_retained_before_original_grant_drain() {
     start(&manager, "a").await;
     calibrated(&manager, &observer).await;
     let cancellation = Cancellation::default();
-    let grant = qos.register(cancellation.clone()).unwrap();
+    let grant = quiet_held_fixture_grant(&observer, &qos, cancellation.clone())
+        .await
+        .unwrap();
     factory.analyzer.held.store(true, Ordering::Release);
+    let entered_poll = until(|| factory.analyzer.entered.load(Ordering::Acquire) > 0).await;
+    let held = manager.acquisition_health().unwrap().remove(0);
+
+    // Sample the waiting scan once to read its budget after the preceding
+    // commit. Even a slow commit cannot trigger a second bad sample before
+    // this same poll exceeds its own budget.
+    let gate = &observer.probe.hold;
+    let before = gate.entered.load(Ordering::Acquire);
+    gate.release.add_permits(1);
+    let sampled = until(|| gate.entered.load(Ordering::Acquire) > before).await;
+    let sample = observer
+        .probe
+        .decisions
+        .lock()
+        .unwrap()
+        .back()
+        .cloned()
+        .unwrap_or_default();
+    let sampled_row = &sample["rows"][0];
+    let overdue = match (held.poll_started_at, sampled_row["budget_us"].as_u64()) {
+        (Some(start), Some(budget)) => {
+            until(|| start.elapsed().as_micros() > u128::from(budget)).await
+        }
+        _ => false,
+    };
+    gate.resume();
     let cancelled = until(|| cancellation.is_cancelled()).await;
     let decisions = observer.probe.decisions.lock().unwrap().clone();
     let completed = observer
@@ -794,9 +820,8 @@ async fn pending_pressure_decision_is_retained_before_original_grant_drain() {
         .epochs
         .lock()
         .unwrap()
-        .values()
-        .cloned()
-        .collect::<Vec<_>>();
+        .get(&held.worker_instance)
+        .cloned();
     let draining = observer.status().observer_running && qos.status().registered_work == 1;
     drop(grant);
     factory.analyzer.resume();
@@ -804,18 +829,40 @@ async fn pending_pressure_decision_is_retained_before_original_grant_drain() {
     manager.close().await.unwrap();
     factory.join().await;
     archive.close().await.unwrap();
-    assert!(cancelled && draining);
-    assert!(decisions.len() <= 8);
-    let last = decisions.back().expect("pre-drain decision missing");
-    assert!(last["pressure"].as_bool().unwrap());
-    assert_eq!(last["rows"][0]["bad_samples"], 2);
     assert!(
-        last["rows"][0]["poll_age_us"].as_u64().unwrap()
-            > last["rows"][0]["budget_us"].as_u64().unwrap()
+        entered_poll && sampled && overdue && cancelled && draining,
+        "entered_poll={entered_poll}, sampled={sampled}, overdue={overdue}, cancelled={cancelled}, draining={draining}; held={held:?}, sample={sample:?}, decisions={decisions:?}"
+    );
+    assert!(decisions.len() <= 8);
+    assert_eq!(
+        sample["pressure"], false,
+        "first held scan sample: {sample}"
+    );
+    let last = decisions.back().expect("pre-drain decision missing");
+    let last_row = &last["rows"][0];
+    for row in [sampled_row, last_row] {
+        assert_eq!(row["worker"], held.worker_instance);
+        assert_eq!(row["epoch"], held.configuration_epoch);
+        assert_eq!(row["cycles"], held.completed_cycles);
+        assert_eq!(row["samples"], 3);
+        assert!(row["poll_age_us"].is_u64(), "waiting scan missing: {row}");
+    }
+    assert_eq!(last["pressure"], true);
+    assert_eq!(last_row["bad_samples"], 2);
+    assert_eq!(last_row["stalled"], true);
+    assert!(
+        last_row["poll_age_us"]
+            .as_u64()
+            .zip(last_row["budget_us"].as_u64())
+            .is_some_and(|(age, budget)| age > budget),
+        "retained decision did not record an overdue scan: {last}"
     );
     assert!(
-        completed.iter().all(|row| !row.pressured),
-        "completed receipts must not falsely claim the blocked decision completed"
+        completed.as_ref().is_some_and(|row| !row.pressured
+            && row.epoch == held.configuration_epoch
+            && row.cycles == held.completed_cycles
+            && row.samples == 3),
+        "last completed receipt must describe the calibrated scan before its pressure drain: {completed:?}"
     );
 }
 
