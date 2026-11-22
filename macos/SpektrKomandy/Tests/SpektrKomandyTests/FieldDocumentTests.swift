@@ -34,10 +34,11 @@ final class FieldDocumentTests: XCTestCase {
     }
 
     func testAndroidEmulatorExport() throws {
-        guard let path = ProcessInfo.processInfo.environment["ORI_FIELD_EMULATOR_ARCHIVE"] else {
-            throw XCTSkip("Run with the .orifield exported by the Android emulator")
-        }
-        let document = try PlatformFieldDocument(opening: URL(fileURLWithPath: path))
+        // Android CI supplies a fresh export. Standalone SDK suites replay a saved export.
+        let archive = ProcessInfo.processInfo.environment["ORI_FIELD_EMULATOR_ARCHIVE"]
+            .map { URL(fileURLWithPath: $0) }
+            ?? fixture.deletingLastPathComponent().appendingPathComponent("field-android-export-v1.orifield")
+        let document = try PlatformFieldDocument(opening: archive)
         XCTAssertEqual(document.sweepCount, 1)
         XCTAssertEqual(document.observationCount, 0)
         XCTAssertEqual(document.rows.filter { $0.id.kind == .gap }.count, 1)

@@ -41,3 +41,5 @@ The [synthetic example](../contracts/fixtures/field-archive-v1.orifield) contain
 python3 tools/field_archive.py verify scan.orifield
 python3 tools/field_archive.py extract scan.orifield ./scan
 ```
+
+The [Android export fixture](../contracts/fixtures/field-android-export-v1.orifield) was written by the Kotlin exporter on an Android 12 emulator in [run 45041301657](https://github.com/qlolp/openradioinspector/actions/runs/45041301657). Its two spectrum points and GPS fix are synthetic. Standalone Swift tests replay these bytes; Android CI also tests a fresh export.
