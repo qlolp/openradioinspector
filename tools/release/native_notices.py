@@ -8,6 +8,12 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+# These build dependencies also supply code in the distributed JavaScript.
+# Vite emits the modulepreload polyfill and Rolldown emits CommonJS helpers.
+WEB_RUNTIME_NOTICES = {
+    'node_modules/vite': ('LICENSE.md',),
+    'node_modules/rolldown': ('LICENSE', 'THIRD-PARTY-LICENSE'),
+}
 
 
 def write_json(path, value):
@@ -39,12 +45,11 @@ def selected_packages(metadata, roots):
     return [packages[key] for key in sorted(selected)]
 
 
-def copy_notices(source, destination, output, declared=None):
+def copy_notices(source, destination, output, *declared):
     # Include nested notices for bundled C libraries as well as top-level license files.
     candidates = {path for path in source.rglob('*') if path.is_file()
                   and path.name.upper().startswith(('LICENSE', 'LICENCE', 'COPYING', 'COPYRIGHT', 'NOTICE', 'UNLICENSE'))}
-    if declared:
-        candidates.add(source / declared)
+    candidates.update(source / name for name in declared if name)
     names = []
     for path in sorted(candidates):
         if not path.resolve(strict=True).is_relative_to(source.resolve()) or path.stat().st_size > 16 * 1024 * 1024:
@@ -54,6 +59,27 @@ def copy_notices(source, destination, output, declared=None):
         shutil.copyfile(path, target)
         names.append(target.relative_to(output).as_posix())
     return names
+
+
+def web_notices(web, output):
+    lock = web / 'package-lock.json'
+    shutil.copyfile(lock, output / 'package-lock.json')
+    packages = json.loads(lock.read_text(encoding='utf-8'))['packages']
+    if WEB_RUNTIME_NOTICES.keys() - packages.keys():
+        raise ValueError('Expected Vite and Rolldown runtime dependencies in the WebUI lockfile')
+    npm = []
+    for relative, item in sorted(packages.items()):
+        if not relative or (item.get('dev') and relative not in WEB_RUNTIME_NOTICES):
+            continue
+        directory = web / relative
+        description = json.loads((directory / 'package.json').read_text(encoding='utf-8'))
+        if description['version'] != item['version']:
+            raise ValueError(f'Installed npm package does not match lock: {relative}')
+        destination = output / 'npm' / relative.removeprefix('node_modules/')
+        files = copy_notices(directory, destination, output, *WEB_RUNTIME_NOTICES.get(relative, ()))
+        npm.append(dict(name=description['name'], version=item['version'], license=description.get('license'),
+                        integrity=item.get('integrity'), notice_files=files))
+    return npm
 
 
 def collect(output, target, tauri=False, metadata=None):
@@ -93,25 +119,13 @@ def write_notices(output, target, tauri, metadata):
                            license=package['license'] or ('MIT' if package['source'] is None else None),
                            notice_files=files)
 
-    web = ROOT / 'clients/web'
-    shutil.copyfile(web / 'package-lock.json', output / 'package-lock.json')
-    npm = []
-    for relative, item in sorted(json.loads((web / 'package-lock.json').read_text(encoding='utf-8'))['packages'].items()):
-        if not relative or item.get('dev'):
-            continue
-        directory = web / relative
-        description = json.loads((directory / 'package.json').read_text(encoding='utf-8'))
-        if description['version'] != item['version']:
-            raise ValueError(f'Installed npm package does not match lock: {relative}')
-        files = copy_notices(directory, output / 'npm' / relative.removeprefix('node_modules/'), output)
-        npm.append(dict(name=description['name'], version=item['version'], license=description.get('license'),
-                        integrity=item.get('integrity'), notice_files=files))
+    npm = web_notices(ROOT / 'clients/web', output)
     sysroot = Path(subprocess.check_output(['rustc', '--print', 'sysroot'], text=True).strip())
     for name in ['COPYRIGHT-library.html', 'COPYRIGHT.html']:
         shutil.copyfile(sysroot / 'share/doc/rust' / name, output / ('Rust-' + name))
     write_json(output / 'licenses.json', {
         'schema_version': 1, 'target': target,
-        'scope': 'Cargo normal and build dependencies for the selected target, production npm packages and Rust toolchain notices.',
+        'scope': 'Cargo normal and build dependencies for the selected target, production npm packages, embedded Vite and Rolldown runtime helpers, and Rust toolchain notices.',
         'cargo': [crates[key] for key in sorted(crates)], 'npm': npm,
     })
 

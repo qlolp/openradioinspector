@@ -12,6 +12,24 @@ sys.path.insert(0, str(ROOT))
 from tools.release.smoke_macos_personal_rc import request, verify_original
 
 
+def check_web_notices(documentation, manifest):
+    notices = documentation / 'notices'
+    inventory = (notices / 'licenses.json').read_bytes()
+    if hashlib.sha256(inventory).hexdigest() != manifest['license_manifest_sha256']:
+        raise ValueError('Installed license inventory differs from the release manifest')
+    packages = {entry['name']: entry for entry in json.loads(inventory)['npm']}
+    locked = json.loads((notices / 'package-lock.json').read_text())['packages']
+    for name, files in [('vite', ['LICENSE.md']), ('rolldown', ['LICENSE', 'THIRD-PARTY-LICENSE'])]:
+        entry = packages[name]
+        dependency = locked['node_modules/' + name]
+        if any(entry[key] != dependency[key] for key in ('version', 'integrity')):
+            raise ValueError(f'Installed {name} notice differs from the WebUI lock')
+        for filename in files:
+            relative = f'npm/{name}/{filename}'
+            if relative not in entry['notice_files'] or not (notices / relative).read_bytes().strip():
+                raise ValueError(f'Missing embedded WebUI notice: {relative}')
+
+
 def check_web(url, manifest):
     caps = request(url, 'GET', '/api/v1/capabilities')
     if caps['candidate']['mode'] != 'live' or not caps['persistent_archive'] or caps['features']['analog_audio_inputs']:
@@ -57,6 +75,8 @@ if __name__ == '__main__':
     parser.add_argument('--manifest', type=Path, default=Path('/usr/share/doc/openradioinspector-pi-rc/release.json'))
     args = parser.parse_args()
     info = json.loads(args.manifest.read_text(encoding='utf-8'))
+    if args.phase == 'clean-install':
+        check_web_notices(args.manifest.parent, info)
     check_web(args.url, info)
     if args.phase not in ('inspect', 'clean-install'):
         exercise(args.url, args.phase)

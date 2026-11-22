@@ -168,6 +168,34 @@ class PiReleaseTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 native_notices.collect(output, 'aarch64-unknown-linux-gnu')
 
+    def test_notices_include_the_vite_polyfill_and_rolldown_helpers_embedded_in_the_webui(self):
+        with tempfile.TemporaryDirectory() as directory:
+            web = Path(directory) / 'web'
+            output = Path(directory) / 'out'
+            output.mkdir()
+            packages = {'': {}, 'node_modules/vitest': {'version': '1', 'dev': True}}
+            for name, licenses in [('react', ['LICENSE']), ('vite', ['LICENSE.md']),
+                                   ('rolldown', ['LICENSE', 'THIRD-PARTY-LICENSE'])]:
+                relative = f'node_modules/{name}'
+                packages[relative] = dict(version='1', dev=name != 'react', integrity='test-integrity')
+                installed = web / relative
+                installed.mkdir(parents=True)
+                (installed / 'package.json').write_text(json.dumps(dict(name=name, version='1', license='MIT')))
+                for license_file in licenses:
+                    (installed / license_file).write_text(f'{name} {license_file}')
+            (web / 'package-lock.json').write_text(json.dumps({'packages': packages}))
+            notices = {entry['name']: entry for entry in native_notices.web_notices(web, output)}
+            self.assertEqual(notices.keys(), {'react', 'vite', 'rolldown'})
+            self.assertEqual(notices['vite']['notice_files'], ['npm/vite/LICENSE.md'])
+            self.assertEqual(notices['rolldown']['notice_files'], ['npm/rolldown/LICENSE', 'npm/rolldown/THIRD-PARTY-LICENSE'])
+            for name, entry in notices.items():
+                self.assertEqual(entry['integrity'], 'test-integrity')
+                for file in entry['notice_files']:
+                    self.assertEqual((output / file).read_text(), f'{name} {Path(file).name}')
+            (web / 'node_modules/rolldown/THIRD-PARTY-LICENSE').unlink()
+            with self.assertRaises(FileNotFoundError):
+                native_notices.web_notices(web, output)
+
     def test_notices_include_nested_native_files_and_reject_an_escape(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

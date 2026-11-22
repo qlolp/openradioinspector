@@ -46,6 +46,9 @@ jobs:
               python3 packaging/pi/build_rc.py --platform linux-amd64 --distribution \
                 --output-dir build/linux-amd64/release --rehearsal-dir build/linux-amd64/rehearsal
             '
+          cd build/linux-amd64/release
+          sha256sum --check SHA256SUMS
+          echo "::notice title=Debian amd64 package SHA-256::$(sha256sum openradioinspector-linux_0.4.0-1_amd64.deb)"
       - name: Save the distribution package with its manifest and SHA-256
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
