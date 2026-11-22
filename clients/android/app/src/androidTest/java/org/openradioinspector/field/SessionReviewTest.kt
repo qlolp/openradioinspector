@@ -38,12 +38,17 @@ class SessionReviewTest {
                     last = it.measurement(obs.toString(), config).receiver!!.measurementId
                 }
                 it.note("Контроль")
+                it.gap("GPS отключён")
+                it.gps(gps)
                 it.finish(null)
                 recorded to last
             }
             val reader = SessionReview(root, session)
             assertEquals("ardv1", reader.info().profile)
-            assertEquals(fix.id, reviewTrack(reader.page("ardv1", ReviewKind.TRACK, PageCursor(), null).items.single()).id)
+            val track = reader.page("ardv1", ReviewKind.TRACK, PageCursor(), null).items.map(::reviewTrack)
+            assertEquals(fix.id, track.first().id)
+            assertEquals(listOf(false, false), trackLinks(track))
+            assertTrue(track.last().priorGapSeq > track.first().priorGapSeq)
             val p1 = reader.page("ardv1", ReviewKind.DATA, PageCursor(), fix.id)
             val p2 = reader.page("ardv1", ReviewKind.DATA, PageCursor(p1.items.last().seq), fix.id)
             assertEquals(16, p1.items.size)

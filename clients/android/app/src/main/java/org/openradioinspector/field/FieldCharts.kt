@@ -97,6 +97,7 @@ internal fun SpectrumPanel(x: List<Long>, y: List<Double>, unit: String, history
 @Composable
 internal fun TrackPlot(track: List<TrackPoint>, selected: String? = null, select: ((String) -> Unit)? = null) {
     if (track.isEmpty()) return
+    val links = remember(track) { trackLinks(track) }
     val tap = if (select == null) Modifier else Modifier.pointerInput(track, select) {
         detectTapGestures { offset ->
             val projected = projectTrack(track, size.width.toDouble(), size.height.toDouble())
@@ -110,7 +111,7 @@ internal fun TrackPlot(track: List<TrackPoint>, selected: String? = null, select
         points.forEachIndexed { i, point ->
             val x = point.x.toFloat()
             val y = point.y.toFloat()
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            if (links[i]) path.lineTo(x, y) else path.moveTo(x, y)
             drawCircle(traceColor, 2.dp.toPx(), Offset(x, y))
         }
         drawPath(path, traceColor, style = Stroke(1.5.dp.toPx()))

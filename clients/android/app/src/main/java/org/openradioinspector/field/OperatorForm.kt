@@ -46,10 +46,14 @@ internal data class ScanForm(
     val deviceId: Int?, val profile: String, val kind: String,
     val start: String, val end: String, val step: String, val list: String,
     val points: String, val rbw: String, val settle: String, val mode: String,
-    val continuous: Boolean, val gps: Boolean,
+    val continuous: Boolean, val gps: Boolean, val followWindow: Boolean = true,
 ) {
     fun config(): FieldConfig {
         require(deviceId != null && kind in kindsFor(profile)) { "Выберите USB-прибор и профиль" }
+        if (kind == "rf_explorer_sweep" && followWindow) {
+            // The native RF Explorer adapter reads both endpoints from the active board.
+            return FieldConfig(deviceId, profile, 0, 0, 10_000, gps = gps, kind = kind, continuous = continuous)
+        }
         val listScan = kind == "ardv1_list"
         val single = kind == "ardv1_single"
         val frequencies = if (listScan) {

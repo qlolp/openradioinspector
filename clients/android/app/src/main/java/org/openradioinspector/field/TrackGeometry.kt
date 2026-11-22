@@ -1,9 +1,29 @@
 package org.openradioinspector.field
 
+import java.time.Duration
+import java.time.Instant
+import java.time.format.DateTimeParseException
 import kotlin.math.cos
 import kotlin.math.hypot
 
-internal data class TrackPoint(val id: String, val latitude: Double, val longitude: Double, val utc: String)
+internal data class TrackPoint(
+    val id: String, val latitude: Double, val longitude: Double, val utc: String,
+    val segmentId: String? = null, val priorGapSeq: Long = 0, val fresh: Boolean = true,
+)
+
+// Connect only chronologically adjacent, fresh fixes from an uninterrupted GPS segment.
+internal fun trackLinks(track: List<TrackPoint>): List<Boolean> {
+    val maxAge = Duration.ofSeconds(15)
+    var previousTime: Instant? = null
+    return track.mapIndexed { i, point ->
+        val time = try { Instant.parse(point.utc) } catch (_: DateTimeParseException) { null }
+        val prior = track.getOrNull(i - 1)
+        val elapsed = previousTime?.let { from -> time?.let { Duration.between(from, it) } }
+        previousTime = time
+        prior != null && prior.fresh && point.fresh && prior.segmentId == point.segmentId &&
+            prior.priorGapSeq == point.priorGapSeq && elapsed != null && !elapsed.isNegative && elapsed <= maxAge
+    }
+}
 internal data class MapPoint(val x: Double, val y: Double)
 
 internal fun projectTrack(track: List<TrackPoint>, width: Double, height: Double): List<MapPoint> {

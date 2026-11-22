@@ -126,6 +126,9 @@ private fun SetupPanel(service: FieldService, state: FieldState, onStarted: () -
     var profile by rememberSaveable { mutableStateOf("") }
     var kind by rememberSaveable { mutableStateOf("") }
     var start by rememberSaveable { mutableStateOf("100") }
+    var followWindow by rememberSaveable { mutableStateOf(true) }
+    var rfStart by rememberSaveable { mutableStateOf("433") }
+    var rfEnd by rememberSaveable { mutableStateOf("434,11") }
     var end by rememberSaveable { mutableStateOf("102") }
     var step by rememberSaveable { mutableStateOf("10000") }
     var frequencies by rememberSaveable { mutableStateOf("") }
@@ -168,15 +171,25 @@ private fun SetupPanel(service: FieldService, state: FieldState, onStarted: () -
         if (profile.isNotEmpty() && device != null) {
             Choice("Режим измерения", scanLabels[kind].orEmpty(),
                 kindsFor(profile).map { it to scanLabels.getValue(it) }, enabled) { kind = it }
+            if (kind == "rf_explorer_sweep") {
+                Toggle("Использовать текущее окно прибора", followWindow, enabled) { followWindow = it }
+                if (!followWindow) Text(
+                    "Границы задаются с шагом 1 кГц в пределах активной платы. Ширина окна в Гц " +
+                    "должна делиться без остатка на число интервалов (число точек прибора минус один). " +
+                    "Для 112 точек подходит окно 433–434,11 МГц.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
             if (kind == "ardv1_list") {
                 OutlinedTextField(frequencies, { frequencies = it }, enabled = enabled,
                     label = { Text("Частоты, МГц") }, supportingText = { Text("Разделитель — пробел, строка или ;") },
                     modifier = Modifier.fillMaxWidth())
-            } else {
+            } else if (kind != "rf_explorer_sweep" || !followWindow) {
+                val rf = profile == "rfexplorer"
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NumberField(if (kind == "ardv1_single") "Частота, МГц" else "От, МГц", start,
-                        { start = it }, enabled, Modifier.weight(1f))
-                    if (kind != "ardv1_single") NumberField("До, МГц", end, { end = it }, enabled, Modifier.weight(1f))
+                    NumberField(if (kind == "ardv1_single") "Частота, МГц" else "От, МГц", if (rf) rfStart else start,
+                        { if (rf) rfStart = it else start = it }, enabled, Modifier.weight(1f))
+                    if (kind != "ardv1_single") NumberField("До, МГц", if (rf) rfEnd else end,
+                        { if (rf) rfEnd = it else end = it }, enabled, Modifier.weight(1f))
                 }
             }
             if (kind == "rf_explorer_survey") Text("Сетка 10 кГц · окно 112 точек")
@@ -208,8 +221,10 @@ private fun SetupPanel(service: FieldService, state: FieldState, onStarted: () -
         Button(enabled = enabled && device != null && profile in device.profiles && kind.isNotEmpty(),
             modifier = Modifier.fillMaxWidth(), onClick = {
                 try {
-                    val config = ScanForm(deviceId, profile, kind, start, end, step, frequencies,
-                        points, rbw, settle, mode, continuous, gps).config()
+                    val rf = profile == "rfexplorer"
+                    val config = ScanForm(deviceId, profile, kind, if (rf) rfStart else start,
+                        if (rf) rfEnd else end, step, frequencies, points, rbw, settle, mode,
+                        continuous, gps, followWindow).config()
                     service.start(if (profile == "ardv1") config.copy(baud = baud) else config)
                     error = ""
                     onStarted()
@@ -288,9 +303,12 @@ private fun LivePanel(service: FieldService, state: FieldState) {
         } else {
             Text("Ожидание измерений", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (state.track.isNotEmpty()) {
+        if (state.gpsRequested || state.track.isNotEmpty()) {
             Text("Трек GPS", style = MaterialTheme.typography.titleMedium)
-            TrackPlot(state.track.map { TrackPoint(it.id, it.latitude, it.longitude, it.utc) })
+            if (state.latitude != null && state.longitude != null) Text("${state.latitude}, ${state.longitude}")
+            else if (state.running) Text("Ожидание свежих координат")
+            TrackPlot(state.track.map { TrackPoint(it.id, it.latitude, it.longitude, it.utc, it.segmentId, fresh = it.fresh) })
+            state.track.lastOrNull()?.let { Text(it.utc, style = MaterialTheme.typography.bodySmall) }
         }
         if (state.running && state.sessionId != null) {
             OutlinedTextField(note, { note = it }, label = { Text("Заметка оператора") },
