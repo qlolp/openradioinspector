@@ -170,6 +170,7 @@ jobs:
             ${{ runner.temp }}/native-ui-tests/*.log
             ${{ runner.temp }}/native-ui-tests/macos-monitoring.png
             ${{ runner.temp }}/native-ui-tests/macos-event.png
+            ${{ runner.temp }}/native-ui-tests/macos-first-duty-ardv1.png
             ${{ runner.temp }}/native-ui-tests/training-attachments/manifest.json
             ${{ runner.temp }}/native-ui-tests/cases/*/native/*.jsonl
             ${{ runner.temp }}/native-ui-tests/cases/*/native/*.json
