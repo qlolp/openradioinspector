@@ -23,6 +23,7 @@ mod manual;
 mod operations;
 mod preflight;
 mod qualification;
+mod storage_forecast;
 pub use qualification::measurement_qualification;
 mod paired_rechecks;
 mod receiver;

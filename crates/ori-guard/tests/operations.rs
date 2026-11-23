@@ -12,6 +12,188 @@ fn operations_fixture() -> Value {
 }
 
 #[tokio::test]
+async fn forecast_reserves_an_independent_restore_on_the_archive_volume() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    h.service
+        .update_settings(
+            &id,
+            json!({"archive":{
+                "minimum_free_bytes":1048576,"minimum_retention_seconds":60,
+                "reserve_backup":true,"reserve_restore":true
+            }}),
+        )
+        .await
+        .expect("backup and a separate restored file must be selectable");
+    h.service.storage_report(&id, true).await.unwrap();
+    h.sources.advance(6);
+    let report = h.service.storage_report(&id, true).await.unwrap();
+    let db = report["capacity"]["database_bytes"].as_u64().unwrap();
+    let rate = report["bytes_per_second"].as_f64().unwrap();
+    let snapshot = db + (rate * 60.).ceil() as u64;
+    assert_eq!(report["backup_reserve_bytes"], snapshot);
+    assert_eq!(report["restore_reserve_bytes"], snapshot);
+    let future = report["projected_recording_bytes"].as_u64().unwrap();
+    let required = 1_048_576 + future + 2 * snapshot;
+    assert_eq!(report["required_free_bytes"], required);
+    assert_eq!(report["storage_id"], "node-archive");
+    assert!(report["database_allocated_bytes"].as_u64().unwrap() > 0);
+    assert!(report["wal_allocated_bytes"].is_u64());
+    let bundle = h.dir.path().join("copy");
+    let restored = h.dir.path().join("separate.sqlite");
+    let manifest = h.archive.backup(&bundle).await.unwrap();
+    assert!(manifest["archive"]["bytes"].as_u64().unwrap() <= snapshot);
+    ori_archive::restore_backup(&bundle, &restored).unwrap();
+    assert_eq!(
+        std::fs::metadata(restored).unwrap().len(),
+        manifest["archive"]["bytes"]
+    );
+    h.control.storage.lock().unwrap().filesystem_free_bytes = Some(required - 1);
+    let short = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(short["shortfall_bytes"], 1);
+    assert_eq!(short["ready"], false);
+    h.control.storage.lock().unwrap().filesystem_free_bytes = Some(required);
+    assert_eq!(
+        h.service.storage_report(&id, true).await.unwrap()["ready"],
+        true
+    );
+    h.service
+        .update_settings(&id, json!({"archive":{"reserve_backup":false}}))
+        .await
+        .unwrap();
+    let restore_only = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(restore_only["restore_reserve_bytes"], snapshot);
+    assert_eq!(restore_only["required_free_bytes"], required - snapshot);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn forecast_accounts_for_wal_growth_while_a_real_reader_holds_its_snapshot() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    h.service
+        .update_settings(
+            &id,
+            json!({"archive":{
+                "minimum_free_bytes":1048576,"minimum_retention_seconds":60
+            }}),
+        )
+        .await
+        .unwrap();
+    let reader = rusqlite::Connection::open_with_flags(
+        h.dir.path().join("archive.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    reader
+        .execute_batch("BEGIN; SELECT COUNT(*) FROM observations")
+        .unwrap();
+    let first = h.service.storage_report(&id, true).await.unwrap();
+    let logical_rate = first["bytes_per_second"].as_f64().unwrap();
+    let mut p = h.service.project(&id).await.unwrap();
+    for i in 0..128 {
+        p["site"] = json!(format!("location-{i:03}"));
+        h.archive
+            .put_monitoring("project", p.clone())
+            .await
+            .unwrap();
+    }
+    h.sources.advance(6);
+    h.control.storage.lock().unwrap().filesystem_free_bytes =
+        Some(1_048_576 + (logical_rate * 60.).ceil() as u64 + 65_536);
+    let growing = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(
+        growing["ready"], false,
+        "WAL growth must be included in the runway"
+    );
+    assert!(
+        growing["wal_allocated_bytes"].as_u64().unwrap()
+            > first["wal_allocated_bytes"].as_u64().unwrap()
+    );
+    assert!(
+        growing["physical_growth_bytes_per_second"]
+            .as_f64()
+            .unwrap()
+            > logical_rate
+    );
+    assert!(growing["shortfall_bytes"].as_u64().unwrap() > 0);
+    assert!(
+        growing["wal_growth_bytes_per_second"]
+            .as_f64()
+            .is_some_and(|r| r > 0.)
+    );
+    assert!(
+        growing["database_growth_bytes_per_second"]
+            .as_f64()
+            .is_some_and(|r| r >= 0.)
+    );
+    let again = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(
+        again["physical_growth_bytes_per_second"],
+        growing["physical_growth_bytes_per_second"]
+    );
+    reader.execute_batch("ROLLBACK").unwrap();
+    drop(reader);
+    h.archive.checkpoint().await.unwrap();
+    h.sources.advance(125);
+    h.service.storage_report(&id, true).await.unwrap();
+    h.sources.advance(6);
+    let quiet = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(quiet["physical_growth_bytes_per_second"], 0.);
+    assert_eq!(quiet["ready"], true);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn forecast_prices_the_next_weekly_window_and_retains_its_measured_startup_rate() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    *h.sources.now.lock().unwrap() = "2026-10-31T01:00:00Z".parse().unwrap();
+    let duty = json!({"schedule":{"mode":"weekly","timezone":"America/New_York",
+        "weekdays":[6],"start_local":"23:00","end_local":"03:00"}});
+    assert_eq!(
+        h.service.arm_duty(&id, duty).await.unwrap()["status"],
+        "waiting"
+    );
+    let waiting = h.service.storage_report(&id, true).await.unwrap();
+    // New York falls back during this overnight shift. Five actual hours need storage.
+    assert_eq!(waiting["forecast_seconds"], 18_000);
+    *h.sources.now.lock().unwrap() = "2026-11-01T03:30:00Z".parse().unwrap();
+    h.service
+        .reconcile_duty(&id, ori_guard::DutyTrigger::Timer)
+        .await
+        .unwrap();
+    assert!(h.service.any_armed());
+    let started = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(started["forecast_seconds"], 16_200);
+    assert_eq!(started["ready"], true);
+    assert_eq!(started["rate_source"], "validated_preflight_startup");
+    h.close().await;
+}
+
+#[tokio::test]
+async fn forecast_uses_remaining_wall_time_for_an_enabled_finite_duty() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    let mut project = h.service.project(&id).await.unwrap();
+    project["duty"] = json!({"enabled":true,"schedule":{
+        "mode":"until", "until_at":"2026-11-11T21:00:00.000000Z"
+    }});
+    h.archive.put_monitoring("project", project).await.unwrap();
+    *h.sources.now.lock().unwrap() = "2026-11-11T13:00:00.000000Z".parse().unwrap();
+    let first = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(first["forecast_seconds"], 28_800);
+    *h.sources.now.lock().unwrap() = "2026-11-11T20:59:30.001000Z".parse().unwrap();
+    let final_report = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(final_report["forecast_seconds"], 30);
+    assert!(
+        final_report["required_free_bytes"].as_u64().unwrap()
+            < first["required_free_bytes"].as_u64().unwrap()
+    );
+    h.close().await;
+}
+
+#[tokio::test]
 async fn eight_hour_budget_reserves_a_future_backup_and_refuses_primary_only_space() {
     let h = Harness::new().await;
     let id = h.prepared().await;

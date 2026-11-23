@@ -405,7 +405,21 @@
       "capabilities": [],
       "features": [
         "monitoring_projects"
-      ]
+      ],
+      "request_examples": {
+        "dutyArchiveForecast": {
+          "summary": "Space for recording, a backup and a restored database",
+          "description": "Requires monitoring_storage_forecast for reserve_restore. The core forecasts all selected files on the node archive volume. GET storage returns the required free bytes, shortfall and physical allocation growth.",
+          "value": {
+            "archive": {
+              "minimum_free_bytes": 268435456,
+              "minimum_retention_seconds": 28800,
+              "reserve_backup": true,
+              "reserve_restore": true
+            }
+          }
+        }
+      }
     },
     "post_api_v1_sessions": {
       "capabilities": [],

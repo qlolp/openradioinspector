@@ -806,7 +806,10 @@ impl GuardService {
         // The accepted preflight measured the compatible preparation session.
         // Keep that conservative basis while its fresh clone obtains two sweeps;
         // never manufacture a rate for a genuinely unmeasured project.
-        let startup_storage_basis = if p["archive"]["reserve_backup"] == true {
+        let startup_storage_basis = if p["archive"]["reserve_backup"] == true
+            || p["archive"]["reserve_restore"] == true
+            || preflight["storage"]["forecast_basis"] == "duty_window"
+        {
             preflight["storage"]["bytes_per_second"]
                 .as_f64()
                 .filter(|rate| rate.is_finite() && *rate > 0.)

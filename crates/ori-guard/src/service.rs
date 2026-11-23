@@ -4,7 +4,7 @@ use ori_contracts::{Session, UtcTimestamp};
 use rand::RngCore;
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
         Arc, Mutex, RwLock, Weak,
         atomic::{AtomicBool, Ordering},
@@ -146,7 +146,7 @@ pub struct GuardService {
     pub(crate) control_grants: Mutex<crate::grants::GrantCache>,
     pub(crate) control_changed: Arc<tokio::sync::Notify>,
     lifecycles: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
-    pub(crate) capacity_samples: Mutex<VecDeque<(Duration, u64)>>,
+    pub(crate) capacity_samples: Mutex<crate::storage_forecast::GrowthWindow>,
     pub(crate) runtime: Mutex<crate::runtime::RuntimeState>,
     pub(crate) jobs: Mutex<crate::runtime::Jobs>,
     pub(crate) startup: AsyncMutex<crate::supervisor::Startup>,
@@ -205,7 +205,7 @@ impl GuardService {
                 control_grants: Mutex::new(crate::grants::GrantCache::default()),
                 control_changed: Arc::new(tokio::sync::Notify::new()),
                 lifecycles: Mutex::new(HashMap::new()),
-                capacity_samples: Mutex::new(VecDeque::with_capacity(60)),
+                capacity_samples: Mutex::default(),
                 runtime: Mutex::new(crate::runtime::RuntimeState {
                     projects: HashMap::new(),
                     preparing: HashMap::new(),

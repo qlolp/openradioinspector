@@ -1096,6 +1096,50 @@ async fn session_analytics_use_committed_archive_counts_and_keep_raw_receiver_un
 }
 
 #[tokio::test]
+async fn storage_api_reports_a_volume_shortfall_before_the_first_measurement() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut server = Server::start(CoreConfig::replay(directory.path())).await;
+    let mut session = fixture()["session"].clone();
+    session["streams"][0]["settings"] = json!({"adapter":"tinysa-sim"});
+    session["streams"][1]["settings"] = json!({"adapter":"ardv1-sim"});
+    let (status, result) = server
+        .request("POST", "/api/v1/sessions", Some(&session))
+        .await;
+    assert_eq!(status, 201, "{result}");
+    let project =
+        json!({"name":"Disk budget","site":"Local test volume","session_id":session["id"]});
+    let (status, result) = server
+        .request("POST", "/api/v1/monitoring-projects", Some(&project))
+        .await;
+    assert_eq!(status, 201, "{result}");
+    let root = format!(
+        "/api/v1/monitoring-projects/{}",
+        encode_path_segment(result["data"]["id"].as_str().unwrap())
+    );
+    let initial_free = fs2::available_space(directory.path()).unwrap();
+    let floor = initial_free * 2 + (1 << 30);
+    let (status, result) = server.request("POST", &format!("{root}/settings"),
+        Some(&json!({"archive":{"minimum_free_bytes":floor,"reserve_backup":true,"reserve_restore":true}}))).await;
+    assert_eq!(status, 200, "{result}");
+    let (status, result) = server
+        .request("GET", &format!("{root}/storage"), None)
+        .await;
+    assert_eq!(status, 200, "{result}");
+    let budget = &result["data"];
+    assert_eq!(budget["ready"], false);
+    assert_eq!(budget["forecast_status"], "insufficient_space");
+    assert_eq!(budget["storage_id"], "node-archive");
+    assert!(budget["required_free_bytes"].is_null());
+    let free = budget["filesystem_free_bytes"].as_u64().unwrap();
+    let database = budget["capacity"]["database_bytes"].as_u64().unwrap();
+    assert_eq!(
+        budget["minimum_shortfall_bytes"],
+        floor + 2 * database - free
+    );
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn capabilities_retain_public_client_fields_and_only_enable_implemented_features() {
     let directory = tempfile::tempdir().unwrap();
     let mut server = Server::start(CoreConfig::replay(directory.path())).await;

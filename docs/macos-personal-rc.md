@@ -73,14 +73,13 @@ cycle from archived measurements. Command acknowledgement is not physical RF
 readback. At least 60 seconds and 20 full compatible sweeps are required; the
 operator separately confirms the reference environment.
 
-Before making the baseline armable, the wizard stores a 43,200-second primary
-budget (eight hours plus 50%) with `archive.reserve_backup=true`. The core reserves
-the current database plus the projected 43,200-second growth for a future backup,
-in addition to the 256-MiB free-space floor. It recalculates this reservation from
-the measured archive rate during preflight/guard checks; an unknown rate,
-overflow, failed write probe or insufficient filesystem/quota space refuses
-readiness. Automatic deletion remains false. The optional policy is additive;
-projects without it keep their existing storage semantics.
+The RC preparation wizard sets a 43,200-second horizon (eight hours plus 50%),
+a 256 MiB free-space floor and `archive.reserve_backup=true`. When the core
+advertises `monitoring_storage_forecast`, the wizard also sets
+`archive.reserve_restore=true`. The hardware acceptance run requires the core
+to price recording, a consistent copy and a restored database on the selected
+archive volume. Its storage response includes current and required free bytes,
+allocation growth and any shortfall. [Duty storage API](rust-guard-duty.md#место-для-смены-и-восстановления)
 
 Saving a baseline does not arm guard. The final button requires current core
 preflight and budget readiness. A new range/profile requires a new baseline.
