@@ -1,10 +1,46 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from './i18n';
+import { formatBytes, formatQuantity } from './station';
+import type { StorageReport } from './types';
 import { utc } from './components';
 import { useArchiveRead } from './RfExplorerOriginals';
 import { encodePathSegment } from './wire';
 import type { Desk } from './useDesk';
 
+export function ArchiveForecast({ report }: { report?: StorageReport }) {
+  return (
+    <div className="baseline-status">
+      <strong>
+        {t('Archive budget on the recording node')} · {report?.storage_id ?? '—'}
+      </strong>
+      <span>
+        {t('Forecast horizon')} ·{' '}
+        {report?.forecast_seconds == null
+          ? t('Unavailable')
+          : formatQuantity(report.forecast_seconds / 3600, 2) + ' ' + t('hours')}
+      </span>
+      <span>
+        {t('Required free space')} · {formatBytes(report?.required_free_bytes)} · {t('Available')} ·{' '}
+        {formatBytes(report?.available_bytes)} · {t('Shortfall')} ·{' '}
+        {formatBytes(report?.shortfall_bytes)}
+      </span>
+      <span>
+        {t('Allocated database and WAL')} · {formatBytes(report?.database_allocated_bytes)} /{' '}
+        {formatBytes(report?.wal_allocated_bytes)}
+      </span>
+      <span>
+        {t('Backup reserve')} · {formatBytes(report?.backup_reserve_bytes)} · {t('Restore reserve')}{' '}
+        · {formatBytes(report?.restore_reserve_bytes)}
+      </span>
+      <span>
+        {t('Recording rate')} ·{' '}
+        {report?.recording_bytes_per_second == null
+          ? t('Unavailable')
+          : formatBytes(report.recording_bytes_per_second) + '/' + t('s')}
+      </span>
+    </div>
+  );
+}
 type Schedule =
   | { mode: 'continuous' }
   | { mode: 'until'; until_at: string }
@@ -37,11 +73,13 @@ type Setting = { enabled: boolean; configured: boolean };
 function NotificationChannel({
   channel,
   saved,
+  deliveries,
   desk,
   reload,
 }: {
   channel: Channel;
   saved?: Setting;
+  deliveries?: Duty['deliveries'];
   desk: Desk;
   reload: () => void;
 }) {
@@ -49,6 +87,13 @@ function NotificationChannel({
     [endpoint, setEndpoint] = useState(''),
     [secret, setSecret] = useState(''),
     [receipt, setReceipt] = useState<{ notification_id: string; state: string }>();
+  const delivery =
+    receipt &&
+    deliveries?.find((row) => row.id === receipt.notification_id && row.channel === channel);
+  useEffect(() => {
+    if (delivery && receipt && delivery.state !== receipt.state)
+      setReceipt({ ...receipt, state: delivery.state });
+  }, [delivery, receipt]);
   const enabled = enabledEdit ?? saved?.enabled ?? false;
   const name = channel === 'webhook' ? 'Webhook' : 'Telegram';
   return (
@@ -103,7 +148,7 @@ function NotificationChannel({
               <input
                 type="password"
                 autoComplete="new-password"
-                required={channel === 'telegram' && !saved?.configured}
+                required={!saved?.configured}
                 value={secret}
                 placeholder={saved?.configured ? t('Keep stored setting') : ''}
                 onChange={(e) => setSecret(e.target.value)}
@@ -138,7 +183,8 @@ function NotificationChannel({
         </div>
         {receipt && (
           <p role="status">
-            {t('Test notification')} · {t(receipt.state)} · <code>{receipt.notification_id}</code>
+            {t('Test notification')} · {t(delivery?.state ?? receipt.state)} ·{' '}
+            <code>{receipt.notification_id}</code> {delivery?.error}
           </p>
         )}
       </form>
@@ -230,12 +276,14 @@ export function DutyPolicy({ desk, onArmed }: { desk: Desk; onArmed?: () => void
   }
   return (
     <div className="duty-policy">
+      {flags?.monitoring_storage_forecast === true && <ArchiveForecast report={desk.storage} />}
       {notifyAvailable && (
         <>
           <h3>{t('Notification channels')}</h3>
           {(['telegram', 'webhook'] as const).map((ch) => (
             <NotificationChannel
-              key={ch}
+              key={JSON.stringify([desk.connectionVersion, desk.projectId, ch])}
+              deliveries={current?.deliveries}
               channel={ch}
               saved={settings?.value?.notifications?.[ch]}
               desk={desk}
@@ -382,8 +430,8 @@ export function DutyPolicy({ desk, onArmed }: { desk: Desk; onArmed?: () => void
           <ul>
             {current.deliveries.map((d) => (
               <li key={d.id}>
-                {d.channel} · {t(d.state)} · {t(d.kind)} · {utc(d.created_at)} · {t('Attempts')}{' '}
-                {d.attempts} {d.error}
+                <code>{d.id}</code> · {d.channel} · {t(d.state)} · {t(d.kind)} · {utc(d.created_at)}{' '}
+                · {t('Attempts')} {d.attempts} {d.error}
               </li>
             ))}
           </ul>

@@ -2363,6 +2363,21 @@
         ],
         "type": "object"
       },
+      "NodeSerialPorts": {
+        "properties": {
+          "ports": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 256,
+            "type": "array"
+          }
+        },
+        "required": [
+          "ports"
+        ],
+        "type": "object"
+      },
       "PairedControls": {
         "additionalProperties": false,
         "properties": {
@@ -6620,6 +6635,92 @@
         "x-ori-support": {
           "capabilities": [],
           "features": []
+        }
+      }
+    },
+    "/api/v1/serial-ports": {
+      "get": {
+        "description": "Serial port names reported by the recording node OS without opening ports or identifying instruments.",
+        "operationId": "get_api_v1_serial_ports",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/NodeSerialPorts"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Serial port names reported by the recording node OS without opening ports or identifying instruments."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "serial_port_candidates"
+          ]
         }
       }
     },

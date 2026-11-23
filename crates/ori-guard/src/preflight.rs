@@ -778,7 +778,7 @@ impl GuardService {
         Ok(report)
     }
 }
-fn valid_com(raw: &str) -> bool {
+pub(crate) fn valid_com(raw: &str) -> bool {
     let name = raw.strip_prefix(r"\\.\").unwrap_or(raw);
     name.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("COM"))
         && name

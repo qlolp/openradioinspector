@@ -77,6 +77,7 @@ pub type DeviceFuture<'a, T> = Pin<Box<dyn Future<Output = DeviceResult<T>> + Se
 pub struct DeviceOptions {
     /// Absent by default. A native factory requires an explicit operator flag.
     pub transport: Option<Arc<dyn TransportFactory>>,
+    pub port_candidates: Option<fn() -> std::io::Result<Vec<String>>>,
     pub io_limits: IoLimits,
     pub queue_capacity: usize,
     pub max_workers: usize,
@@ -87,6 +88,7 @@ impl Default for DeviceOptions {
     fn default() -> Self {
         Self {
             transport: None,
+            port_candidates: None,
             io_limits: IoLimits::default(),
             queue_capacity: 8,
             max_workers: 32,

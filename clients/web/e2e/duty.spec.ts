@@ -72,6 +72,8 @@ async function capabilities(page: Page) {
       monitoring_signal_catalog: true,
       explicit_serial_adapters: true,
       archive_location: true,
+      serial_port_candidates: true,
+      monitoring_draft_port_correction: true,
       rf_explorer_3g_spectrum: true,
       rf_explorer_10khz_survey: true,
       scan_plan_grid_10khz: true,
@@ -91,14 +93,28 @@ test('operator can select a receiver alone and validate a wide inclusive plan be
   page.on('request', (r) => {
     if (r.method() === 'POST') posts.push(new URL(r.url()).pathname);
   });
+  await page.route('**/api/v1/serial-ports', (route) =>
+    route.fulfill({
+      json: envelope({ ports: ['COM27', 'COM28'] }),
+    }),
+  );
   await openDesk(page);
   await page.getByRole('button', { name: 'Prepare project' }).click();
   const wizard = page.getByRole('dialog', { name: 'Prepare a receive-only project' });
   await wizard.getByLabel('Project name').fill('Synthetic duty preparation');
   await wizard.getByLabel('Site or location').fill('Fixture');
   await wizard.getByLabel('Primary instrument').selectOption('ardv1', { timeout: 2500 });
-  await wizard.getByLabel('AR-DV1 serial port').fill('SYNTHETIC-NO-OPEN');
+  await expect(wizard.locator('datalist option[value="COM27"]')).toHaveCount(1);
+  await expect(wizard.getByLabel('AR-DV1 serial port')).toHaveAttribute(
+    'list',
+    'duty-serial-ports',
+  );
+  await wizard.getByLabel('AR-DV1 serial port').fill('COM28');
   await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(wizard.getByLabel('Start (MHz)')).toHaveValue('100');
+  await expect(wizard.getByLabel('Stop (MHz)')).toHaveValue('100.2');
+  await expect(wizard.getByText('21', { exact: true })).toBeVisible();
+  await wizard.getByRole('button', { name: '100–400 MHz' }).click();
   await expect(wizard.getByText('30,001', { exact: true })).toBeVisible();
   await wizard.getByRole('button', { name: 'Full supported range' }).click();
   await expect(wizard.getByText('129,991', { exact: true })).toBeVisible();
@@ -113,6 +129,59 @@ test('operator can select a receiver alone and validate a wide inclusive plan be
   expect(posts).toEqual([]);
 });
 
+test('a stopped project can correct a port without creating another project or starting a worker', async ({
+  page,
+}) => {
+  await page.addInitScript((id) => localStorage.setItem('ori-modern-project', id), pid);
+  const writes: string[] = [];
+  let port = 'COM14';
+  const current = () => ({
+    ...project,
+    state: 'draft',
+    baseline_id: null,
+    profile: {
+      receiver: { id: stream, role: 'receiver', port, settings: { adapter: 'ardv1-serial' } },
+    },
+  });
+  await page.route('**/api/v1/serial-ports', (route) =>
+    route.fulfill({ json: envelope({ ports: ['COM24'] }) }),
+  );
+  await page.route('**/api/v1/monitoring-projects?*', (route) =>
+    route.fulfill({ json: envelope({ items: [current()], next_cursor: null }) }),
+  );
+  await page.route('**/api/v1/monitoring-projects/' + pid + '/**', async (route) => {
+    const tail = new URL(route.request().url()).pathname.split(pid + '/')[1];
+    if (route.request().method() === 'POST') {
+      writes.push(tail);
+      expect(tail).toBe('preparation');
+      expect(route.request().postDataJSON().port_corrections).toEqual({
+        receiver: { from: 'COM14', to: 'COM24' },
+      });
+      port = 'COM24';
+      return route.fulfill({ json: envelope(current()) });
+    }
+    const value =
+      tail === 'status'
+        ? { project: current(), workers: [], manual: [], active: false }
+        : tail === 'preflight'
+          ? { checks: [], baseline_ready: false, baseline_collection: { ready: false } }
+          : { items: [], next_cursor: null };
+    return route.fulfill({ json: envelope(value) });
+  });
+  await openDesk(page);
+  await page.getByRole('button', { name: 'Duty setup' }).click();
+  const wizard = page.getByRole('dialog', { name: 'Prepare a receive-only project' });
+  await wizard.getByText('Correct the project ports').click();
+  await expect(wizard.getByLabel('AR-DV1 serial port')).toHaveValue('COM14');
+  await wizard.getByLabel('AR-DV1 serial port').fill('COM24');
+  await wizard.getByRole('button', { name: 'Save project ports' }).click();
+  await expect(wizard.getByRole('button', { name: 'Save project ports' })).toBeDisabled();
+  await expect(wizard.getByLabel('AR-DV1 serial port')).toHaveValue('COM24');
+  expect(writes).toEqual(['preparation']);
+  await wizard.getByRole('button', { name: 'Change instruments or range in a new draft' }).click();
+  await expect(wizard.getByRole('heading', { name: 'Choose instruments' })).toBeVisible();
+  await expect(wizard.getByLabel('AR-DV1 serial port')).toHaveValue('COM24');
+});
 test('receiver duty opens measured-only pass, waterfall and original evidence in the monitoring workspace', async ({
   page,
 }, testInfo) => {
@@ -335,6 +404,7 @@ test('receiver event opens its exact observation and hold/resume uses an explici
 test('five steps require an archived sample and confirmed baseline before scheduling with notification channels off', async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   const writes: { path: string; body: Record<string, unknown> }[] = [];
   let created = false,
     collecting = false,
@@ -345,6 +415,7 @@ test('five steps require an archived sample and confirmed baseline before schedu
   let webhookEnabled = false;
   let webhookConfigured = false;
   let testReceipt = false;
+  let delivered = false;
   let allowSchedule: () => void;
   const scheduleRead = new Promise<void>((resolve) => {
     allowSchedule = resolve;
@@ -360,6 +431,7 @@ test('five steps require an archived sample and confirmed baseline before schedu
       archive_location: true,
       monitoring_duty_schedule: true,
       monitoring_notification_channels: true,
+      monitoring_storage_forecast: true,
     });
     await r.fulfill({ json: envelope(data) });
   });
@@ -395,7 +467,7 @@ test('five steps require an archived sample and confirmed baseline before schedu
       if (path === 'preparation/start') collecting = true;
       if (path === 'baselines') baseline = true;
       if (path === 'duty') scheduled = true;
-      if (path === 'settings') {
+      if (path === 'settings' && r.request().postDataJSON().notifications) {
         const update = r.request().postDataJSON().notifications.webhook;
         webhookEnabled = update.enabled;
         if (update.url) webhookConfigured = true;
@@ -467,8 +539,8 @@ test('five steps require an archived sample and confirmed baseline before schedu
                           id: 'synthetic-queued-test',
                           channel: 'webhook',
                           kind: 'test',
-                          state: 'pending',
-                          attempts: 0,
+                          state: delivered ? 'delivered' : 'pending',
+                          attempts: delivered ? 1 : 0,
                           created_at: started,
                         },
                       ]
@@ -482,10 +554,21 @@ test('five steps require an archived sample and confirmed baseline before schedu
                     },
                   }
                 : path === 'storage'
-                  ? { ready: true, projected_bytes_per_day: 8640000 }
+                  ? {
+                      ready: true,
+                      storage_id: 'node-archive',
+                      forecast_seconds: 36_000,
+                      required_free_bytes: 5 * 1024 ** 3,
+                      available_bytes: 8 * 1024 ** 3,
+                      shortfall_bytes: 0,
+                      projected_bytes_per_day: 8640000,
+                    }
                   : { items: [], next_cursor: null };
     await r.fulfill({ json: envelope(data) });
   });
+  await page.route('**/api/v1/sessions/' + sid + '/observations/' + raw.id, (r) =>
+    r.fulfill({ json: envelope(raw) }),
+  );
   await page.route('**/api/v1/sessions/' + sid + '/observations?*', (r) =>
     r.fulfill({ json: envelope(sampled ? [raw] : []) }),
   );
@@ -518,7 +601,17 @@ test('five steps require an archived sample and confirmed baseline before schedu
   await expect(wizard.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0);
   sampled = true;
   await expect(wizard).toContainText(raw.id, { timeout: 7000 });
+  const original = wizard.locator('details').filter({ hasText: 'Open archived original' });
+  await expect(original).toContainText('100,020,000 Hz');
+  await expect(original).toContainText('13 S-meter counts');
+  await original.locator('summary').click();
+  await expect(original).toContainText('/api/v1/sessions/' + sid + '/observations/' + raw.id);
+  await expect(original.locator('pre')).toContainText(raw.interval.started_at);
+  await expect(original.locator('pre')).toContainText(raw.id);
   await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(wizard.getByText(/Required free space/)).toContainText('5 GiB');
+  await wizard.getByLabel('Minimum archive horizon (hours)').fill('10');
+  await wizard.getByLabel('Reserve space for a restore check').uncheck();
   await wizard.getByLabel('I confirm this baseline represents the ordinary environment').check();
   await expect(wizard.getByRole('button', { name: 'Confirm baseline' })).toBeDisabled();
   progress = true;
@@ -542,9 +635,13 @@ test('five steps require an archived sample and confirmed baseline before schedu
     'monitoring-projects',
     'preparation',
     'preparation/start',
+    'settings',
     'baselines',
     'duty',
   ]);
+  expect(writes.find((write) => write.path === 'settings')?.body).toEqual({
+    archive: { minimum_retention_seconds: 36000, reserve_backup: true, reserve_restore: false },
+  });
   expect(writes[0].body.streams).toHaveLength(1);
   expect(writes.at(-1)?.body).toEqual({
     resume_after_restart: false,
@@ -569,7 +666,11 @@ test('five steps require an archived sample and confirmed baseline before schedu
   await webhook.getByRole('button', { name: 'Send test notification' }).click();
   await expect(webhook).toContainText('synthetic-queued-test');
   await wizard.getByText('Notification delivery history', { exact: true }).click();
-  await expect(wizard.getByRole('list')).toContainText('pending');
+  const delivery = wizard.getByRole('listitem').filter({ hasText: 'synthetic-queued-test' });
+  await expect(delivery).toContainText('pending');
+  delivered = true;
+  await expect(delivery).toContainText('Delivered', { timeout: 10000, ignoreCase: true });
+  await expect(webhook.getByRole('status')).toContainText('Delivered', { ignoreCase: true });
   expect(writes.slice(-2)).toEqual([
     {
       path: 'settings',

@@ -210,8 +210,12 @@ final class NativeRCPreparationModel: ObservableObject {
         do {
             // Enable authoritative dynamic reservation before a baseline can
             // make this project armable, including from another client.
-            _ = try await client.monitoringSettings(projectID: id, body: ["autostart": .boolean(false), "archive": .object([
-                "minimum_retention_seconds": .integer(43_200), "minimum_free_bytes": .integer(268_435_456), "reserve_backup": .boolean(true)])])
+            var archive: [String: MonitoringValue] = ["minimum_retention_seconds": .integer(43_200),
+                "minimum_free_bytes": .integer(268_435_456), "reserve_backup": .boolean(true)]
+            if workspace.storageForecastAvailable {
+                archive["reserve_restore"] = .boolean(true)
+            }
+            _ = try await client.monitoringSettings(projectID: id, body: ["autostart": .boolean(false), "archive": .object(archive)])
             guard current(token), owns(workspace) else { return }
             let progress = NativeBaselineProgress(preflight: workspace.preflight)
             let base: [String: MonitoringValue] = ["name": .string(draft.name), "location": .string(draft.site), "confirm": .boolean(true)]

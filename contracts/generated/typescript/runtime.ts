@@ -323,6 +323,11 @@ export interface NodeArchiveLocation {
   [key: string]: unknown;
 }
 
+export interface NodeSerialPorts {
+  ports: Array<string>;
+  [key: string]: unknown;
+}
+
 export interface PairedControls {
   lower: PairedOriginals;
   upper: PairedOriginals;
@@ -2190,6 +2195,21 @@ const schemas = {...baselineSchemas, ...{
     ],
     "type": "object"
   },
+  "NodeSerialPorts": {
+    "properties": {
+      "ports": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 256,
+        "type": "array"
+      }
+    },
+    "required": [
+      "ports"
+    ],
+    "type": "object"
+  },
   "PairedControls": {
     "additionalProperties": false,
     "properties": {
@@ -3699,6 +3719,8 @@ export const decodeNativePairing = (value: JSONValue): NativePairing => walk(sch
 export const encodeNativePairing = (value: NativePairing): string => stringifyJSON(walk(schemas.NativePairing as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeNodeArchiveLocation = (value: JSONValue): NodeArchiveLocation => walk(schemas.NodeArchiveLocation as unknown as Schema,value,false) as unknown as NodeArchiveLocation;
 export const encodeNodeArchiveLocation = (value: NodeArchiveLocation): string => stringifyJSON(walk(schemas.NodeArchiveLocation as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeNodeSerialPorts = (value: JSONValue): NodeSerialPorts => walk(schemas.NodeSerialPorts as unknown as Schema,value,false) as unknown as NodeSerialPorts;
+export const encodeNodeSerialPorts = (value: NodeSerialPorts): string => stringifyJSON(walk(schemas.NodeSerialPorts as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairedControls = (value: JSONValue): PairedControls => walk(schemas.PairedControls as unknown as Schema,value,false) as unknown as PairedControls;
 export const encodePairedControls = (value: PairedControls): string => stringifyJSON(walk(schemas.PairedControls as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairedLocalBackground = (value: JSONValue): PairedLocalBackground => walk(schemas.PairedLocalBackground as unknown as Schema,value,false) as unknown as PairedLocalBackground;
@@ -5178,6 +5200,22 @@ export const runtimeOperations = [
     "method": "GET",
     "operation_id": "get_api_v1_security_status",
     "path": "/api/v1/security/status",
+    "path_parameters": [],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "serial_port_candidates"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_serial_ports",
+    "path": "/api/v1/serial-ports",
     "path_parameters": [],
     "query": [],
     "request_features": []

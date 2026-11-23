@@ -549,3 +549,53 @@ async fn explorer_actual_normal_readback_and_calibration_settings_gate_start() {
     h.service.stop_preparation(id, json!({})).await.unwrap();
     h.close().await;
 }
+
+#[tokio::test]
+async fn correcting_a_draft_port_preserves_the_project_and_original_session() {
+    let session = single(
+        "receiver",
+        json!({"adapter":"ardv1-serial","receiver_profile":"ardv1-monitor-v1","mode":"FM","frequency_hz":100000000,"fast_scan":{"start_hz":100000000,"stop_hz":100200000,"step_hz":10000,"settle_s":0.05,"cyclic":true}}),
+    );
+    let h = Harness::with_session(session.clone()).await;
+    let p = h
+        .service
+        .create(json!({"site":"Fixture","name":"First RX","session_id":session["id"]}))
+        .await
+        .unwrap();
+    let id = p["id"].as_str().unwrap();
+    let prepare = |from, to| json!({"antenna_notes":"Fixture","receive_path_confirmed":true,"location_confirmed":true,"port_corrections":{"receiver":{"from":from,"to":to}}});
+    let fixed = h
+        .service
+        .save_preparation(id, prepare("COM21", "COM22"))
+        .await
+        .unwrap();
+    assert_eq!(fixed["profile"]["receiver"]["port"], "COM22");
+    assert!(fixed["preparation"].get("port_corrections").is_none());
+    assert_eq!(
+        h.archive
+            .get_session(session["id"].as_str().unwrap())
+            .await
+            .unwrap()
+            .unwrap()["streams"][0]["port"],
+        "COM21"
+    );
+    assert!(
+        h.service
+            .save_preparation(id, prepare("COM21", "COM23"))
+            .await
+            .is_err()
+    );
+    let running = h.service.start_preparation(id, json!({})).await.unwrap();
+    let run = running["project"]["active_session_id"].as_str().unwrap();
+    assert_eq!(
+        h.archive.get_session(run).await.unwrap().unwrap()["streams"][0]["port"],
+        "COM22"
+    );
+    assert!(
+        h.service
+            .save_preparation(id, prepare("COM22", "COM23"))
+            .await
+            .is_err()
+    );
+    h.close().await;
+}

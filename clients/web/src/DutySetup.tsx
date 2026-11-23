@@ -6,21 +6,89 @@ import {
   type DutySource,
   type ReceiveForm,
 } from './api';
-import { Modal, utc } from './components';
-import { boardProfiles, surveyCounts } from './rf-explorer';
+import { hz, Modal, utc } from './components';
+import { boardProfiles, rfExplorerReadback, surveyCounts } from './rf-explorer';
 import { t } from './i18n';
 import { formatBytes, formatQuantity, measuredRate, preparationReady } from './station';
 import { useArchiveRead } from './RfExplorerOriginals';
-import { encodePathSegment } from './wire';
+import { encodePathSegment, originalJSON, originalObservationJSON } from './wire';
 import { message, type Desk } from './useDesk';
 import type { Project, Session, Sweep, Observation, Preflight } from './types';
-import { DutyPolicy } from './DutyPolicy';
+import { DutyPolicy, ArchiveForecast } from './DutyPolicy';
 
 export const sourceNames = {
   tinysa: 'tinySA Ultra',
   rf_explorer: 'RF Explorer 3G Combo',
   ardv1: 'AOR AR-DV1',
 };
+const firstRanges: Record<DutySource, [string, string]> = {
+  tinysa: ['88', '108'],
+  rf_explorer: ['250', '251.11'],
+  ardv1: ['100', '100.2'],
+};
+function FirstOriginal({ row, api }: { row: Observation | Sweep; api: Desk['api'] }) {
+  const [open, setOpen] = useState(false);
+  const receiver = 'frequency_hz' in row;
+  const path =
+    '/sessions/' +
+    encodePathSegment(row.session_id) +
+    '/' +
+    (receiver ? 'observations' : 'sweeps') +
+    '/' +
+    encodePathSegment(row.id);
+  const original = useArchiveRead<Observation | Sweep>(api, open ? path : undefined);
+  const saved = original?.value;
+  const matches =
+    saved &&
+    saved.session_id === row.session_id &&
+    saved.stream_id === row.stream_id &&
+    saved.id === row.id &&
+    saved.level_unit === row.level_unit;
+  const frequency = receiver ? row.frequency_hz : row.frequencies_hz[0];
+  const level = receiver ? row.level : row.levels[0];
+  const metadata = receiver ? row.metadata : row.settings;
+  const readback = !receiver ? rfExplorerReadback(row.settings) : undefined;
+  const unit = row.level_unit === 's_meter_count' ? t('S-meter counts') : row.level_unit;
+  return (
+    <details onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        {t('Open archived original')} · {receiver ? t('Receiver reading') : t('First sweep bin')} ·{' '}
+        {hz(frequency)} · {level == null ? t('Unavailable') : String(level) + ' ' + unit}
+      </summary>
+      <p>
+        {metadata?.simulated === true && t('Training data')}
+        {typeof metadata?.adapter === 'string' && <> · {metadata.adapter}</>}
+        {readback && (
+          <>
+            {' '}
+            ·{' '}
+            {readback.active_board
+              ? t(boardProfiles[readback.active_board].label)
+              : t('SMA readback unavailable')}{' '}
+            · {readback.detector ?? t('Detector unavailable')}
+          </>
+        )}
+      </p>
+      <p>
+        {t('Session')} <code>{row.session_id}</code> · {t('Stream')} <code>{row.stream_id}</code>
+      </p>
+      {open && (
+        <>
+          <code>/api/v1{path}</code>
+          {original?.error && <p role="alert">{t(original.error)}</p>}
+          {saved &&
+            (matches ? (
+              <pre className="raw-observation">
+                {'frequency_hz' in saved ? originalObservationJSON(saved) : originalJSON(saved)}
+              </pre>
+            ) : (
+              <p role="alert">{t('Source evidence mismatch')}</p>
+            ))}
+        </>
+      )}
+    </details>
+  );
+}
 const reasons = {
   tinysa:
     'The tinySA measures spectrum sweeps in dBm. The 10 kHz grid uses successive hardware windows. The core checks the installed receive profile.',
@@ -149,6 +217,72 @@ const headings = [
   'Record the background',
   'Notifications and duty',
 ];
+function DraftPorts({
+  project,
+  desk,
+  checks,
+  onSaved,
+}: {
+  project: Project;
+  desk: Desk;
+  checks: PathChecks;
+  onSaved: (p: Project) => void;
+}) {
+  const [edits, setEdits] = useState<Partial<Record<'analyzer' | 'receiver', string>>>({});
+  const roles = (['analyzer', 'receiver'] as const).filter((role) =>
+    ['tinysa-serial', 'ardv1-serial', 'rf-explorer-3g-serial'].includes(
+      String(project.profile?.[role]?.settings.adapter),
+    ),
+  );
+  const corrections = Object.fromEntries(
+    roles.flatMap((role) => {
+      const from = project.profile![role]!.port,
+        to = edits[role]?.trim();
+      return to && to !== from ? [[role, { from, to }]] : [];
+    }),
+  );
+  if (!roles.length) return null;
+  return (
+    <details>
+      <summary>{t('Correct the project ports')}</summary>
+      {roles.map((role) => (
+        <label key={role}>
+          {t(role === 'receiver' ? 'AR-DV1 serial port' : 'Analyzer serial port')}
+          <input
+            list="duty-serial-ports"
+            maxLength={1024}
+            value={edits[role] ?? project.profile![role]!.port}
+            onChange={(e) => setEdits({ ...edits, [role]: e.target.value })}
+          />
+        </label>
+      ))}
+      <button
+        type="button"
+        disabled={desk.busy || !Object.keys(corrections).length || !checks.notes.trim()}
+        onClick={async () => {
+          const fixed = await desk.run(
+            'Save project ports',
+            () =>
+              desk.api.project<Project>(project.id, 'preparation', {
+                antenna_notes: checks.notes,
+                receive_path_confirmed: checks.receive,
+                location_confirmed: checks.location,
+                port_corrections: corrections,
+              }),
+            ['status', 'preflight'],
+          );
+          if (fixed) {
+            setEdits({});
+            onSaved(fixed);
+            await desk.reloadSessions();
+          }
+        }}
+      >
+        {t('Save project ports')}
+      </button>
+    </details>
+  );
+}
 export function DutySetup({
   desk,
   close,
@@ -160,6 +294,7 @@ export function DutySetup({
   resume?: Project;
   onLocalArchiveSettings?: () => void;
 }) {
+  const [usingSaved, setUsingSaved] = useState(!!resume);
   const [step, setStep] = useState(resume ? (resume.baseline_id ? 4 : 2) : 0),
     [sessionId, setSessionId] = useState('');
   const [kind, setKind] = useState<DutySource>(resume?.primary_source_kind ?? 'tinysa'),
@@ -169,8 +304,8 @@ export function DutySetup({
     [site, setSite] = useState(resume?.site ?? '');
   const [analyzerPort, setAnalyzerPort] = useState(''),
     [receiverPort, setReceiverPort] = useState('');
-  const [low, setLow] = useState('100'),
-    [high, setHigh] = useState('400'),
+  const [low, setLow] = useState(firstRanges[kind][0]),
+    [high, setHigh] = useState(firstRanges[kind][1]),
     [spacing, setSpacing] = useState('10');
   const [board, setBoard] = useState<keyof typeof boardProfiles>('expansion'),
     [storage, setStorage] = useState('');
@@ -208,6 +343,16 @@ export function DutySetup({
     tinyGrid:
       kind === 'tinysa' && hzInput(spacing, 3) === 10_000 && features.scan_plan_grid_10khz === true,
   };
+  const [portRevision, setPortRevision] = useState(0);
+  const portList = useArchiveRead<{ ports: string[] }>(
+    desk.api,
+    (step === 0 || step === 2) && !simulate && features.serial_port_candidates === true
+      ? '/serial-ports'
+      : undefined,
+    0,
+    false,
+    portRevision,
+  );
   const archive = useArchiveRead<Archive>(
     desk.api,
     step === 2 && features.archive_location === true ? '/archive/location' : undefined,
@@ -221,10 +366,21 @@ export function DutySetup({
         '?' +
         new URLSearchParams({ stream_id: primary, limit: '1' })
       : undefined;
+  const isOriginal = useCallback(
+    (row: Observation | Sweep) =>
+      row.session_id === activeSession &&
+      row.stream_id === primary &&
+      (receiver
+        ? 'frequency_hz' in row && row.level_unit === 's_meter_count' && Number.isFinite(row.level)
+        : 'frequencies_hz' in row &&
+          row.level_unit === 'dBm' &&
+          row.frequencies_hz.length > 0 &&
+          row.levels.length === row.frequencies_hz.length),
+    [activeSession, primary, receiver],
+  );
   const hasOriginal = useCallback(
-    (rows: (Observation | Sweep)[]) =>
-      rows.some((row) => row.session_id === activeSession && row.stream_id === primary),
-    [activeSession, primary],
+    (rows: (Observation | Sweep)[]) => rows.some(isOriginal),
+    [isOriginal],
   );
   const sampleRead = useArchiveRead<(Observation | Sweep)[]>(
     desk.api,
@@ -234,15 +390,22 @@ export function DutySetup({
     0,
     hasOriginal,
   );
-  const first = sampleRead?.value?.find(
-    (row) => row.session_id === activeSession && row.stream_id === primary,
-  );
+  const first = sampleRead?.value?.find(isOriginal);
+  const [hoursEdit, setHours] = useState<string>();
+  const [backupEdit, setBackup] = useState<boolean>();
+  const [restoreEdit, setRestore] = useState<boolean>();
+  const hours = hoursEdit ?? String((p?.archive?.minimum_retention_seconds ?? 43_200) / 3600);
+  const plannedSeconds = Math.round(Number(hours.replace(',', '.')) * 3600);
+  const validBudget =
+    Number.isSafeInteger(plannedSeconds) && plannedSeconds >= 60 && plannedSeconds <= 31_536_000;
+  const backup = backupEdit ?? p?.archive?.reserve_backup ?? true;
+  const restore = restoreEdit ?? p?.archive?.reserve_restore ?? true;
   const w = desk.guard?.workers.find((worker) => worker.stream_id === primary),
     rate = measuredRate(w);
   let invalid = '',
     count: number | undefined,
     windows: number | undefined;
-  if (!resume && !existing && step <= 2) {
+  if (!usingSaved && !existing && step <= 2) {
     try {
       if (kind === 'ardv1' && features.ardv1_cyclic_panorama !== true)
         throw Error(
@@ -297,7 +460,7 @@ export function DutySetup({
       !checks.notes.trim() ||
       !checks.receive ||
       !checks.location ||
-      (!resume && !existing && invalid)
+      (!usingSaved && !existing && invalid)
     )
       return;
     setStarting(true);
@@ -317,8 +480,9 @@ export function DutySetup({
             session_id: session.id,
           });
           createdProject.current = project;
+          setPrepared(project);
         }
-        if (!planSaved.current && !resume && !existing && form.tinyGrid) {
+        if (!planSaved.current && !usingSaved && !existing && form.tinyGrid) {
           await desk.api.project(project.id, 'scan-plan', tinyDutyPlan(form));
           planSaved.current = true;
         }
@@ -353,13 +517,28 @@ export function DutySetup({
     setStarting(false);
   }
   async function background() {
-    if (!p || !confirm || !acct?.baseline_collection.ready) return;
+    if (
+      !p ||
+      !confirm ||
+      !acct?.baseline_collection.ready ||
+      (features.monitoring_storage_forecast === true && !validBudget)
+    )
+      return;
     const bands = acct.baseline_collection.bands?.filter(
       (b) => (b.eligible_windows ?? 1) > 0 && !b.baseline_id,
     );
     const result = await desk.run(
       'Confirm baseline',
       async () => {
+        if (features.monitoring_storage_forecast === true) {
+          await desk.api.project(p.id, 'settings', {
+            archive: {
+              minimum_retention_seconds: plannedSeconds,
+              reserve_backup: backup,
+              reserve_restore: restore,
+            },
+          });
+        }
         for (const band of bands ?? [undefined])
           await desk.api.project(p.id, 'baselines', {
             name: t('Ordinary environment'),
@@ -369,7 +548,7 @@ export function DutySetup({
           });
         return true;
       },
-      ['status', 'preflight'],
+      ['status', 'preflight', 'storage'],
     );
     if (result) setStep(4);
   }
@@ -383,6 +562,27 @@ export function DutySetup({
             0,
           )
         : 1));
+  const progress = acct?.baseline_collection;
+  const remainingPasses =
+    progress?.minimum_passes != null && progress.passes != null
+      ? Math.max(0, progress.minimum_passes - progress.passes)
+      : undefined;
+  const remainingSweeps =
+    progress?.minimum_sweeps != null && progress.sweeps != null
+      ? Math.max(0, progress.minimum_sweeps - progress.sweeps)
+      : undefined;
+  const remainingVisits =
+    remainingPasses != null && visitsPerPass ? remainingPasses * visitsPerPass : remainingSweeps;
+  const estimatedBackground =
+    progress && rate && remainingVisits != null
+      ? Math.ceil(
+          Math.max(
+            0,
+            (progress.minimum_seconds ?? 60) - (progress.elapsed_seconds ?? 0),
+            remainingVisits / rate,
+          ),
+        )
+      : undefined;
   const locked = !!createdSession.current || !!createdProject.current;
   return (
     <Modal
@@ -413,6 +613,13 @@ export function DutySetup({
           }
         }}
       >
+        {features.serial_port_candidates === true && !simulate && (step === 0 || step === 2) && (
+          <datalist id="duty-serial-ports">
+            {portList?.value?.ports.map((port) => (
+              <option key={port} value={port} />
+            ))}
+          </datalist>
+        )}
         {step === 0 && (
           <>
             <div className="form-grid">
@@ -455,7 +662,11 @@ export function DutySetup({
                   <select
                     value={kind}
                     onChange={(e) => {
-                      setKind(e.target.value as DutySource);
+                      const source = e.target.value as DutySource;
+                      setKind(source);
+                      setLow(firstRanges[source][0]);
+                      setHigh(firstRanges[source][1]);
+                      setSpacing('10');
                       setSimulate(false);
                     }}
                   >
@@ -477,6 +688,13 @@ export function DutySetup({
                     {t('Add an independent AR-DV1 for event checks')}
                   </label>
                 )}
+                {kind === 'rf_explorer' && checker && (
+                  <p>
+                    {t(
+                      'AR-DV1 can check events. Comparing paired archived visits requires tinySA and AR-DV1.',
+                    )}
+                  </p>
+                )}
                 {kind === 'tinysa' && (
                   <label className="check">
                     <input
@@ -487,6 +705,21 @@ export function DutySetup({
                     {t('Use explicit simulators')}
                   </label>
                 )}
+                {!simulate && features.serial_port_candidates === true && (
+                  <div>
+                    <button type="button" onClick={() => setPortRevision((n) => n + 1)}>
+                      {t('Refresh node ports')}
+                    </button>
+                    {portList?.error && <p role="alert">{portList.error}</p>}
+                    {portList?.value?.ports.length === 0 && (
+                      <p>
+                        {t(
+                          'The node listed no serial ports. Enter a port or connect the instrument and refresh.',
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {!simulate && (
                   <div className="form-grid">
                     {kind !== 'ardv1' && (
@@ -494,6 +727,7 @@ export function DutySetup({
                         {t(kind === 'tinysa' ? 'tinySA serial port' : 'RF Explorer serial port')}
                         <input
                           required
+                          list="duty-serial-ports"
                           value={analyzerPort}
                           onChange={(e) => setAnalyzerPort(e.target.value)}
                           placeholder={t('/dev/ttyACM0 or COM3')}
@@ -505,6 +739,7 @@ export function DutySetup({
                         {t('AR-DV1 serial port')}
                         <input
                           required
+                          list="duty-serial-ports"
                           value={receiverPort}
                           onChange={(e) => setReceiverPort(e.target.value)}
                           placeholder={t('/dev/ttyUSB0 or COM4')}
@@ -554,6 +789,16 @@ export function DutySetup({
                 </label>
               )}
               <div className="actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLow(firstRanges[kind][0]);
+                    setHigh(firstRanges[kind][1]);
+                    setSpacing('10');
+                  }}
+                >
+                  {t('Short first range')}
+                </button>
                 <button type="button" onClick={rangeFull}>
                   {t('Full supported range')}
                 </button>
@@ -680,6 +925,7 @@ export function DutySetup({
                   <br />
                   {utc(first.interval.ended_at)}
                 </p>
+                <FirstOriginal key={first.id} row={first} api={desk.api} />
                 <p>
                   {t('Estimated pass duration')} ·{' '}
                   {rate && visitsPerPass
@@ -698,6 +944,65 @@ export function DutySetup({
                 )}
               </p>
             )}
+            {p?.state === 'collecting' && (
+              <button
+                type="button"
+                disabled={desk.busy}
+                onClick={() => void desk.command('preparation/stop')}
+              >
+                {t('Stop collection')}
+              </button>
+            )}
+            {locked &&
+              p?.state !== 'collecting' &&
+              p?.state !== 'armed' &&
+              !p?.duty?.enabled &&
+              !p?.baseline_id && (
+                <>
+                  {features.monitoring_draft_port_correction === true && p && (
+                    <DraftPorts
+                      key={p.id}
+                      project={p}
+                      checks={checks}
+                      desk={desk}
+                      onSaved={(fixed) => {
+                        createdProject.current = fixed;
+                        setPrepared(fixed);
+                      }}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    disabled={desk.busy || starting}
+                    onClick={() => {
+                      if (usingSaved && p) {
+                        const source = p.primary_source_kind ?? 'tinysa';
+                        setKind(source);
+                        setLow(firstRanges[source][0]);
+                        setHigh(firstRanges[source][1]);
+                        setSpacing('10');
+                        setAnalyzerPort(p.profile?.analyzer?.port ?? '');
+                        setReceiverPort(p.profile?.receiver?.port ?? '');
+                        setChecker(!!p.profile?.receiver && source !== 'ardv1');
+                      }
+                      setUsingSaved(false);
+                      setSessionId('');
+                      setPrepared(undefined);
+                      setStorage('');
+                      setConfirm(false);
+                      createdProject.current = undefined;
+                      createdSession.current = undefined;
+                      planSaved.current = false;
+                      setStep(0);
+                    }}
+                  >
+                    {t('Change instruments or range in a new draft')}
+                  </button>
+                  <p className="muted">
+                    {t('The earlier project and its archived measurements are preserved.')}
+                  </p>
+                </>
+              )}
             {sampleRead?.error && <p role="alert">{t(sampleRead.error)}</p>}
           </>
         )}
@@ -716,6 +1021,14 @@ export function DutySetup({
                 <BaselineCounts progress={acct?.baseline_collection} />
               </span>
             </div>
+            {!acct?.baseline_ready && !progress?.ready && (
+              <p>
+                {t('Estimated time to baseline')} ·{' '}
+                {estimatedBackground == null
+                  ? t('Awaiting measured rate')
+                  : formatQuantity(estimatedBackground) + ' ' + t('s')}
+              </p>
+            )}
             <ul className="check-list">
               {acct?.checks
                 .filter((c) => !c.ok)
@@ -723,6 +1036,39 @@ export function DutySetup({
                   <li key={c.name}>{c.detail}</li>
                 ))}
             </ul>
+            {features.monitoring_storage_forecast === true && (
+              <>
+                <ArchiveForecast report={desk.storage} />
+                <label>
+                  {t('Minimum archive horizon (hours)')}
+                  <input
+                    inputMode="decimal"
+                    required
+                    value={hours}
+                    onChange={(e) => setHours(e.target.value)}
+                  />
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={backup}
+                    onChange={(e) => setBackup(e.target.checked)}
+                  />
+                  {t('Reserve space for a backup')}
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={restore}
+                    onChange={(e) => setRestore(e.target.checked)}
+                  />
+                  {t('Reserve space for a restore check')}
+                </label>
+                {!validBudget && (
+                  <p role="alert">{t('Choose a horizon from one minute to one year.')}</p>
+                )}
+              </>
+            )}
             {!acct?.baseline_ready && (
               <label className="check">
                 <input
@@ -780,7 +1126,9 @@ export function DutySetup({
                     p?.state === 'collecting')) ||
                 (step === 3 &&
                   !acct?.baseline_ready &&
-                  (!confirm || !acct?.baseline_collection?.ready))
+                  (!confirm ||
+                    !acct?.baseline_collection?.ready ||
+                    (features.monitoring_storage_forecast === true && !validBudget)))
               }
             >
               {t(

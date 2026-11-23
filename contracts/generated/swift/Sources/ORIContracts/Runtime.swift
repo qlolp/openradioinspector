@@ -1593,6 +1593,26 @@ public struct NodeArchiveLocation: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct NodeSerialPorts: ContractModel, Equatable, Sendable {
+    public var ports: [String]
+    public var extra: JSONObject
+    public init(ports: [String], extra: JSONObject = [:]) {
+        self.ports = ports
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let portsValue = object.removeValue(forKey: "ports") else { throw ContractError.invalid("Missing ports") }
+        ports = try portsValue.requireArray().map { try $0.requireString() }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["ports"] = .array(ports.map { .string($0) })
+        return .object(object)
+    }
+}
+
 public struct PairedControls: ContractModel, Equatable, Sendable {
     public var lower: PairedOriginals
     public var upper: PairedOriginals
@@ -2744,6 +2764,7 @@ RuntimeOperationDescriptor(operationId: "delete_api_v1_security_credentials_curr
 RuntimeOperationDescriptor(operationId: "post_api_v1_security_credentials_current_revoke",method: "POST",path: "/api/v1/security/credentials/current/revoke",backends: ["rust-candidate"],features: [],capabilities: ["lan_tls"], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: 4096),
 RuntimeOperationDescriptor(operationId: "post_api_v1_security_pair",method: "POST",path: "/api/v1/security/pair",backends: ["rust-candidate"],features: [],capabilities: ["lan_tls"], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: 4096),
 RuntimeOperationDescriptor(operationId: "get_api_v1_security_status",method: "GET",path: "/api/v1/security/status",backends: ["rust-candidate"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_serial_ports",method: "GET",path: "/api/v1/serial-ports",backends: ["rust-candidate"],features: ["serial_port_candidates"],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions",method: "GET",path: "/api/v1/sessions",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions",method: "POST",path: "/api/v1/sessions",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id",method: "GET",path: "/api/v1/sessions/{id}",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: nil),

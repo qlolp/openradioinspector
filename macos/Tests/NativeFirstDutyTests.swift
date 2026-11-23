@@ -4,6 +4,17 @@ import SpektrKomandy
 @testable import DvoynoyObzorSession
 
 final class NativeFirstDutyTests: XCTestCase {
+    func testFirstReceiverAndExplorerPlansFitAShortVisit() throws {
+        var draft = NativeRCPreparationDraft()
+        draft.chooseSource(.ardv1)
+        let grid = try draft.receiverGrid()
+        XCTAssertEqual(grid.pointCount, 21)
+        XCTAssertEqual(grid.startHz, 100_000_000)
+        XCTAssertEqual(grid.stopHz, 100_200_000)
+        draft.chooseSource(.rfExplorer)
+        XCTAssertEqual(draft.explorer.plannedSurveyTiles, 1)
+    }
+
     func testIndependentInstrumentsAndOptionalSecondary() throws {
         var draft = NativeRCPreparationDraft()
         draft.tinySAPort = "/dev/ttyACM0"

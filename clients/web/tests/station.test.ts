@@ -108,3 +108,21 @@ it('prepares receiver readback only when requested for a serial session', async 
     receiveSession({ ...form, monitoringReadback: true, simulator: true }).streams[1].settings,
   ).not.toHaveProperty('monitoring_rx_readback');
 });
+
+it('offers paired recipes only for matched tinySA and AR-DV1 profiles or their simulator pair', async () => {
+  const { supportsPairedRechecks } = await import('../src/PairedRechecks');
+  const desk = (a: string, r: string) =>
+    ({
+      capabilities: { features: { paired_event_rechecks: true } },
+      sessions: [],
+      project: {
+        analyzer_stream_id: 'a',
+        receiver_stream_id: 'r',
+        profile: { analyzer: { settings: { adapter: a } }, receiver: { settings: { adapter: r } } },
+      },
+    }) as unknown as import('../src/useDesk').Desk;
+  expect(supportsPairedRechecks(desk('tinysa-serial', 'ardv1-serial'))).toBe(true);
+  expect(supportsPairedRechecks(desk('tinysa-sim', 'ardv1-sim'))).toBe(true);
+  expect(supportsPairedRechecks(desk('rf-explorer-3g-serial', 'ardv1-serial'))).toBe(false);
+  expect(supportsPairedRechecks(desk('tinysa-serial', 'ardv1-sim'))).toBe(false);
+});

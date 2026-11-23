@@ -441,6 +441,7 @@ async fn execute() -> Result<()> {
     let mut configuration = CoreConfig::new(&options.data);
     #[cfg(feature = "serial")]
     if options.allow_serial {
+        configuration.devices.port_candidates = Some(ori_instruments::serial::available_port_names);
         configuration.devices.transport =
             Some(std::sync::Arc::new(ori_core::devices::NativeSerialFactory));
     }

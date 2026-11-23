@@ -1235,6 +1235,19 @@ impl crate::RestoreKeys for NodeArchiveLocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeSerialPorts {
+    pub ports: Vec<String>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for NodeSerialPorts {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairedControls {
     pub lower: PairedOriginals,
     pub upper: PairedOriginals,
@@ -2844,6 +2857,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         path: "/api/v1/security/status",
         backends: &["rust-candidate"],
         features: &[],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &[],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_serial_ports",
+        method: "GET",
+        path: "/api/v1/serial-ports",
+        backends: &["rust-candidate"],
+        features: &["serial_port_candidates"],
         capabilities: &[],
         query: &[],
         path_parameters: &[],

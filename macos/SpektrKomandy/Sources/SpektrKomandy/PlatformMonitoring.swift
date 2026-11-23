@@ -262,6 +262,14 @@ extension PlatformClient {
         return try await get("/monitoring-projects" + path)
     }
 
+    public func nodeSerialPorts() async throws -> [String] {
+        let response: MonitoringValue = try await get("/serial-ports")
+        guard case .array(let ports) = response["ports"], ports.count <= 256,
+              ports.allSatisfy({ !$0.text.isEmpty && $0.text.utf8.count <= 1024 }) else {
+            throw PlatformError.invalidResponse("Некорректный список последовательных портов узла.")
+        }
+        return ports.map(\.text)
+    }
     public func nodeArchiveLocation() async throws -> MonitoringValue { try await get("/archive/location") }
 
     public func monitoringDuty(projectID: String, body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {

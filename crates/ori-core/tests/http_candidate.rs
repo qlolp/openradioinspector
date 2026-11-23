@@ -1514,3 +1514,28 @@ async fn operator_can_inspect_the_active_archive_without_exposing_a_filesystem_p
     assert!(matches!(status, 404 | 405));
     server.stop().await;
 }
+
+#[tokio::test]
+async fn operator_selects_node_serial_candidates_without_opening_a_transport() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = CoreConfig::replay(directory.path());
+    config.devices.port_candidates =
+        Some(|| Ok(vec!["COM29".into(), "COM11".into(), "COM29".into()]));
+    let mut server = Server::start(config).await;
+    let (_, capabilities) = server.request("GET", "/api/v1/capabilities", None).await;
+    assert_eq!(
+        capabilities["data"]["features"]["serial_port_candidates"],
+        true
+    );
+    let (status, body) = server.request("GET", "/api/v1/serial-ports", None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["ports"], json!(["COM11", "COM29"]));
+    assert_eq!(
+        server
+            .request("GET", "/api/v1/serial-ports?probe=1", None)
+            .await
+            .0,
+        400
+    );
+    server.stop().await;
+}

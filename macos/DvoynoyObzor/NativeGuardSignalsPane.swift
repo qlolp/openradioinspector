@@ -490,7 +490,7 @@ private struct NativePairedRechecksPane: View {
         GroupBox("Повторная проверка") {
             VStack(alignment: .leading, spacing: 6) {
                 if !workspace.pairedRechecksAvailable {
-                    Text("Ядро не сообщает о поддержке парных проверок.")
+                    Text("Парная проверка доступна для tinySA и AR-DV1 на совместимом узле.")
                 } else {
                     if workspace.signalPending.contains(.rechecks) {
                         ProgressView("Проверяем исходники…").controlSize(.small)

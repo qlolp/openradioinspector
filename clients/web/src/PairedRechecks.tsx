@@ -64,6 +64,29 @@ async function readPairedRecipe(file: File) {
   return value;
 }
 
+export function supportsPairedRechecks(
+  desk: Desk,
+  sessionId = desk.project?.active_session_id,
+): boolean {
+  const project = desk.project;
+  if (
+    desk.capabilities?.features.paired_event_rechecks !== true ||
+    !project?.analyzer_stream_id ||
+    !project.receiver_stream_id
+  )
+    return false;
+  const streams = desk.sessions.find((session) => session.id === sessionId)?.streams;
+  const analyzer =
+    streams?.find((stream) => stream.role === 'spectrum_analyzer') ?? project.profile?.analyzer;
+  const receiver =
+    streams?.find((stream) => stream.role === 'receiver') ?? project.profile?.receiver;
+  const a = analyzer?.settings.adapter,
+    r = receiver?.settings.adapter;
+  return (
+    (a === 'tinysa-serial' && r === 'ardv1-serial') || (a === 'tinysa-sim' && r === 'ardv1-sim')
+  );
+}
+
 export function PairedRechecks({
   desk,
   eventId,

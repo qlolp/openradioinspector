@@ -416,8 +416,12 @@ impl GuardService {
         Ok(p)
     }
     pub async fn save_preparation(&self, id: &str, payload: Value) -> Result<Value> {
+        let mut prep = payload;
+        let corrections = prep
+            .as_object_mut()
+            .and_then(|body| body.remove("port_corrections"));
         fields(
-            &payload,
+            &prep,
             &[
                 "antenna_notes",
                 "receive_path_confirmed",
@@ -426,9 +430,8 @@ impl GuardService {
             true,
         )
         .map_err(|_| invalid("Нужны антенна, подтверждения тракта и места"))?;
-        let notes = text_with_label(&payload, "antenna_notes", "Антенна/тракт", 1000)?;
-        if !payload["receive_path_confirmed"].is_boolean()
-            || !payload["location_confirmed"].is_boolean()
+        let notes = text_with_label(&prep, "antenna_notes", "Антенна/тракт", 1000)?;
+        if !prep["receive_path_confirmed"].is_boolean() || !prep["location_confirmed"].is_boolean()
         {
             return Err(invalid("Подтверждения должны быть boolean"));
         }
@@ -441,12 +444,89 @@ impl GuardService {
             ));
         }
         let mut p = self.project(id).await?;
-        let mut prep = payload;
+        let mut mutations = Vec::new();
+        if let Some(changes) = corrections
+            && let Some(session) = self.correct_draft_ports(&mut p, &changes)?
+        {
+            mutations.push(session);
+        }
         prep["antenna_notes"] = json!(notes);
         prep["confirmed_at"] = json!(self.clock.now().as_str());
         p["preparation"] = prep;
-        self.archive.put_monitoring("project", p.clone()).await?;
+        mutations.push(Self::mutation("project", p.clone()));
+        self.archive.apply(mutations).await?;
         Ok(p)
+    }
+    fn correct_draft_ports(&self, p: &mut Value, changes: &Value) -> Result<Option<Mutation>> {
+        if p["duty"]["enabled"] == true
+            || !p["baseline_id"].is_null()
+            || p["band_baselines"]
+                .as_object()
+                .is_some_and(|v| !v.is_empty())
+            || matches!(p["state"].as_str(), Some("collecting" | "armed"))
+        {
+            return Err(GuardError::Conflict(
+                "Для изменения портов нужен остановленный проект без эталона".into(),
+            ));
+        }
+        let roles = fields(changes, &["receiver", "analyzer"], false)?;
+        if roles.is_empty() {
+            return Err(invalid("Укажите хотя бы один порт прибора"));
+        }
+        let mut changed = false;
+        for (role, correction) in roles {
+            fields(correction, &["from", "to"], true)?;
+            let stream = &mut p["profile"][role.as_str()];
+            if !matches!(
+                stream["settings"]["adapter"].as_str(),
+                Some("ardv1-serial" | "tinysa-serial" | "rf-explorer-3g-serial")
+            ) {
+                return Err(invalid(
+                    "Исправление доступно для физического прибора проекта",
+                ));
+            }
+            let port = text(correction, "to", 1024)?;
+            if port.contains("://")
+                || port.contains(char::is_control)
+                || (cfg!(windows) && !crate::preflight::valid_com(&port))
+            {
+                return Err(invalid("Нужен физический последовательный порт на узле"));
+            }
+            let Some(from) = correction["from"].as_str() else {
+                return Err(invalid("Нужен прежний порт проекта"));
+            };
+            if stream["port"] == port {
+                continue;
+            }
+            if stream["port"] != from {
+                return Err(GuardError::Conflict(
+                    "Порт уже изменился. Обновите проект".into(),
+                ));
+            }
+            stream["port"] = json!(port);
+            changed = true;
+        }
+        let analyzer = p["profile"]["analyzer"]["port"].as_str();
+        let receiver = p["profile"]["receiver"]["port"].as_str();
+        if let (Some(a), Some(r)) = (analyzer, receiver)
+            && (a == r
+                || cfg!(windows)
+                    && a.trim_start_matches(r"\\.\")
+                        .eq_ignore_ascii_case(r.trim_start_matches(r"\\.\")))
+        {
+            return Err(invalid(
+                "Для двух приборов нужны разные последовательные порты",
+            ));
+        }
+        if changed {
+            let draft = self.clone_session(p, true, None)?;
+            Self::select_project_session(p, &draft)?;
+            p["state"] = json!("draft");
+            p["coverage"] = json!("stopped");
+            p["last_error"] = Value::Null;
+            return Ok(Some(Mutation::CreateSession(draft)));
+        }
+        Ok(None)
     }
     pub(crate) fn project_owned(&self, id: &str) -> Result<bool> {
         Ok(self
