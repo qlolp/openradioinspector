@@ -12,7 +12,7 @@ fn single(role: &str, settings: Value) -> Value {
         .unwrap()
         .clone();
     stream["settings"] = settings;
-    stream["port"] = json!("fixture-port");
+    stream["port"] = json!("COM21");
     session["streams"] = json!([stream]);
     session
 }

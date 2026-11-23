@@ -469,6 +469,7 @@ async fn open_duty_node(path: &std::path::Path, factory: &Arc<Factory>) -> Arc<C
 
 async fn receiver_duty_fixture(node: &Core) -> String {
     let mut template = cyclic_session("reference", 115_010);
+    template["streams"][0]["port"] = json!("COM22");
     template["streams"][0]["settings"]["period_s"] = json!(10);
     let archive = node.archive().unwrap();
     archive.create_session(template.clone()).await.unwrap();
@@ -487,6 +488,11 @@ async fn receiver_duty_fixture(node: &Core) -> String {
         .unwrap();
     guard.save_preparation(id, json!({"antenna_notes":"Fixture","receive_path_confirmed":true,"location_confirmed":true})).await.unwrap();
     let archived = archive.get_session("reference").await.unwrap().unwrap();
+    #[cfg(feature = "serial")]
+    ori_instruments::serial::validate_windows_com_port(
+        archived["streams"][0]["port"].as_str().unwrap(),
+    )
+    .expect("duplex receiver fixture needs a portable native port");
     let key = ori_guard::ardv1_plan_key(&parse_session(&archived).unwrap().streams[0]).unwrap();
     let mut rows = vec![];
     for pass in 1..=20 {
@@ -527,6 +533,26 @@ async fn receiver_duty_fixture(node: &Core) -> String {
     id.to_owned()
 }
 
+async fn arm_receiver_duty(node: &Core, id: &str, resume_after_restart: bool) -> Value {
+    let guard = &node.domains.get().unwrap().guard;
+    let preflight = guard.preflight(id, false).await.unwrap();
+    assert_eq!(preflight["ready"], true, "{}", preflight["checks"]);
+    let duty = guard
+        .arm_duty(
+            id,
+            json!({"schedule":{"mode":"continuous"},"resume_after_restart":resume_after_restart}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(duty["status"], "armed", "{duty}");
+    let status = guard.guard_status(id).await.unwrap();
+    assert_eq!(status["active"], true, "{status}");
+    let project = &status["project"];
+    assert_ne!(project["active_session_id"], "reference");
+    assert_ne!(project["primary_stream_id"], "reference-r");
+    project.clone()
+}
+
 async fn next_duty_original(node: &Core, sid: &str, stream: &str, n: usize) -> Vec<Value> {
     tokio::time::timeout(Duration::from_secs(8), async {
         loop {
@@ -537,6 +563,12 @@ async fn next_duty_original(node: &Core, sid: &str, stream: &str, n: usize) -> V
                 .await
                 .unwrap();
             if rows.len() >= n {
+                for original in &rows {
+                    assert_eq!(original["session_id"], sid);
+                    assert_eq!(original["stream_id"], stream);
+                    assert!(ori_archive::verified_receiver_scan_context(original).is_some());
+                    assert!(original["metadata"]["receiver_run_unit"].is_string());
+                }
                 return rows;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -552,11 +584,7 @@ async fn opted_in_duty_reopens_its_raw_stream_and_only_fills_the_next_verified_p
     let factory = Factory::new(false);
     let node = open_duty_node(dir.path(), &factory).await;
     let id = receiver_duty_fixture(&node).await;
-    let guard = &node.domains.get().unwrap().guard;
-    let policy = |enable| json!({"schedule":{"mode":"continuous"},"resume_after_restart":enable});
-    let duty = guard.arm_duty(&id, policy(true)).await.unwrap();
-    assert_eq!(duty["status"], "armed", "{duty}");
-    let project = guard.get_record("project", &id, None).await.unwrap();
+    let project = arm_receiver_duty(&node, &id, true).await;
     let sid = project["active_session_id"].as_str().unwrap();
     let stream = project["primary_stream_id"].as_str().unwrap();
     let first = next_duty_original(&node, sid, stream, 1).await.remove(0);
@@ -624,8 +652,7 @@ async fn opted_in_duty_reopens_its_raw_stream_and_only_fills_the_next_verified_p
 
     // An explicit stop followed by a new duty never borrows the previous cursor.
     guard.disarm(&id, json!({})).await.unwrap();
-    guard.arm_duty(&id, policy(false)).await.unwrap();
-    let fresh = guard.get_record("project", &id, None).await.unwrap();
+    let fresh = arm_receiver_duty(&reopened, &id, false).await;
     assert_ne!(fresh["active_session_id"], sid);
     let fresh_row = next_duty_original(
         &reopened,
@@ -661,15 +688,7 @@ async fn duty_recovery_rejects_a_different_receiver_on_the_same_port_before_scan
     let factory = Factory::new(false);
     let node = open_duty_node(dir.path(), &factory).await;
     let id = receiver_duty_fixture(&node).await;
-    let guard = &node.domains.get().unwrap().guard;
-    guard
-        .arm_duty(
-            &id,
-            json!({"schedule":{"mode":"continuous"},"resume_after_restart":true}),
-        )
-        .await
-        .unwrap();
-    let project = guard.get_record("project", &id, None).await.unwrap();
+    let project = arm_receiver_duty(&node, &id, true).await;
     let sid = project["active_session_id"].as_str().unwrap();
     let stream = project["primary_stream_id"].as_str().unwrap();
     let original = next_duty_original(&node, sid, stream, 1).await.remove(0);
@@ -705,15 +724,7 @@ async fn duty_recovery_refuses_an_archive_run_reassigned_to_a_different_project(
     let factory = Factory::new(false);
     let node = open_duty_node(dir.path(), &factory).await;
     let id = receiver_duty_fixture(&node).await;
-    let guard = &node.domains.get().unwrap().guard;
-    guard
-        .arm_duty(
-            &id,
-            json!({"schedule":{"mode":"continuous"},"resume_after_restart":true}),
-        )
-        .await
-        .unwrap();
-    let project = guard.get_record("project", &id, None).await.unwrap();
+    let project = arm_receiver_duty(&node, &id, true).await;
     let sid = project["active_session_id"].as_str().unwrap();
     let stream = project["primary_stream_id"].as_str().unwrap();
     next_duty_original(&node, sid, stream, 1).await;
