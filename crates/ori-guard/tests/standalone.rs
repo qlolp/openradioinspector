@@ -358,6 +358,86 @@ fn explorer_frame(p: &Value, pass: usize, tile: usize, survey: bool) -> Value {
 }
 
 #[tokio::test]
+async fn fixed_explorer_reference_samples_independent_originals_of_the_current_normal_context() {
+    let session = single(
+        "spectrum_analyzer",
+        json!({"adapter":"rf-explorer-3g-serial","baud":500000,"start_hz":100_000_000,"stop_hz":101_110_000}),
+    );
+    let h = Harness::with_session(session.clone()).await;
+    let p = prepared_single(&h, &session).await;
+    let id = p["id"].as_str().unwrap();
+    let origin = chrono::DateTime::parse_from_rfc3339(&stamp(0)).unwrap();
+    let source = |tenths: usize, name: &str, template: &Value| {
+        let at = (origin + chrono::Duration::milliseconds(tenths as i64 * 100))
+            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+        let mut frame = template.clone();
+        frame["id"] = json!(name);
+        frame["interval"] = json!({"started_at":at,"ended_at":at});
+        frame
+    };
+    let normal = explorer_frame(&p, 0, 1, false);
+    let mut held = normal.clone();
+    held["settings"]["detector"] = json!("max_hold");
+    held["settings"]["detector_code"] = json!(4);
+    held["settings"]["artifact_kind"] = json!("processed_trace");
+    let mut prior = normal.clone();
+    prior["settings"]["rbw_hz"] = json!(30000);
+    for (begin, end, frame, label) in [(0, 64, &held, "hold"), (64, 144, &prior, "prior")] {
+        let batch = (begin..end)
+            .map(|t| source(t, &format!("{label}-{t}"), frame))
+            .collect();
+        h.archive.append_sweeps(batch).await.unwrap();
+    }
+    for start in (0..1200).step_by(60) {
+        let batch = (start..start + 60)
+            .map(|t| source(144 + t, &format!("normal-{t:04}"), &normal))
+            .collect();
+        h.archive.append_sweeps(batch).await.unwrap();
+    }
+    let run = h.service.baseline_collection(&p).await.unwrap();
+    assert_eq!(run["elapsed_seconds"], 119.9, "{run}");
+    assert_eq!(run["ready"], true);
+    // Independent originals can share a timestamp after a replay or import.
+    // They must not displace a distinct measurement at either sampling boundary.
+    for offset in [0, 1199] {
+        for start in (0..150).step_by(50) {
+            let batch = (start..start + 50)
+                .map(|n| source(144 + offset, &format!("copy-{offset}-{n:03}"), &normal))
+                .collect();
+            h.archive.append_sweeps(batch).await.unwrap();
+        }
+    }
+    let progress = h.service.baseline_collection(&p).await.unwrap();
+    assert_eq!(progress["ready"], true, "{progress}");
+    assert_eq!(progress["elapsed_seconds"], 119.9);
+    let baseline = h
+        .service
+        .create_baseline(id, baseline_request())
+        .await
+        .unwrap();
+    let refs = baseline["source_refs"].as_array().unwrap();
+    assert_eq!(refs.len(), 192);
+    assert_eq!(refs.first().unwrap()["sweep_id"], "normal-0000");
+    assert_eq!(refs.last().unwrap()["sweep_id"], "normal-1199");
+    let ids: Vec<_> = refs
+        .iter()
+        .map(|r| r["sweep_id"].as_str().unwrap())
+        .collect();
+    assert!(ids.iter().all(|id| id.starts_with("normal-")));
+    assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+    // A newly observed Normal context starts its own collection.
+    prior["settings"]["rbw_hz"] = json!(45000);
+    h.archive
+        .append_sweeps(vec![source(1400, "new-context", &prior)])
+        .await
+        .unwrap();
+    let changed = h.service.baseline_collection(&p).await.unwrap();
+    assert_eq!(changed["ready"], false, "{changed}");
+    assert_eq!(changed["sweeps"], 1);
+    h.close().await;
+}
+
+#[tokio::test]
 async fn normal_explorer_window_and_survey_detect_from_original_frames() {
     for survey in [false, true] {
         let mut settings = json!({"adapter":"rf-explorer-3g-serial","baud":500000,"start_hz":100_000_000,"stop_hz":101_110_000});

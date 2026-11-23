@@ -238,6 +238,116 @@ async fn incompatible_readback_bad_geometry_overlaps_and_duplicates_fail_closed(
 }
 
 #[tokio::test]
+async fn fixed_guard_indexes_older_originals_and_normalizes_timestamp_collisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fixed.sqlite");
+    let archive = open(&path).await;
+    let mut fixed = window("fixed", 1, 112, 1, 62);
+    fixed["settings"].as_object_mut().unwrap().remove("survey");
+    fixed["settings"]["simulated"] = json!(false);
+    fixed["settings"]["instrument_note"] = json!("a".repeat(9000));
+    let mut oversized = fixed.clone();
+    oversized["id"] = json!("large-metadata");
+    oversized["settings"]["instrument_note"] = json!("á".repeat(32_768));
+    oversized["interval"] = json!({"started_at":stamp(200),"ended_at":stamp(201)});
+    archive
+        .append_sweeps(vec![fixed.clone(), oversized.clone()])
+        .await
+        .unwrap();
+    let live = archive
+        .rfe_fixed_guard_selection("session", "rf", None, None)
+        .await
+        .unwrap();
+    assert_eq!(live.sweep_ids, [fixed["id"].as_str().unwrap()]);
+    assert_eq!(
+        archive.get_sweep("large-metadata").await.unwrap().unwrap()["settings"],
+        oversized["settings"]
+    );
+    archive.close().await.unwrap();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch("DROP TABLE ori_rfe_fixed_sources_v1; DROP TABLE ori_rfe_fixed_ingestion_v1")
+        .unwrap();
+    // Older writers store equivalent UTC instants using different offsets.
+    for (id, start, end) in [
+        (
+            "a",
+            "2026-11-22T03:00:00+03:00",
+            "2026-11-22T03:00:01+03:00",
+        ),
+        ("z", "2026-11-22T00:00:00Z", "2026-11-22T00:00:01Z"),
+        ("overlap", "2026-11-22T00:00:01Z", "2026-11-22T00:01:03Z"),
+    ] {
+        db.execute(
+            "INSERT INTO sweeps VALUES(?1,'session','rf',?2,?3,?4,?5,'dBm',?6)",
+            rusqlite::params![
+                id,
+                start,
+                end,
+                fixed["frequencies_hz"].to_string(),
+                fixed["levels"].to_string(),
+                fixed["settings"].to_string()
+            ],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO sweep_ingestion(sweep_id,session_id,stream_id) VALUES(?,'session','rf')",
+            [id],
+        )
+        .unwrap();
+    }
+    drop(db);
+    for _ in 0..2 {
+        let archive = Archive::open(ArchiveConfig::new(&path)).unwrap();
+        let selected = archive
+            .rfe_fixed_guard_selection("session", "rf", Some(START as i64), None)
+            .await
+            .unwrap();
+        assert_eq!(selected.sweep_ids, ["z", fixed["id"].as_str().unwrap()]);
+        assert_eq!(selected.elapsed_seconds, 63.0);
+        assert!(
+            archive
+                .rfe_fixed_guard_selection("session", "other", None, None)
+                .await
+                .unwrap()
+                .sweep_ids
+                .is_empty()
+        );
+        assert!(
+            archive
+                .rfe_fixed_guard_selection("session", "rf", Some(START as i64 + 1), None)
+                .await
+                .unwrap()
+                .sweep_ids
+                .is_empty()
+        );
+        archive.close().await.unwrap();
+    }
+    // Force a failure after inserting one source during a rebuild. Its rows
+    // and watermark must roll back together and the next open must recover.
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch("DELETE FROM ori_rfe_fixed_sources_v1;
+        UPDATE ori_rfe_fixed_ingestion_v1 SET sequence=0;
+        CREATE TRIGGER interrupt_fixed BEFORE INSERT ON ori_rfe_fixed_sources_v1 WHEN NEW.sweep_id='z'
+        BEGIN SELECT RAISE(ABORT,'interrupted fixture rebuild'); END;").unwrap();
+    drop(db);
+    assert!(Archive::open(ArchiveConfig::new(&path)).is_err());
+    let db = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(db.query_row("SELECT sequence,(SELECT COUNT(*) FROM ori_rfe_fixed_sources_v1) FROM ori_rfe_fixed_ingestion_v1",[],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?))).unwrap(), (0,0));
+    db.execute_batch("DROP TRIGGER interrupt_fixed").unwrap();
+    drop(db);
+    let archive = Archive::open(ArchiveConfig::new(&path)).unwrap();
+    assert_eq!(
+        archive
+            .rfe_fixed_guard_selection("session", "rf", None, None)
+            .await
+            .unwrap()
+            .sweep_ids,
+        ["z", fixed["id"].as_str().unwrap()]
+    );
+    archive.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn legacy_writers_are_backfilled_incrementally_without_reading_unrelated_arrays() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("legacy.sqlite");
