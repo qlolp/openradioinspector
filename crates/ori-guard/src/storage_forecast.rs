@@ -119,11 +119,11 @@ impl GuardService {
                 .await?;
             sample.count = observations.len() as i64;
             sample.first_started_at = observations
-                .last()
+                .first()
                 .and_then(|v| v["interval"]["started_at"].as_str())
                 .map(str::to_owned);
             sample.last_ended_at = observations
-                .first()
+                .last()
                 .and_then(|v| v["interval"]["ended_at"].as_str())
                 .map(str::to_owned);
             let mut bytes = 0;
