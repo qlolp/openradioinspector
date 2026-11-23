@@ -83,10 +83,11 @@ systemctl() {
             result = subprocess.run(['bash', '-euo', 'pipefail', '-c', fixture + verifier + '\n' + commands],
                                     env=environment, capture_output=True, text=True, timeout=5)
             recorded = events.read_text().splitlines() if events.exists() else []
-            return result, recorded
+            proof = root / 'lifecycle.jsonl'
+            return result, recorded, proof.read_text().splitlines() if proof.exists() else []
 
     def test_verified_scenarios_do_not_consume_each_others_start_limit(self):
-        result, events = self.run_scenarios('''
+        result, events, proof = self.run_scenarios('''
 for phase in install upgrade rollback restart existing-v6 existing-v6; do
     systemctl start "$unit"
     verify "$phase"
@@ -95,43 +96,51 @@ done
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(events.count('start'), 6)
         self.assertEqual(events.count('reset'), 6)
+        self.assertEqual(len(proof), 6)
+        self.assertTrue(all(json.loads(line)['result'] == 'passed' for line in proof))
 
     def test_unverified_starts_still_hit_the_rate_limit(self):
-        result, events = self.run_scenarios('for attempt in 1 2 3 4 5 6; do systemctl start "$unit"; done')
+        result, events, proof = self.run_scenarios('for attempt in 1 2 3 4 5 6; do systemctl start "$unit"; done')
         self.assertEqual(result.returncode, 75, result.stderr)
         self.assertEqual(events[-1], 'start-limit-hit')
         self.assertNotIn('reset', events)
+        self.assertEqual(proof, [])
 
     def test_failed_install_or_http_check_never_resets_or_continues(self):
         for values, expected in [({'install_exit': 22}, 22), ({'http_exit': 23}, 23)]:
             with self.subTest(values=values):
-                result, events = self.run_scenarios('verify upgrade\nevent continued', **values)
+                result, events, proof = self.run_scenarios('verify upgrade\nevent continued', **values)
                 self.assertEqual(result.returncode, expected, result.stderr)
                 self.assertNotIn('reset-request', events)
                 self.assertNotIn('continued', events)
+                self.assertEqual(proof, [])
 
     def test_failed_reset_remains_a_lifecycle_failure(self):
-        result, events = self.run_scenarios('verify upgrade\nevent continued', reset_exit=24)
+        result, events, proof = self.run_scenarios('verify upgrade\nevent continued', reset_exit=24)
         self.assertEqual(result.returncode, 24, result.stderr)
         self.assertNotIn('reset', events)
         self.assertNotIn('continued', events)
+        self.assertEqual(proof, [])
 
     def test_automatic_restart_is_not_erased_by_a_successful_health_check(self):
-        result, events = self.run_scenarios('verify upgrade\nevent continued', automatic_restarts=1)
+        result, events, proof = self.run_scenarios('verify upgrade\nevent continued', automatic_restarts=1)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('http:upgrade', events)
         self.assertIn('automatic-restarts:1', events)
         self.assertNotIn('reset-request', events)
         self.assertNotIn('continued', events)
+        self.assertEqual(proof, [])
+        self.assertIn('Unexpected automatic restarts for ori-fixture.service: 1', result.stderr)
 
     def test_inactive_or_unreadable_restart_state_never_resets(self):
         for values, expected in [({'active_exit': 3}, 3), ({'show_exit': 25}, 25),
                                  ({'automatic_restarts': ''}, 1)]:
             with self.subTest(values=values):
-                result, events = self.run_scenarios('verify upgrade\nevent continued', **values)
+                result, events, proof = self.run_scenarios('verify upgrade\nevent continued', **values)
                 self.assertEqual(result.returncode, expected, result.stderr)
                 self.assertNotIn('reset-request', events)
                 self.assertNotIn('continued', events)
+                self.assertEqual(proof, [])
 
 
 class DebianPackageAssemblyTests(unittest.TestCase):

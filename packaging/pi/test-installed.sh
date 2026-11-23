@@ -85,17 +85,18 @@ trap cleanup EXIT
 offline() { "${launcher[@]}" env NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost "$@"; }
 verify() {
     "/usr/lib/$package/check-install" >/dev/null
-    offline python3 "$checks" "$1" --manifest "$manifest" >> "$report/lifecycle.jsonl"
+    local phase_report automatic_restarts
+    phase_report=$(offline python3 "$checks" "$1" --manifest "$manifest")
     # Only a healthy, crash-free scenario clears this CI unit's manual starts.
     # Preserve evidence of an automatic restart even if HTTP has recovered.
     systemctl is-active --quiet "$unit"
-    local automatic_restarts
     automatic_restarts=$(systemctl show -p NRestarts --value "$unit")
     if [ "$automatic_restarts" != 0 ]; then
         printf 'Unexpected automatic restarts for %s: %s\n' "$unit" "$automatic_restarts" >&2
         return 1
     fi
     systemctl reset-failed "$unit"
+    printf '%s\n' "$phase_report" >> "$report/lifecycle.jsonl"
 }
 
 if [ "$arch" = amd64 ]; then
