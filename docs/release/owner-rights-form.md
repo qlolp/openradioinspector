@@ -4,15 +4,16 @@
 
 ## Создание реестра
 
-В checkout проверяемой ревизии задайте `PRIVATE_RIGHTS_DIR` путём к существующему приватному каталогу владельца вне репозитория. Пример для POSIX создаёт строки только по уже учтённым Git ID. Он не читает содержимое объектов и не печатает идентификаторы. Запуск сохраняет существующий реестр при повторной попытке.
+В полном локальном checkout задайте `PRIVATE_RIGHTS_DIR` путём к существующему приватному каталогу владельца вне репозитория. В `HISTORICAL_SOURCE_SHA` укажите полный SHA исторической ревизии, от которой достижимы объекты исходного списка. Пример для POSIX создаёт строки по метаданным Git и расширению указанного Git пути. Содержимое объектов остаётся в хранилище, идентификаторы попадают только в приватный файл. Запуск сохраняет существующий реестр при повторной попытке.
 
 ```sh
 umask 077
-python - "$PRIVATE_RIGHTS_DIR" <<'PY'
+python - "$PRIVATE_RIGHTS_DIR" "$HISTORICAL_SOURCE_SHA" <<'PY'
 import csv
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
+import subprocess
 import sys
 
 root = Path.cwd().resolve()
@@ -24,11 +25,38 @@ if dest.stat().st_uid != os.geteuid() or dest.stat().st_mode & 0o077:
 ids = (root / "tools/release/blocked-blobs.txt").read_text(encoding="ascii").splitlines()
 if not ids or len(set(ids)) != len(ids) or any(not re.fullmatch("[0-9a-f]{40}", x) for x in ids):
     raise SystemExit("Проверьте исходный список для зафиксированного SHA")
+revision = sys.argv[2]
+if not re.fullmatch("[0-9a-f]{40}", revision):
+    raise SystemExit("Укажите полный SHA исторической ревизии")
+formats = {
+    "program": "exe dll sys ocx bpl ax drv",
+    "documentation": "pdf doc docx rtf hlp cnt chm txt htm html",
+    "database": "fdb gdb db mdb btr sqlite dbf",
+    "container": "msi cab zip rar 7z gz iso img bz2",
+    "image": "jpg jpeg png bmp ico gif wmf emf tif tiff",
+    "structured_text": "ini reg xml csv inf cfg json md yml yaml tsv toml",
+}
+extensions = {ext: name for name, suffixes in formats.items() for ext in suffixes.split()}
+needed = set(ids)
+hints = {}
+with subprocess.Popen(["git", "-c", "core.quotePath=false", "rev-list", "--objects", revision],
+                      stdout=subprocess.PIPE) as history:
+    for line in history.stdout:
+        raw_id, _, path = line.rstrip(b"\n").partition(b" ")
+        oid = raw_id.decode("ascii")
+        if oid in needed:
+            suffix = PurePosixPath(os.fsdecode(path).strip('"')).suffix.lower().lstrip(".")
+            hints[oid] = extensions.get(suffix, "unclassified")
+    if history.wait() or set(hints) != needed:
+        raise SystemExit("История исходного снимка неполна для этого списка")
 with (dest / "objects.csv").open("x", encoding="utf-8", newline="") as handle:
     rows = csv.writer(handle)
-    rows.writerow(("case_id", "git_blob_oid", "category", "origins_record", "evidence_record", "decision_record", "status"))
+    rows.writerow(("case_id", "git_blob_oid", "source_revision", "format_hint", "evidence_kind",
+                   "rights_category", "origins_record", "rights_evidence", "decision_record",
+                   "public_proposal", "status"))
     for number, oid in enumerate(sorted(ids), 1):
-        rows.writerow((f"R-{number:03}", oid, "", "", "", "", "pending"))
+        rows.writerow((f"R-{number:03}", oid, revision, hints[oid], "git_metadata",
+                       "", "", "", "", "exclude", "pending"))
 print(f"Создано строк: {len(ids)}")
 PY
 ```
