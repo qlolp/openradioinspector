@@ -99,6 +99,26 @@ class FieldDocumentTest {
         assertTrue(root.listFiles()!!.isEmpty())
     }
 
+    @Test fun largeOpaqueIdsResolveByExactValueAcrossOriginalsAndLinks() = inCache { root ->
+        val id = "s".repeat(2 * 1024 * 1024 + 17) + "α"
+        val bytes = repack { members ->
+            for (member in listOf("measurements.ndjson", "events.ndjson"))
+                members.replaceText(member, "fixture-sweep-α", id)
+        }
+        FieldDocument.open(root, bytes.inputStream()).use { doc ->
+            val channel = doc.channels.single { !it.receiver }
+            val reader = doc.reader(channel)
+            val page = reader.page(channel.profile, ReviewKind.TRACK, PageCursor(), null, 100_000_002L)
+            assertEquals(id, page.routeLevels.getValue("fix-1").sourceId)
+            val source = reader.source(channel.profile, id)!!
+            assertEquals(id, source.getString("id"))
+            assertNull(reader.source(channel.profile, id.dropLast(1)))
+            val note = reader.page(channel.profile, ReviewKind.NOTES, PageCursor(), null).items.single().json
+            assertEquals(id, note.getString("sweep_id"))
+        }
+        assertTrue(root.listFiles()!!.isEmpty())
+    }
+
     @Test fun recordAboveTheV1LimitIsRejectedBeforeDecoding() {
         val input = ByteArray(FieldExporter.maxLine) { 32 }.inputStream()
         val error = assertThrows(IllegalArgumentException::class.java) { FieldLines(input, 0L) {}.next() }

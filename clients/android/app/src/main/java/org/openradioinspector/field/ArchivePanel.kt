@@ -173,7 +173,7 @@ internal fun ArchiveDetail(reader: SessionReview, export: (() -> Unit)? = null) 
                 SourceDetails(json)
             }
             ReviewKind.NOTES, ReviewKind.GAPS -> {
-                ArchiveText(json.optString(if (kind == ReviewKind.NOTES) "text" else "reason"), entryId)
+                ArchiveText(json, if (kind == ReviewKind.NOTES) "text" else "reason", entryId)
                 Text(json.getString("time_utc"))
                 val sourceKey = listOf("sweep_id", "observation_id").firstOrNull { !json.isNull(it) }
                 if (sourceKey != null) OutlinedButton(onClick = {
@@ -224,20 +224,24 @@ private fun ArchivePages(page: Int, pages: Int, change: (Int) -> Unit) {
 }
 
 @Composable
-private fun ArchiveText(text: String, id: String) {
-    val chars = 4096
-    if (text.length <= chars) {
-        Text(text)
-        return
-    }
-    val pages = (text.length - 1) / chars + 1
+private fun ArchiveText(json: JSONObject, field: String, id: String) {
+    val source = json as? FieldRowObject
+    val local = if (source == null) json.optString(field) else ""
+    val length = source?.textLength(field) ?: local.length
+    val chars = 2048
+    val pages = maxOf(1, (length - 1) / chars + 1)
     var page by rememberSaveable(id, pages) { mutableIntStateOf(0) }
-    fun boundary(at: Int): Int {
-        val i = at.coerceAtMost(text.length)
-        return if (i in 1 until text.length && text[i].isLowSurrogate()) i + 1 else i
+    val first = page * chars
+    val end = minOf(first + chars, length)
+    if (pages > 1) ArchivePages(page, pages) { page = it }
+    val visible = remember(json, field, page) {
+        if (source != null) source.textPage(field, first, end)
+        else {
+            fun boundary(at: Int) = if (at in 1 until length && local[at].isLowSurrogate() && local[at-1].isHighSurrogate()) at + 1 else at
+            local.substring(boundary(first), boundary(end))
+        }
     }
-    ArchivePages(page, pages) { page = it }
-    Text(text.substring(boundary(page * chars), boundary((page + 1) * chars)))
+    Text(visible)
 }
 
 @Composable

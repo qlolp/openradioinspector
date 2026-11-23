@@ -28,8 +28,8 @@ internal class SessionReview(private val file: File, private val sessionId: Stri
 
     private fun row(cursor: Cursor, column: Int, archive: RandomAccessFile?, table: String): JSONObject {
         if (archive == null) return JSONObject(cursor.getString(column))
-        val raw = archive.verifiedFieldText(cursor.getLong(column), cursor.getInt(column + 1), cursor.getBlob(column + 2))
-        val json = JSONObject(raw)
+        val raw = archive.verifiedFieldBytes(cursor.getLong(column), cursor.getInt(column + 1), cursor.getBlob(column + 2))
+        val json = FieldRowObject.root(FieldBytes.Memory(raw))
         return if (table == "events") json else json.getJSONObject("measurement")
     }
 
@@ -46,8 +46,19 @@ internal class SessionReview(private val file: File, private val sessionId: Stri
         }
     fun info(): SessionInfo = read { db, _ -> info(db) }
 
-    private fun inSession(record: JSONObject, id: String, streamId: String): Boolean =
-        record.opt("id") == id && record.opt("session_id") == sessionId && record.opt("stream_id") == streamId
+    private fun key(id: String) = if (imported == null) id else fieldIndexKey(id)
+
+    private fun inSession(record: JSONObject, indexedId: String, streamId: String): Boolean {
+        val actual = if (record is FieldRowObject) record.indexKey("id") else record.opt("id")
+        return actual == indexedId && record.opt("session_id") == sessionId && record.opt("stream_id") == streamId
+    }
+
+    private fun linkedFix(record: JSONObject, receiver: Boolean): String? {
+        val settings = record.optJSONObject(if (receiver) "metadata" else "settings") ?: return null
+        return if (settings is FieldRowObject) {
+            if (settings.isNull("field_fix_id")) null else settings.indexKey("field_fix_id")
+        } else settings.opt("field_fix_id") as? String
+    }
 
     fun page(profile: String, kind: ReviewKind, cursor: PageCursor, fixId: String?, frequencyHz: Long? = null): ReviewPage = read { db, archive ->
         val streamId = info(db).streamId
@@ -68,7 +79,7 @@ internal class SessionReview(private val file: File, private val sessionId: Stri
             }
         } else if (fixId != null) {
             conditions += "fix_id = ?"
-            args += fixId
+            args += key(fixId)
         }
         val direction = if (cursor.backwards) "DESC" else "ASC"
         val limit = if (kind == ReviewKind.TRACK) 128 else 16
@@ -105,7 +116,7 @@ internal class SessionReview(private val file: File, private val sessionId: Stri
                     }
                     val record = row(rows, 1, archive, table)
                     if (!inSession(record, rows.getString(5), streamId)) continue
-                    if (kind == ReviewKind.DATA && fixId != null && record.recordedFix(receiver(profile)) != fixId) continue
+                    if (kind == ReviewKind.DATA && fixId != null && linkedFix(record, receiver(profile)) != key(fixId)) continue
                     entries += ReviewEntry(seq, record, rows.getLong(4))
                     bytesOnPage += byteCount
                 }
@@ -124,7 +135,8 @@ internal class SessionReview(private val file: File, private val sessionId: Stri
         streamId: String): Map<String, RouteReading> {
         val receiver = receiver(profile)
         val table = if (receiver) "observations" else "sweeps"
-        val ids = fixes.map { it.json.getString("id") }
+        val known = fixes.associate { val id = it.json.getString("id"); key(id) to id }
+        val ids = known.keys.toList()
         val placeholders = ids.joinToString(",") { "?" }
         val streamFilter = if (imported != null) " AND stream_id = ?" else ""
         val parameters = if (imported != null) ids + streamId else ids
@@ -132,11 +144,12 @@ internal class SessionReview(private val file: File, private val sessionId: Stri
         // Reverse the (fix_id, seq) index. A later off-channel tile cannot hide an earlier covering one.
         db.rawQuery("SELECT fix_id, id, $payloadColumns FROM $table WHERE fix_id IN ($placeholders)$streamFilter ORDER BY fix_id DESC, seq DESC", parameters.toTypedArray()).use { rows ->
             while (rows.moveToNext()) {
-                val fixId = rows.getString(0)
+                val indexedFix = rows.getString(0)
+                val fixId = known.getValue(indexedFix)
                 val previous = readings[fixId]
                 if (previous is RouteReading.Measured) continue
                 val source = row(rows, 2, archive, table)
-                if (!inSession(source, rows.getString(1), streamId) || source.recordedFix(receiver) != fixId) continue
+                if (!inSession(source, rows.getString(1), streamId) || linkedFix(source, receiver) != indexedFix) continue
                 val reading = routeReading(source, receiver, hz) ?: continue
                 if (previous == null || reading is RouteReading.Measured ||
                     (reading is RouteReading.MissingLevel && previous is RouteReading.OutsideRange)) readings[fixId] = reading
@@ -149,10 +162,11 @@ internal class SessionReview(private val file: File, private val sessionId: Stri
         val table = if (observation ?: receiver(profile)) "observations" else "sweeps"
         val streamId = info(db).streamId
         val streamFilter = if (imported != null) " AND stream_id = ?" else ""
-        val args = if (imported != null) arrayOf(id, streamId) else arrayOf(id)
+        val indexedId = key(id)
+        val args = if (imported != null) arrayOf(indexedId, streamId) else arrayOf(indexedId)
         db.rawQuery("SELECT $payloadColumns FROM $table WHERE id = ?$streamFilter", args).use {
             if (it.moveToFirst()) row(it, 0, archive, table).takeIf { record ->
-                inSession(record, id, streamId)
+                inSession(record, indexedId, streamId)
             } else null
         }
     }
@@ -164,9 +178,6 @@ internal sealed interface RouteReading {
     data class MissingLevel(override val sourceId: String, val frequencyHz: Long) : RouteReading
     data class OutsideRange(override val sourceId: String) : RouteReading
 }
-
-private fun JSONObject.recordedFix(receiver: Boolean) =
-    optJSONObject(if (receiver) "metadata" else "settings")?.opt("field_fix_id") as? String
 
 internal fun routeReading(source: JSONObject, receiver: Boolean, hz: Long): RouteReading? {
     val id = source.getString("id")

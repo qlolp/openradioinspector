@@ -118,31 +118,19 @@ internal class StoredFieldZip(private val file: File) {
     }
 }
 
-internal fun strictUtf8(bytes: ByteArray, count: Int = bytes.size): String =
-    Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes, 0, count)).toString()
+/** A verified record in the private STORED member. The terminating LF is outside the span. */
+internal data class FieldRow(val position: Long, val length: Int, val hash: ByteArray)
 
-/** Index absolute offsets into the private verified STORED archive. A row never crosses a member. */
 internal class FieldLines(private val input: InputStream, start: Long, private val checkpoint: () -> Unit) {
     private val buffer = ByteArray(32 * 1024)
     private var offset = 0
     private var end = 0
-    private var line = ByteArray(1024)
     private val sha = MessageDigest.getInstance("SHA-256")
-    var position = start
-        private set
-    var length = 0
-        private set
     private var nextStart = start
 
-    fun hash(): ByteArray {
-        sha.update(line, 0, length)
-        return sha.digest()
-    }
-
-    fun next(): String? {
+    fun next(): FieldRow? {
         if (end < 0) return null
-        position = nextStart
-        length = 0
+        var length = 0
         while (true) {
             if (offset == end) {
                 checkpoint()
@@ -156,26 +144,24 @@ internal class FieldLines(private val input: InputStream, start: Long, private v
             }
             val begin = offset
             while (offset < end && buffer[offset] != 10.toByte()) offset++
-            val total = length + offset - begin
-            require(total < FieldExporter.maxLine) { "Запись превышает предел строки формата V1" }
-            if (total > line.size) line = line.copyOf(maxOf(total, line.size * 2).coerceAtMost(FieldExporter.maxLine))
-            buffer.copyInto(line, length, begin, offset)
-            length = total
+            val count = offset - begin
+            length += count
+            require(length < FieldExporter.maxLine) { "Запись превышает предел строки формата V1" }
+            sha.update(buffer, begin, count)
             if (offset < end) {
                 offset++
-                nextStart += length + 1L
-                return strictUtf8(line, length)
+                return FieldRow(nextStart, length, sha.digest()).also { nextStart += length + 1L }
             }
         }
     }
 }
 
-internal fun RandomAccessFile.verifiedFieldText(offset: Long, size: Int, expectedHash: ByteArray): String {
+internal fun RandomAccessFile.verifiedFieldBytes(offset: Long, size: Int, expectedHash: ByteArray): ByteArray {
     require(offset >= 0 && size in 1 until FieldExporter.maxLine && offset + size < length())
     seek(offset)
     val bytes = bytes(size)
     require(read() == 10 && MessageDigest.isEqual(MessageDigest.getInstance("SHA-256").digest(bytes), expectedHash)) {
         "Содержимое выезда изменилось после проверки"
     }
-    return strictUtf8(bytes)
+    return bytes
 }
