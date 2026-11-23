@@ -15,7 +15,9 @@ struct NativeRCPreparationPane: View {
     private var verified: Bool { model.coreReachable && workspace.preflightIsCurrent() }
     private var readiness: NativeRCReadiness { .init(preflight: verified ? workspace.preflight : .null) }
     private var ownsProject: Bool { flow.owns(workspace) }
-    private var busy: Bool { flow.busy || workspace.pending || !workspace.operationsPending.isEmpty }
+    private var busy: Bool {
+        flow.busy || (ownsProject ? (workspace.pending || !workspace.operationsPending.isEmpty) : workspace.hasPendingProjectAction)
+    }
 
     private var hasOriginal: Bool { flow.verifiedOriginal(workspace) != nil }
     private var confirmedBaseline: Bool { verified && workspace.preflight["baseline_ready"].bool == true }
@@ -228,7 +230,7 @@ struct NativeRCPreparationPane: View {
                     if let reason = validationReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                     Button("Создать профиль и проект") {
                         Task { await flow.create(workspace: workspace) { id in model.selectSession(id); Task { await model.reloadSessions() } } }
-                    }.disabled(!model.connected || busy || workspace.isArmed || workspace.dutyEnabled || (try? flow.draft.validated()) == nil)
+                    }.disabled(!model.connected || !flow.canSubmitProfile(in: workspace) || (try? flow.draft.validated()) == nil)
                         .accessibilityIdentifier("preparation.create")
                 }
             }.textFieldStyle(.roundedBorder)

@@ -38,6 +38,62 @@ final class NativeGuardSignalTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testNativeConsoleCanSubmitReplayProfileWhilePreviousProjectPollsAreHeld() async throws {
+        let reads = expectation(description: "status and alert polls in flight")
+        reads.expectedFulfillmentCount = 2
+        let writing = expectation(description: "settings mutation in flight")
+        let lock = NSLock()
+        var held: [String: Stub] = [:]
+        var requests: [String] = []
+        Stub.handle = { stub in
+            let key = (stub.request.httpMethod ?? "GET") + " " + stub.request.url!.lastPathComponent
+            lock.withLock { requests.append(key) }
+            switch key {
+            case "GET health": stub.reply(["last_event_id": 38])
+            case "GET status", "GET alerts":
+                lock.withLock { held[key] = stub }; reads.fulfill()
+            case "POST settings":
+                lock.withLock { held[key] = stub }; writing.fulfill()
+            case "GET capabilities":
+                stub.reply(["candidate": ["mode": "replay"], "features": [
+                    "explicit_serial_adapters": true, "monitoring_backup_reserve": true]])
+            default:
+                XCTFail("Unexpected request \(key)"); stub.reply([:], status: 404)
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [Stub.self]
+        let client = try PlatformClient(baseURL: "https://node.test", session: URLSession(configuration: configuration))
+        let workspace = MonitoringWorkspaceModel(), flow = NativeRCPreparationModel()
+        flow.configure(server: "https://node.test", client: client, workspace: workspace, sessionID: "ui-one")
+        workspace.selected = "previous-project"
+        flow.draft.tinySAPort = "/dev/cu.ui-fixture"; flow.draft.receiverPort = "/dev/cu.ui-receiver"
+        let status = Task { await workspace.refreshStatus() }
+        let alerts = Task { await workspace.pollAlerts() }
+        await fulfillment(of: [reads], timeout: 5)
+        XCTAssertTrue(workspace.pending); XCTAssertTrue(workspace.operationsPending.contains("alerts-live"))
+        XCTAssertTrue(flow.canSubmitProfile(in: workspace))
+        await flow.create(workspace: workspace) { _ in XCTFail("A replay node cannot create this physical profile") }
+        XCTAssertTrue(flow.error.contains("live Rust-служба"))
+        XCTAssertTrue(flow.projectID.isEmpty)
+        XCTAssertFalse(lock.withLock { requests.contains { $0.hasPrefix("POST ") } })
+
+        let write = Task { await workspace.saveOperationsSettings(body: ["autostart": .boolean(false)]) }
+        await fulfillment(of: [writing], timeout: 5)
+        XCTAssertFalse(flow.canSubmitProfile(in: workspace))
+        await flow.create(workspace: workspace) { _ in XCTFail("Submission during a project mutation") }
+        XCTAssertEqual(lock.withLock { requests.filter { $0 == "GET capabilities" }.count }, 1)
+        lock.withLock { held["POST settings"] }?.reply([:], status: 409)
+        await write.value
+        XCTAssertTrue(flow.canSubmitProfile(in: workspace))
+        lock.withLock { held["GET status"] }?.reply(["active": false, "project": ["id": "previous-project", "state": "draft"]])
+        lock.withLock { held["GET alerts"] }?.reply(["items": []])
+        await status.value; await alerts.value
+        workspace.status = .object(["active": .boolean(true)])
+        XCTAssertFalse(flow.canSubmitProfile(in: workspace))
+    }
+
     override func tearDown() {
         Stub.handle = nil
         super.tearDown()

@@ -70,8 +70,12 @@ final class NativeRCPreparationModel: ObservableObject {
     }
     private func current(_ token: Int) -> Bool { revision == token && !Task.isCancelled }
 
+    func canSubmitProfile(in workspace: MonitoringWorkspaceModel) -> Bool {
+        client != nil && !busy && !workspace.hasPendingProjectAction && !workspace.isArmed && !workspace.dutyEnabled
+    }
+
     func create(workspace: MonitoringWorkspaceModel, onSession: (String) -> Void) async {
-        guard let client, !busy, !workspace.isArmed, !workspace.dutyEnabled else { return }
+        guard let client, canSubmitProfile(in: workspace) else { return }
         let token = revision, requested = draft
         busy = true; error = ""
         defer { if revision == token { busy = false } }

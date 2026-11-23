@@ -309,10 +309,13 @@ final class WorkbenchUITests: XCTestCase {
         XCTAssertFalse(refusal.exists)
         let create = try actionableCreateButton(in: app)
         create.click()
-        XCTAssertTrue(refusal.waitForExistence(timeout: 10),
-            "Expected the live-service refusal after Create. " +
-            "Wizard error: \(errors.firstMatch.exists ? text(errors.firstMatch) : "<missing>"). " +
-            "Create enabled: \(create.exists && create.isEnabled)")
+        if !refusal.waitForExistence(timeout: 10) {
+            let sheet = app.sheets.firstMatch
+            XCTFail("Expected the live-service refusal after Create. " +
+                "Wizard error: \(errors.firstMatch.exists ? text(errors.firstMatch) : "<missing>"). " +
+                "Create enabled: \(create.exists && create.isEnabled). " +
+                "Synthetic sheet at failure: \(sheet.exists ? String(sheet.debugDescription.prefix(16_000)) : "<missing>")")
+        }
         XCTAssertFalse(element("preparation.arm", in: app).exists)
     }
 

@@ -148,6 +148,12 @@ final class MonitoringWorkspaceModel: ObservableObject {
     private var scope = ""
     private var revision = 0
     private var requestID = UUID()
+    // A new profile has its own session and project. Existing workspace
+    // mutations still take priority while routine reads may finish in parallel.
+    private var readOnlyRequests: Set<UUID> = []
+    var hasPendingProjectAction: Bool {
+        (pending && !readOnlyRequests.contains(requestID)) || operationsRequests.values.contains { !readOnlyRequests.contains($0) }
+    }
     private var playbackRevision = 0
     private var archiveHighWatermark: Int64?
     private var archiveHealthRevision = 0
@@ -367,14 +373,18 @@ final class MonitoringWorkspaceModel: ObservableObject {
     // Every completion belongs to the exact endpoint, project and request that started it.
     @discardableResult
     private func run(
-        eventID: String? = nil,
+        eventID: String? = nil, readOnly: Bool = false,
         request: (PlatformClient, String) async throws -> MonitoringValue,
         apply: (MonitoringValue) -> Void
     ) async -> Bool {
         guard let client, !pending else { return false }
         let current = revision, identifier = selected, token = UUID()
+        if readOnly { readOnlyRequests.insert(token) }
         requestID = token; pending = true; error = ""
-        defer { if requestID == token { pending = false } }
+        defer {
+            readOnlyRequests.remove(token)
+            if requestID == token { pending = false }
+        }
         do {
             let result = try await request(client, identifier)
             guard current == revision, requestID == token, PlatformExactID.same(selected, identifier),
@@ -463,7 +473,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
             if rolledBack { resetArchiveContext(watermark: watermark) }
         }
         guard !pending else { return }
-        let succeeded = await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
+        let succeeded = await run(readOnly: true, request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
             status = result
             projectStatusVerifiedAt = PlatformExactID.same(result["project"]["id"].text, selected) ? .now : nil
             coverage = result["project"]["coverage"].text
@@ -532,7 +542,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     func checkPreflight() async {
         guard !selected.isEmpty else { return }
         preflightEvidence.invalidate()
-        await operationsRequest("preflight", request: { client, id in try await client.monitoringProject(id, resource: "preflight") }) { result in
+        await operationsRequest("preflight", readOnly: true, request: { client, id in try await client.monitoringProject(id, resource: "preflight") }) { result in
             preflight = result
             preflightEvidence.verify()
         }
@@ -979,14 +989,16 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     @discardableResult
     private func operationsRequest(
-        _ channel: String, eventID: String? = nil,
+        _ channel: String, eventID: String? = nil, readOnly: Bool = false,
         request: (PlatformClient, String) async throws -> MonitoringValue,
         apply: (MonitoringValue) -> Void
     ) async -> Bool {
         guard let client, !selected.isEmpty, !operationsPending.contains(channel) else { return false }
         let generation = revision, viewGeneration = operationsRevision, projectID = selected, token = UUID()
+        if readOnly { readOnlyRequests.insert(token) }
         operationsRequests[channel] = token; operationsPending.insert(channel)
         defer {
+            readOnlyRequests.remove(token)
             if operationsRequests[channel] == token { operationsRequests[channel] = nil; operationsPending.remove(channel) }
         }
         do {
@@ -1009,7 +1021,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func loadOperationsSettings() async {
-        await operationsRequest("settings", request: { client, id in try await client.monitoringSettings(projectID: id) }) { result in
+        await operationsRequest("settings", readOnly: true, request: { client, id in try await client.monitoringSettings(projectID: id) }) { result in
             applySettings(result)
         }
     }
@@ -1138,7 +1150,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func refreshDuty() async {
         guard schedulesAvailable else { return }
-        await operationsRequest("duty-status", request: { client, id in try await client.monitoringDuty(projectID: id) }) { duty = $0 }
+        await operationsRequest("duty-status", readOnly: true, request: { client, id in try await client.monitoringDuty(projectID: id) }) { duty = $0 }
     }
 
     func startDuty(schedule: MonitoringValue, resume: Bool) async {
@@ -1172,11 +1184,11 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func refreshStorage() async {
-        await operationsRequest("storage", request: { client, id in try await client.monitoringStorage(projectID: id) }) { storage = $0 }
+        await operationsRequest("storage", readOnly: true, request: { client, id in try await client.monitoringStorage(projectID: id) }) { storage = $0 }
     }
 
     func pollAlerts() async {
-        await operationsRequest("alerts-live", request: { client, id in try await client.monitoringAlerts(projectID: id) }) { result in
+        await operationsRequest("alerts-live", readOnly: true, request: { client, id in try await client.monitoringAlerts(projectID: id) }) { result in
             let items = result["items"].items
             if soundState.observe(items, enabled: localSoundEnabled) { NSSound.beep() }
             if alertsLatest { alerts = items; alertsNext = result["next_cursor"].text; alertsPageAfter = nil }
