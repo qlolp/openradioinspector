@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { FrequencyBookmarkSet } from '../../../contracts/generated/typescript/index';
 import { Api, type Transport } from '../src/api';
 import { RfPassMarkers } from '../src/RfPassMarkers';
+import { RfExplorerPass } from '../src/RfExplorerPass';
+import panorama from '../../../contracts/fixtures/rf-explorer-pass-v1.json';
 import { setLocale } from '../src/i18n';
 import type { PassPoint } from '../src/rf-pass';
 
@@ -189,4 +191,58 @@ it('preserves the one-marker shortcut and offers readers only saved frequencies'
   expect(host.querySelectorAll('input, button')).toHaveLength(0);
   await recall('set/3/0');
   expect(select).toHaveBeenCalledWith(first);
+});
+
+it('keeps a marker draft and follows its recalled frequency into the next live pass', async () => {
+  vi.useFakeTimers();
+  try {
+    let pass = 1;
+    send.mockImplementation(async (url) => {
+      if (url === path) return page(recorded);
+      const summary = { ...panorama.summary, pass_id: 'run-' + pass, pass };
+      const sample = { ...panorama.columns[0]!, sweep_id: 'window-' + pass };
+      if (url.includes('/passes?')) return response({ items: [summary], next_before: null });
+      if (url.includes('/point?'))
+        return response({
+          current: { ...sample, frequency_hz: first, point_index: 0 },
+          held: null,
+        });
+      return response({ ...panorama, summary, columns: [sample, null] });
+    });
+    await act(() =>
+      root.render(
+        createElement(RfExplorerPass, {
+          api,
+          session,
+          stream: 'rf',
+          running: true,
+          paused: false,
+          bookmarks: true,
+          readOnly: false,
+          hold: { since: '', visible: false },
+          setHold: vi.fn(),
+          openOriginal: vi.fn(),
+        }),
+      ),
+    );
+    await click('Select strongest point');
+    await click('Add selected frequency');
+    await edit('Marker set name', 'Unfinished survey');
+    await edit('Label for 101,110,000 Hz', 'Harbor edge');
+    const saved = host.querySelector('.rf-markers select') as HTMLSelectElement;
+    await act(() => {
+      saved.value = 'set/3/0';
+      saved.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(host.querySelector('.rf-evidence')?.textContent).toContain('window-1');
+    pass = 2;
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(host.querySelector('.rf-pass-heading')?.textContent).toContain('Pass 2');
+    expect(input('Marker set name').value).toBe('Unfinished survey');
+    expect(input('Label for 101,110,000 Hz').value).toBe('Harbor edge');
+    expect((host.querySelector('.rf-markers select') as HTMLSelectElement).value).toBe('set/3/0');
+    expect(host.querySelector('.rf-evidence')?.textContent).toContain('window-2');
+  } finally {
+    vi.useRealTimers();
+  }
 });

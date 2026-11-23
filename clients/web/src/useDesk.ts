@@ -713,6 +713,7 @@ export function useDesk(transport: Connection, rfSessionId?: string, readOnly = 
   return {
     api,
     live,
+    followFrequency: liveStore.followFrequency,
     project,
     projectId,
     setProjectId,
