@@ -4,6 +4,21 @@
 
 22 ноября административный API подтвердил защиту `main` с 27 обязательными проверками, неизменяемость опубликованных GitHub Releases и девять окружений выпуска с допуском ветки `main`. Контакты поддержки и политики для мобильных магазинов размещены в репозитории. [Защита main](branch-protection.md) · [Поддержка](../field/support.md) · [Конфиденциальность](../field/privacy.md)
 
+## Комплекты для испытаний из `40f5bd80`
+
+Исходная ревизия настольной версии 0.4.0 и Android Field 0.1.0 — `40f5bd80453b98d4e0d3a88bec38afb7950c3669`. Войдите в GitHub, откройте нужный запуск в таблице и скачайте архив из раздела **Artifacts**. Распакуйте его и сверьте SHA-256 установочного файла. Контрольные суммы и результаты испытаний собраны в ведомости поставки. [Исходники сборок](https://github.com/qlolp/openradioinspector/tree/40f5bd80453b98d4e0d3a88bec38afb7950c3669) · [Ведомость поставки](https://github.com/qlolp/openradioinspector/pull/227)
+
+| Цель | Файл для оператора | Сборка или проверка |
+|---|---|---|
+| MacBook Air, Apple Silicon | В архиве с именем, начинающимся с `personal-macos-rc-`, откройте каталог `packages` и DMG с ad-hoc-подписью. Это персональный RC1. | [DMG и манифест](https://github.com/qlolp/openradioinspector/actions/runs/45093714530) |
+| Windows 11 x64 | В `windows-x64-offline-rc-candidate` находится инженерный установщик NSIS с WebView2. В `windows-x64-rc-diagnostics` хранится результат обновления и отката. | [Установщик и проверка установки](https://github.com/qlolp/openradioinspector/actions/runs/45093740482) |
+| Raspberry Pi 5 ARM64 | Для установки на 64-битную ОС скачайте пакет `OpenRadioInspector-0.4.0-pi-arm64.deb` и его манифест. | [Зафиксированный DEB](https://github.com/qlolp/openradioinspector/actions/runs/45093733424) · [Установка на ARM64](https://github.com/qlolp/openradioinspector/actions/runs/45093714561) |
+| Debian amd64 | Испытания установки на Debian 12 и 13 используют один DEB. Для стенда нужны этот пакет и его контрольная сумма. | [Зафиксированный DEB](https://github.com/qlolp/openradioinspector/actions/runs/45094489719/artifacts/14783060332) · [Обе установки](https://github.com/qlolp/openradioinspector/actions/runs/45093714555) |
+| Samsung Galaxy S22 Ultra | В комплекте Field находится `apk/debug/app-debug.apk`. Сохраните нужные выезды в `.orifield` перед сменой ключа подписи. | [APK и AAB](https://github.com/qlolp/openradioinspector/actions/runs/45093726376/artifacts/14782900766) · [Импорт в macOS](https://github.com/qlolp/openradioinspector/actions/runs/45093726376) |
+| iPhone | В `ios-field-simulator` находится отчёт Xcode. Для установки через TestFlight нужен подписанный пакет и доступ издателя к App Store Connect. | [Симулятор и компиляция для устройства](https://github.com/qlolp/openradioinspector/actions/runs/45093729800) |
+
+Перед объединением этого дерева полный 30-минутный сценарий на Windows x64 и Linux ARM64 сохранил на каждой системе все 18 000 предложенных панорам по 4 096 точек, 18 000 наблюдений и 86 400 000 отсчётов PCM. Три клиента подтвердили 54 000 отрисовок на каждой системе. Верхняя оценка p95 от подачи до отрисовки составила 85,17 мс и 99,79 мс соответственно. В обоих случаях архив был восстановлен из копии. Аппаратное время обзора, отрисовка на дисплее Mac и расход места на целевом SSD проверяются по стендовым протоколам. [Полный прогон PR](https://github.com/qlolp/openradioinspector/actions/runs/45088786430) · [Повтор на зафиксированной ревизии](https://github.com/qlolp/openradioinspector/actions/runs/45093722924) · [Протоколы по платформам](all-platforms.md)
+
 ## Исходники и программные проверки
 
 20 ноября 2026 года PR #221 объединил изменения в `main` на `eb6873c104f004120a3b8361ab82edf5b38e7977`. На этом конкретном коммите успешно завершились 27 из 28 заданий GitHub. В синтетической матрице завершилось ошибкой задание Ubuntu/Python 3.10. Пройдены отдельные прогоны modern core, Web/Windows и сборки пакетов. В них проверяется код и исполняемая программа на указанных runner. [Интеграция #221](https://github.com/qlolp/openradioinspector/pull/221) · [Задание Ubuntu/Python 3.10](https://github.com/qlolp/openradioinspector/actions/runs/44713560730/job/136211089172) · [Modern core](https://github.com/qlolp/openradioinspector/actions/runs/44713561028) · [Web/Windows](https://github.com/qlolp/openradioinspector/actions/runs/44713560816)
