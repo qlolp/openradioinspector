@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from tools.release import macos_rc_package as package
+from tools.release import smoke_macos_personal_rc as smoke
 
 
 class MacOSRCPackageTests(unittest.TestCase):
@@ -104,6 +105,28 @@ class MacOSRCPackageTests(unittest.TestCase):
             other = self.app(root / 'other')
             (other / 'Contents/MacOS/OpenRadioInspectorRC').chmod(0o644)
             with self.assertRaises(ValueError): package.validate_runtime_profile(other)
+
+    def test_relocated_public_smoke_checks_frozen_inventory_under_the_public_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = self.target_app(root)
+            manifest = root / 'manifest.json'
+            for attempt, (version, profile, expected_error) in enumerate([
+                ('0.4.0', 'rc1', 'contents differ'),
+                (package.RELEASE_VERSION, 'rc1', 'differs from'),
+                ('0.4.0', 'rc2-audio', 'differs from'),
+            ]):
+                with self.subTest(version=version, profile=profile):
+                    package.write_json(manifest, dict(release_version=version,
+                        build_info=dict(release_version=version, package_profile=profile), files=[]))
+                    report = root / f'run-{attempt}'
+                    argv = ['smoke', '--app', str(app), '--manifest', str(manifest),
+                        '--profile', profile, '--release-version', '0.4.0', '--report-dir', str(report)]
+                    with patch('sys.argv', argv), self.assertRaisesRegex((RuntimeError, ValueError), expected_error):
+                        smoke.main()
+                    outcome = json.loads((report / 'report.json').read_text())
+                    self.assertEqual(outcome['release_version'], '0.4.0')
+                    self.assertFalse(outcome['successful'])
 
     def test_inventory_survives_relocation_and_detects_missing_changed_and_extra_files(self):
         with tempfile.TemporaryDirectory() as directory:

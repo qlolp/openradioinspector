@@ -323,6 +323,11 @@ export interface NodeArchiveLocation {
   [key: string]: unknown;
 }
 
+export interface NodeSerialPorts {
+  ports: Array<string>;
+  [key: string]: unknown;
+}
+
 export interface PairedControls {
   lower: PairedOriginals;
   upper: PairedOriginals;
@@ -470,6 +475,7 @@ export interface RFExplorerPassWindows {
 export interface ReceiverPanorama {
   bins: Array<ReceiverPanoramaBin>;
   complete: boolean;
+  context_id?: string;
   coverage_hex: string;
   ended_at: string;
   level_unit: ReceiverPanoramaLevelUnit;
@@ -2189,6 +2195,21 @@ const schemas = {...baselineSchemas, ...{
     ],
     "type": "object"
   },
+  "NodeSerialPorts": {
+    "properties": {
+      "ports": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 256,
+        "type": "array"
+      }
+    },
+    "required": [
+      "ports"
+    ],
+    "type": "object"
+  },
   "PairedControls": {
     "additionalProperties": false,
     "properties": {
@@ -2919,6 +2940,13 @@ const schemas = {...baselineSchemas, ...{
       },
       "complete": {
         "type": "boolean"
+      },
+      "context_id": {
+        "description": "Stable receiver profile identifier, scoped to session and stream. Events carry this value as receiver_context_key.",
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
       },
       "coverage_hex": {
         "description": "Byte i/8, bit i%8 marks an actually committed original at grid index i (hex bytes in ascending byte order).",
@@ -3691,6 +3719,8 @@ export const decodeNativePairing = (value: JSONValue): NativePairing => walk(sch
 export const encodeNativePairing = (value: NativePairing): string => stringifyJSON(walk(schemas.NativePairing as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeNodeArchiveLocation = (value: JSONValue): NodeArchiveLocation => walk(schemas.NodeArchiveLocation as unknown as Schema,value,false) as unknown as NodeArchiveLocation;
 export const encodeNodeArchiveLocation = (value: NodeArchiveLocation): string => stringifyJSON(walk(schemas.NodeArchiveLocation as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeNodeSerialPorts = (value: JSONValue): NodeSerialPorts => walk(schemas.NodeSerialPorts as unknown as Schema,value,false) as unknown as NodeSerialPorts;
+export const encodeNodeSerialPorts = (value: NodeSerialPorts): string => stringifyJSON(walk(schemas.NodeSerialPorts as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairedControls = (value: JSONValue): PairedControls => walk(schemas.PairedControls as unknown as Schema,value,false) as unknown as PairedControls;
 export const encodePairedControls = (value: PairedControls): string => stringifyJSON(walk(schemas.PairedControls as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairedLocalBackground = (value: JSONValue): PairedLocalBackground => walk(schemas.PairedLocalBackground as unknown as Schema,value,false) as unknown as PairedLocalBackground;
@@ -5176,6 +5206,22 @@ export const runtimeOperations = [
   },
   {
     "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "serial_port_candidates"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_serial_ports",
+    "path": "/api/v1/serial-ports",
+    "path_parameters": [],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
       "python-legacy",
       "rust-candidate"
     ],
@@ -6505,7 +6551,8 @@ export const runtimeOperations = [
     ],
     "query": [
       "pass",
-      "columns"
+      "columns",
+      "context_id"
     ],
     "request_features": []
   },
@@ -6527,7 +6574,8 @@ export const runtimeOperations = [
     ],
     "query": [
       "pass",
-      "frequency_hz"
+      "frequency_hz",
+      "context_id"
     ],
     "request_features": []
   },

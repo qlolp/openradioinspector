@@ -4,7 +4,7 @@ Open a closed Android Field session from Files, or follow an existing session on
 
 ## Offline review
 
-Choose **Архив → Открыть из Файлов**, or tap an `.orifield` document in Files and choose ORI Field. The app keeps a read lease while the document is open. It verifies record counts, hashes, CRCs and cross-references before showing the session. Tap a row for its original record. From a spectrum use **Исходные значения** for the individual frequency and level pairs.
+Choose **Архив → Открыть из Файлов**, or tap an `.orifield` document in Files and choose ORI Field. The app keeps the Files read lease while the document is open. Closing it or selecting another file cancels the provider request and the current verification, then releases the previous lease. It verifies record counts, hashes, CRCs and cross-references before showing the session. Tap a row for its original record. From a spectrum use **Исходные значения** for the individual frequency and level pairs.
 
 App Review can use **Архив → Открыть учебный выезд** immediately after launch, including in airplane mode. Tap **Заметка**, follow **Спектр**, then **Исходные значения**. Return to the spectrum and follow **GPS**. This exercise uses the repository's synthetic archive, requires no account, location permission, radio equipment or server, and includes a receiver observation in its reported S-meter units. [Field archive specification](../../docs/field-archive.md)
 

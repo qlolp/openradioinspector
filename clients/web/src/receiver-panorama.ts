@@ -10,6 +10,7 @@ export interface ReceiverBin {
 }
 export interface ReceiverPass {
   pass: number;
+  context_id?: string;
   start_hz: number;
   stop_hz: number;
   step_hz: number;
@@ -30,7 +31,11 @@ export const frequencyAt = (p: ReceiverPass, i: number) =>
 
 const measured = (mask: Uint8Array, index: number) => (mask[index >> 3] & (1 << (index % 8))) !== 0;
 
-export function decodeReceiverPass(value: unknown, selectedPass?: number) {
+export function decodeReceiverPass(
+  value: unknown,
+  selectedPass?: number,
+  selectedContext?: string,
+) {
   const invalid = () => Error('Invalid receiver panorama evidence');
   if (!value || typeof value !== 'object') throw invalid();
   const p = value as ReceiverPass;
@@ -42,6 +47,8 @@ export function decodeReceiverPass(value: unknown, selectedPass?: number) {
     ) ||
     p.pass < 1 ||
     (selectedPass !== undefined && p.pass !== selectedPass) ||
+    (p.context_id !== undefined && !/^[0-9a-f]{64}$/.test(p.context_id)) ||
+    (selectedContext !== undefined && p.context_id !== selectedContext) ||
     p.start_hz < 100_000 ||
     p.stop_hz > 1_300_000_000 ||
     p.start_hz >= p.stop_hz ||

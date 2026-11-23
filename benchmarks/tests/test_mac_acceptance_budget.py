@@ -4,12 +4,36 @@ from pathlib import Path
 import tempfile
 import unittest
 import sys
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from benchmarks.ori_bench.mac_acceptance.node import PackageNode
 from benchmarks.ori_bench.config import BenchmarkError
 
 
 class BackupDeadlineTests(unittest.TestCase):
+    def test_physical_duty_requires_measured_allocation_and_room_for_both_recovery_files(self):
+        from benchmarks.ori_bench.mac_acceptance.budget import require_duty_storage
+        complete = dict(ready=True, storage_id='node-archive', backup_reserve_requested=True,
+                        restore_reserve_requested=True, backup_reserve_bytes=5000, restore_reserve_bytes=5000,
+                        required_free_bytes=16000, filesystem_free_bytes=16000, shortfall_bytes=0,
+                        bytes_per_second=1.5, physical_growth_bytes_per_second=0.0,
+                        forecast_seconds=43200, estimated_retention_seconds=43200)
+        require_duty_storage(complete)
+        for change in [dict(restore_reserve_requested=False), dict(restore_reserve_bytes=0),
+                       dict(physical_growth_bytes_per_second=None), dict(forecast_seconds=3600),
+                       dict(required_free_bytes=16001), dict(shortfall_bytes=1), dict(bytes_per_second=True)]:
+            with self.subTest(change=change), self.assertRaises(BenchmarkError):
+                require_duty_storage(complete | change)
+
+    def test_initial_wal_sampling_waits_for_a_fresh_report_without_repeating_a_shortfall(self):
+        from benchmarks.ori_bench.mac_acceptance import budget
+        warming = dict(forecast_status='measuring_allocation', next_recheck_seconds=2)
+        final = dict(forecast_status='insufficient_space', shortfall_bytes=1)
+        fetch = Mock(side_effect=[warming, warming, final])
+        with patch.object(budget, 'sleep') as wait:
+            self.assertEqual(budget.sample_duty_storage(fetch), final)
+        self.assertEqual(fetch.call_count, 3)
+        self.assertEqual([call.args for call in wait.call_args_list], [(2,), (2,)])
+
     def test_controller_waits_beyond_old_600_seconds_for_admitted_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             node=PackageNode(Path(sys.executable),Path(directory),'budget-fixture')

@@ -29,8 +29,8 @@ pub use storage_sample::SweepStorageSample;
 mod writer;
 pub use backup::{
     BackupCancellation, BackupIoBudget, BackupOptions, backup_stopped_archive,
-    init_compact_archive, materialize_archive, materialize_stopped_archive, restore_backup,
-    verify_backup,
+    checkpoint_stopped_archive, init_compact_archive, materialize_archive,
+    materialize_stopped_archive, restore_backup, verify_backup,
 };
 pub use checkpoint::{CheckpointBudget, CheckpointIoPermit};
 pub use error::{ArchiveError, Result};

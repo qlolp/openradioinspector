@@ -10,6 +10,139 @@ import unittest
 from tests.test_pi_rc_package import package
 
 
+class InstalledLifecycleScenarioTests(unittest.TestCase):
+    def run_scenarios(self, commands, *, install_exit=0, http_exit=0, reset_exit=0,
+                      automatic_restarts=0, active_exit=0, show_exit=0):
+        # Execute the real verifier body without the destructive VM setup. Its
+        # external install/HTTP/systemd commands use an isolated shell fixture.
+        source = (Path(__file__).resolve().parents[1] / 'packaging/pi/test-installed.sh').read_text()
+        start = source.index('\nverify() {\n') + 1
+        end = source.index('\n}\n', start) + 2
+        verifier = source[start:end]
+        fixture = r'''
+unit=ori-fixture.service
+package=ori-fixture
+checks=fixture-check.py
+manifest=fixture-manifest.json
+report=$ORI_TEST_REPORT
+starts=0
+event() { printf '%s\n' "$1" >> "$ORI_TEST_EVENTS"; }
+function /usr/lib/ori-fixture/check-install() {
+    event check-install
+    return "$ORI_TEST_INSTALL_EXIT"
+}
+offline() {
+    [ "$#" -eq 5 ] && [ "$1" = python3 ] && [ "$2" = "$checks" ]
+    [ "$4" = --manifest ] && [ "$5" = "$manifest" ]
+    event "http:$3"
+    [ "$ORI_TEST_HTTP_EXIT" -eq 0 ] || return "$ORI_TEST_HTTP_EXIT"
+    printf '{"phase":"%s","result":"passed"}\n' "$3"
+}
+systemctl() {
+    case "$1" in
+        start)
+            [ "$#" -eq 2 ] && [ "$2" = "$unit" ] || return 82
+            starts=$((starts + 1))
+            if [ "$starts" -gt 5 ]; then
+                event start-limit-hit
+                printf 'start-limit-hit\n' >&2
+                return 75
+            fi
+            event start
+            ;;
+        reset-failed)
+            [ "$#" -eq 2 ] && [ "$2" = "$unit" ] || return 82
+            event reset-request
+            [ "$ORI_TEST_RESET_EXIT" -eq 0 ] || return "$ORI_TEST_RESET_EXIT"
+            starts=0
+            event reset
+            ;;
+        is-active)
+            [ "$#" -eq 3 ] && [ "$2" = --quiet ] && [ "$3" = "$unit" ] || return 82
+            event active-check
+            return "$ORI_TEST_ACTIVE_EXIT"
+            ;;
+        show)
+            [ "$#" -eq 5 ] && [ "$2" = -p ] && [ "$3" = NRestarts ] || return 82
+            [ "$4" = --value ] && [ "$5" = "$unit" ] || return 82
+            event "automatic-restarts:$ORI_TEST_AUTOMATIC_RESTARTS"
+            [ "$ORI_TEST_SHOW_EXIT" -eq 0 ] || return "$ORI_TEST_SHOW_EXIT"
+            printf '%s\n' "$ORI_TEST_AUTOMATIC_RESTARTS"
+            ;;
+        *) return 83 ;;
+    esac
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            events = root / 'events'
+            environment = dict(os.environ, ORI_TEST_REPORT=str(root), ORI_TEST_EVENTS=str(events),
+                               ORI_TEST_INSTALL_EXIT=str(install_exit), ORI_TEST_HTTP_EXIT=str(http_exit),
+                               ORI_TEST_RESET_EXIT=str(reset_exit), ORI_TEST_AUTOMATIC_RESTARTS=str(automatic_restarts),
+                               ORI_TEST_ACTIVE_EXIT=str(active_exit), ORI_TEST_SHOW_EXIT=str(show_exit))
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', fixture + verifier + '\n' + commands],
+                                    env=environment, capture_output=True, text=True, timeout=5)
+            recorded = events.read_text().splitlines() if events.exists() else []
+            proof = root / 'lifecycle.jsonl'
+            return result, recorded, proof.read_text().splitlines() if proof.exists() else []
+
+    def test_verified_scenarios_do_not_consume_each_others_start_limit(self):
+        result, events, proof = self.run_scenarios('''
+for phase in install upgrade rollback restart existing-v6 existing-v6; do
+    systemctl start "$unit"
+    verify "$phase"
+done
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(events.count('start'), 6)
+        self.assertEqual(events.count('reset'), 6)
+        self.assertEqual(len(proof), 6)
+        self.assertTrue(all(json.loads(line)['result'] == 'passed' for line in proof))
+
+    def test_unverified_starts_still_hit_the_rate_limit(self):
+        result, events, proof = self.run_scenarios('for attempt in 1 2 3 4 5 6; do systemctl start "$unit"; done')
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertEqual(events[-1], 'start-limit-hit')
+        self.assertNotIn('reset', events)
+        self.assertEqual(proof, [])
+
+    def test_failed_install_or_http_check_never_resets_or_continues(self):
+        for values, expected in [({'install_exit': 22}, 22), ({'http_exit': 23}, 23)]:
+            with self.subTest(values=values):
+                result, events, proof = self.run_scenarios('verify upgrade\nevent continued', **values)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertNotIn('reset-request', events)
+                self.assertNotIn('continued', events)
+                self.assertEqual(proof, [])
+
+    def test_failed_reset_remains_a_lifecycle_failure(self):
+        result, events, proof = self.run_scenarios('verify upgrade\nevent continued', reset_exit=24)
+        self.assertEqual(result.returncode, 24, result.stderr)
+        self.assertNotIn('reset', events)
+        self.assertNotIn('continued', events)
+        self.assertEqual(proof, [])
+
+    def test_automatic_restart_is_not_erased_by_a_successful_health_check(self):
+        result, events, proof = self.run_scenarios('verify upgrade\nevent continued', automatic_restarts=1)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('http:upgrade', events)
+        self.assertIn('automatic-restarts:1', events)
+        self.assertNotIn('reset-request', events)
+        self.assertNotIn('continued', events)
+        self.assertEqual(proof, [])
+        self.assertIn('Unexpected automatic restarts for ori-fixture.service: 1', result.stderr)
+
+    def test_inactive_or_unreadable_restart_state_never_resets(self):
+        for values, expected in [({'active_exit': 3}, 3), ({'show_exit': 25}, 25),
+                                 ({'automatic_restarts': ''}, 1)]:
+            with self.subTest(values=values):
+                result, events, proof = self.run_scenarios('verify upgrade\nevent continued', **values)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                self.assertNotIn('reset-request', events)
+                self.assertNotIn('continued', events)
+                self.assertEqual(proof, [])
+
+
 class DebianPackageAssemblyTests(unittest.TestCase):
     def test_both_packages_stage_their_own_unit_config_and_maintainer_scripts(self):
         profiles = [(package.PI, 'openradioinspector-pi-rc', 'ori-pi-rc', 'arm64'),
@@ -51,6 +184,9 @@ class DebianPackageAssemblyTests(unittest.TestCase):
                     maintainer = installed / 'DEBIAN' / script
                     self.assertIn(f'{name}.service', maintainer.read_text())
                     self.assertTrue(os.access(maintainer, os.X_OK))
+                prerm = (installed / 'DEBIAN/prerm').read_text()
+                self.assertIn('dpkg --compare-versions "$2" lt \'0.4.0-1\'', prerm)
+                self.assertIn(f'runuser -u {user} -- /usr/lib/{name}/ori-supervisor archive-prepare-rollback --data-dir /var/lib/{name}', prerm)
                 for script in ('prepare-archive', 'wait-ready', 'check-install'):
                     path = installed / profile.lib / script
                     self.assertTrue(os.access(path, os.X_OK))

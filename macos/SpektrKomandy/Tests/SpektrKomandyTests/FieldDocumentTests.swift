@@ -33,6 +33,16 @@ final class FieldDocumentTests: XCTestCase {
         XCTAssertEqual(observation.level, 137)
     }
 
+    func testCoordinatedCancellationStopsAnActiveReadBeforePublishingTheIndex() throws {
+        var checks = 0
+        XCTAssertThrowsError(try PlatformFieldDocument(opening: fixture) {
+            checks += 1
+            if checks == 4 { throw CancellationError() }
+        }) { XCTAssertTrue($0 is CancellationError) }
+        XCTAssertEqual(checks, 4)
+        XCTAssertEqual(try PlatformFieldDocument(opening: fixture).rows.count, 5)
+    }
+
     func testAndroidEmulatorExport() throws {
         // Android CI supplies a fresh export. Standalone SDK suites replay a saved export.
         let archive = ProcessInfo.processInfo.environment["ORI_FIELD_EMULATOR_ARCHIVE"]

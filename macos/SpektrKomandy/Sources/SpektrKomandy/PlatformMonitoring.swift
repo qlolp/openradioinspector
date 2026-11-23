@@ -262,6 +262,14 @@ extension PlatformClient {
         return try await get("/monitoring-projects" + path)
     }
 
+    public func nodeSerialPorts() async throws -> [String] {
+        let response: MonitoringValue = try await get("/serial-ports")
+        guard case .array(let ports) = response["ports"], ports.count <= 256,
+              ports.allSatisfy({ !$0.text.isEmpty && $0.text.utf8.count <= 1024 }) else {
+            throw PlatformError.invalidResponse("Некорректный список последовательных портов узла.")
+        }
+        return ports.map(\.text)
+    }
     public func nodeArchiveLocation() async throws -> MonitoringValue { try await get("/archive/location") }
 
     public func monitoringDuty(projectID: String, body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {
@@ -503,14 +511,22 @@ extension PlatformClient {
         return try await get("/monitoring-projects/\(Self.segment(projectID))/storage")
     }
 
-    public func monitoringSavePreparation(projectID: String, antennaNotes: String, receivePathConfirmed: Bool, locationConfirmed: Bool) async throws -> MonitoringValue {
+    public func monitoringSavePreparation(projectID: String, antennaNotes: String, receivePathConfirmed: Bool, locationConfirmed: Bool,
+                                          correctingPort: (role: String, from: String, to: String)? = nil) async throws -> MonitoringValue {
         let notes = antennaNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !projectID.isEmpty, !notes.isEmpty, notes.unicodeScalars.count <= 1000 else {
             throw PlatformError.invalidCommand("Выберите проект и опишите антенну/тракт: 1…1000 символов")
         }
-        let body: [String: MonitoringValue] = [
+        var body: [String: MonitoringValue] = [
             "antenna_notes": .string(notes), "receive_path_confirmed": .boolean(receivePathConfirmed),
             "location_confirmed": .boolean(locationConfirmed)]
+        if let correction = correctingPort {
+            guard ["analyzer", "receiver"].contains(correction.role), !correction.to.isEmpty,
+                  correction.to.utf8.count <= 1024, !correction.to.contains("://") else {
+                throw PlatformError.invalidCommand("Укажите физический порт прибора на узле.")
+            }
+            body["port_corrections"] = .object([correction.role: .object(["from": .string(correction.from), "to": .string(correction.to)])])
+        }
         return try await post("/monitoring-projects/\(Self.segment(projectID))/preparation", body: body)
     }
 

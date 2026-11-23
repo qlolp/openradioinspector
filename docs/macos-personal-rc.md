@@ -29,8 +29,11 @@ storage/backup budget. No automatic original-measurement deletion is enabled.
 **Stop service** first sends private Stop (the agent remains idle and recoverable if the UI disappears), then waits for the core's real shutdown, device release, writer
 lease and listeners before acknowledging and unregistering the LaunchAgent.
 An error is not proof of release: do not update the installed app until stop is
-confirmed. RC refuses private backend cutover; update/rollback stop the service
-first and use the latest archive without restoring an older copy over it.
+confirmed. Before replacing the app with an earlier version, reconnect the selected
+archive volume and choose **«Вернуть архив для отката»** in the stopped service pane.
+The current app verifies the latest archive and returns it to the node directory.
+Wait for confirmation before replacing the bundle. The upgraded app will read
+measurements the earlier core adds there.
 
 While actual guard is armed, IOPM prevents automatic idle system sleep. It does
 not override lid closure or manual sleep. Each physical transport compares
@@ -70,14 +73,13 @@ cycle from archived measurements. Command acknowledgement is not physical RF
 readback. At least 60 seconds and 20 full compatible sweeps are required; the
 operator separately confirms the reference environment.
 
-Before making the baseline armable, the wizard stores a 43,200-second primary
-budget (eight hours plus 50%) with `archive.reserve_backup=true`. The core reserves
-the current database plus the projected 43,200-second growth for a future backup,
-in addition to the 256-MiB free-space floor. It recalculates this reservation from
-the measured archive rate during preflight/guard checks; an unknown rate,
-overflow, failed write probe or insufficient filesystem/quota space refuses
-readiness. Automatic deletion remains false. The optional policy is additive;
-projects without it keep their existing storage semantics.
+The RC preparation wizard sets a 43,200-second horizon (eight hours plus 50%),
+a 256 MiB free-space floor and `archive.reserve_backup=true`. When the core
+advertises `monitoring_storage_forecast`, the wizard also sets
+`archive.reserve_restore=true`. The hardware acceptance run requires the core
+to price recording, a consistent copy and a restored database on the selected
+archive volume. Its storage response includes current and required free bytes,
+allocation growth and any shortfall. [Duty storage API](rust-guard-duty.md#место-для-смены-и-восстановления)
 
 Saving a baseline does not arm guard. The final button requires current core
 preflight and budget readiness. A new range/profile requires a new baseline.

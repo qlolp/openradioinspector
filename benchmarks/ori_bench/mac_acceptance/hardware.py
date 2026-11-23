@@ -17,6 +17,7 @@ from ..config import Config,BenchmarkError
 from ..endurance_node import publish_stop
 from ..macos_rc import host
 from ..runner import atomic_report,output_directory
+from .budget import require_duty_storage,sample_duty_storage
 from .checkpoints import assess,hold_ready
 from .evidence import bundle_identity,private_json,read_json_lines,verify_host
 from .load import Events,NativeWindow
@@ -329,13 +330,11 @@ def run_hardware(app,manifest,output,load_report,companion_load_report=None,*,ex
         if not 0<=selected<len(projects):raise BenchmarkError('invalid_project','Select an existing test project')
         project=projects[selected]['id'];path='/api/v1/monitoring-projects/'+segment(project)
         client.json(path+'/settings',method='POST',payload={'autostart':False,'archive':{
-            'minimum_retention_seconds':43200,'reserve_backup':True}})
+            'minimum_retention_seconds':43200,'reserve_backup':True,'reserve_restore':True}})
         sampler=Sampler(client,project,alive,ui_exit_code);collector=Collector(sampler,root/'hardware.jsonl',run_id,identity['core_sha256'],clock,receipts);collector.start()
         collector.checkpoint('baseline','Соберите не менее 60 секунд и 20 полных свипов для каждого диапазона; подтвердите эталон оператором.',limit=1800)
-        storage=client.json(path+'/storage');report['archive_budget']=storage
-        if storage.get('ready') is not True or storage.get('backup_reserve_requested') is not True \
-                or not isinstance(storage.get('bytes_per_second'),(int,float)) or storage.get('estimated_retention_seconds',0)<43200:
-            raise BenchmarkError('insufficient_space','Measured 8h +50% budget and backup reserve not available; do not arm')
+        storage=sample_duty_storage(lambda: client.json(path+'/storage'));report['archive_budget']=storage
+        require_duty_storage(storage)
         collector.checkpoint('guard','Включите охрану вручную; дождитесь новых панорам.')
         collector.armed=True;start=clock.now();report['hardware_tested']=True
         collector.emit('hardware.window.begin',{})

@@ -1631,6 +1631,7 @@ name = "ori-archive"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "fs2",
  "ori-contracts",
  "ori-monitoring",
  "rusqlite",
@@ -1761,6 +1762,7 @@ dependencies = [
  "ori-monitoring",
  "ori-session",
  "rand 0.8.8",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.11.1",

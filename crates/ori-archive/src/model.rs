@@ -6,6 +6,8 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 #[derive(Clone, Debug)]
 pub struct ArchiveConfig {
     pub path: PathBuf,
+    /// A registered external archive must already exist when SQLite opens the writer.
+    pub require_existing: bool,
     /// Select schema 7 when initializing an empty archive. Existing v7 archives reopen automatically.
     pub compact_sweep_events: bool,
     pub max_database_bytes: Option<u64>,
@@ -25,6 +27,7 @@ impl ArchiveConfig {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
+            require_existing: false,
             compact_sweep_events: false,
             max_database_bytes: None,
             writer_queue_capacity: 64,

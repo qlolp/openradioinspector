@@ -10,7 +10,15 @@ import { encodePathSegment, originalObservationJSON } from './wire';
 import type { Observation } from './types';
 import { message, type Desk } from './useDesk';
 
-export function OriginalObservation({ source, close }: { source: Observation; close: () => void }) {
+export function OriginalObservation({
+  source,
+  close,
+  children,
+}: {
+  source: Observation;
+  close: () => void;
+  children?: React.ReactNode;
+}) {
   return (
     <Modal label={t('Original observation')} close={close} wide>
       <h2>{t('Original observation')}</h2>
@@ -25,9 +33,46 @@ export function OriginalObservation({ source, close }: { source: Observation; cl
         <br />
         {utc(source.interval.started_at)} → {utc(source.interval.ended_at)}
       </p>
+      {children}
       <pre className="raw-observation">{originalObservationJSON(source)}</pre>
       <button onClick={close}>{t('Close original')}</button>
     </Modal>
+  );
+}
+export function EventReceiverPanorama({
+  api,
+  source,
+  context,
+}: {
+  api: Api;
+  source: Observation;
+  context: string;
+}) {
+  const pass = source.metadata?.scan_pass;
+  const path =
+    /^\d+$/.test(String(pass)) && /^[0-9a-f]{64}$/.test(context)
+      ? '/sessions/' +
+        encodePathSegment(source.session_id) +
+        '/streams/' +
+        encodePathSegment(source.stream_id) +
+        '/receiver-panorama?' +
+        new URLSearchParams({ pass: String(pass), context_id: context, columns: '512' })
+      : undefined;
+  const read = useArchiveRead<ReceiverPass>(api, path);
+  if (!path) return null;
+  return (
+    <section aria-label={t('Receiver panorama')}>
+      <h3>
+        {t('Receiver panorama')} · {t('Pass {pass}', { pass: String(pass) })}
+      </h3>
+      {read?.value ? (
+        <ReceiverPlot passes={[read.value]} />
+      ) : read?.error ? (
+        <p role="alert">{read.error}</p>
+      ) : (
+        <progress />
+      )}
+    </section>
   );
 }
 export async function readObservation(
@@ -58,7 +103,7 @@ function ReceiverPlot({
 }: {
   passes: ReceiverPass[];
   waterfall?: boolean;
-  select: (p: ReceiverPass, f: number) => void;
+  select?: (p: ReceiverPass, f: number) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null),
     p = passes[0];
@@ -154,6 +199,7 @@ function ReceiverPlot({
         role="img"
         aria-label={t(waterfall ? 'Waterfall by pass' : 'Measured receiver spectrum')}
         onClick={(event) => {
+          if (!select) return;
           const rect = event.currentTarget.getBoundingClientRect(),
             fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
           const row =
@@ -192,17 +238,22 @@ export function ReceiverPanorama({ desk }: { desk: Desk }) {
     '/streams/' +
     encodePathSegment(stream) +
     '/receiver-panorama';
-  const [chosen, setChosen] = useState<number>(),
+  const [chosen, setChosen] = useState<{ pass: number; context?: string }>(),
     [retry, setRetry] = useState(0);
   const [older, setOlder] = useState<ReceiverPass[]>([]),
     [pastError, setPastError] = useState('');
-  const query = (pass?: number) =>
-    '?' + new URLSearchParams({ columns: '512', ...(pass && { pass: String(pass) }) });
+  const query = (pass?: number, context?: string) =>
+    '?' +
+    new URLSearchParams({
+      columns: '512',
+      ...(pass && { pass: String(pass) }),
+      ...(context && { context_id: context }),
+    });
   const available = desk.capabilities?.features.ardv1_receiver_panorama === true;
   const acquiring = desk.guard?.active || project.state === 'collecting';
   const reading = useArchiveRead<ReceiverPass>(
     desk.api,
-    available ? base + query(chosen) : undefined,
+    available ? base + query(chosen?.pass, chosen?.context) : undefined,
     acquiring && !chosen ? 3000 : 0,
     false,
     retry,
@@ -218,7 +269,12 @@ export function ReceiverPanorama({ desk }: { desk: Desk }) {
       const rows: ReceiverPass[] = [];
       for (let n = latest! - 1; n >= Math.max(1, latest! - 7); n--) {
         try {
-          rows.push(await desk.api.get<ReceiverPass>(base + query(n), controller.signal));
+          rows.push(
+            await desk.api.get<ReceiverPass>(
+              base + query(n, current?.context_id),
+              controller.signal,
+            ),
+          );
         } catch (error) {
           if (!controller.signal.aborted) setPastError(message(error));
           break;
@@ -229,7 +285,7 @@ export function ReceiverPanorama({ desk }: { desk: Desk }) {
     }
     void read();
     return () => controller.abort();
-  }, [desk.api, base, latest, retry]);
+  }, [desk.api, base, latest, current?.context_id, retry]);
   const passes = useMemo(
     () =>
       current
@@ -238,6 +294,7 @@ export function ReceiverPanorama({ desk }: { desk: Desk }) {
             ...older.filter(
               (p) =>
                 p.pass < current.pass &&
+                p.context_id === current.context_id &&
                 p.start_hz === current.start_hz &&
                 p.stop_hz === current.stop_hz &&
                 p.step_hz === current.step_hz,
@@ -270,7 +327,11 @@ export function ReceiverPanorama({ desk }: { desk: Desk }) {
         : await desk.api.get<Observation>(
             base +
               '/point?' +
-              new URLSearchParams({ pass: String(p.pass), frequency_hz: String(frequency) }),
+              new URLSearchParams({
+                pass: String(p.pass),
+                frequency_hz: String(frequency),
+                ...(p.context_id && { context_id: p.context_id }),
+              }),
             pending.signal,
           );
       if (
@@ -312,7 +373,7 @@ export function ReceiverPanorama({ desk }: { desk: Desk }) {
           disabled={!latest || latest < 2}
           onClick={() => {
             reset();
-            setChosen(latest! - 1);
+            setChosen({ pass: latest! - 1, context: current?.context_id });
           }}
         >
           {t('Previous pass')}

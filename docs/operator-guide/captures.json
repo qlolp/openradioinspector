@@ -364,6 +364,28 @@
           "scenario": "Russian first-duty wizard, AOR AR-DV1, full 0.1–1300 MHz grid, step 10 kHz, 129991 points before opening a receiver."
         }
       ]
+    },
+    {
+      "client": "WebUI 0.4.0",
+      "host": "Debian GNU/Linux 13, x86-64",
+      "browser": "Chromium 156.0.8078.79",
+      "delivery": "Vite development server on loopback, Russian locale",
+      "source_revision": "45fadee126564a55899a65c0042324475a9b2fcc",
+      "source": "Synthetic core fixture and an example serial port. Captured while editing the range, before any instrument connection.",
+      "capture": "clients/web/e2e/duty.spec.ts, Russian receiver setup shows the first range and inclusive point count, unedited Playwright dialog screenshot",
+      "captures": [
+        {
+          "file": "images/first-duty-ardv1-range-ru.png",
+          "sha256": "78c4c71b3beb122e96e2b9d025b3be3a14b4653a8d36f5d8294114ef9b211a2d",
+          "pixels": [
+            780,
+            550
+          ],
+          "device_scale_factor": 1,
+          "theme": "system",
+          "scenario": "First AR-DV1 range of 100 to 100.2 MHz at 10 kHz, 21 inclusive frequencies."
+        }
+      ]
     }
   ]
 }

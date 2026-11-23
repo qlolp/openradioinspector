@@ -1235,6 +1235,19 @@ impl crate::RestoreKeys for NodeArchiveLocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeSerialPorts {
+    pub ports: Vec<String>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for NodeSerialPorts {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairedControls {
     pub lower: PairedOriginals,
     pub upper: PairedOriginals,
@@ -1663,6 +1676,8 @@ fn runtime_integer_rfexplorerpasswindows_next_after_tile<'de, D: serde::Deserial
 pub struct ReceiverPanorama {
     pub bins: Vec<ReceiverPanoramaBin>,
     pub complete: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_id: Option<String>,
     pub coverage_hex: String,
     pub ended_at: UtcTimestamp,
     pub level_unit: ReceiverPanoramaLevelUnit,
@@ -2849,6 +2864,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "get_api_v1_serial_ports",
+        method: "GET",
+        path: "/api/v1/serial-ports",
+        backends: &["rust-candidate"],
+        features: &["serial_port_candidates"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &[],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "get_api_v1_sessions",
         method: "GET",
         path: "/api/v1/sessions",
@@ -3707,7 +3734,7 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         backends: &["rust-candidate"],
         features: &["ardv1_receiver_panorama"],
         capabilities: &[],
-        query: &["pass", "columns"],
+        query: &["pass", "columns", "context_id"],
         path_parameters: &["id", "stream_id"],
         max_request_bytes: None,
         request_features: &[],
@@ -3719,7 +3746,7 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         backends: &["rust-candidate"],
         features: &["ardv1_receiver_panorama"],
         capabilities: &[],
-        query: &["pass", "frequency_hz"],
+        query: &["pass", "frequency_hz", "context_id"],
         path_parameters: &["id", "stream_id"],
         max_request_bytes: None,
         request_features: &[],

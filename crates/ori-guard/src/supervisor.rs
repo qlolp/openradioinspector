@@ -361,7 +361,7 @@ impl GuardService {
             .ok_or(ControlError::Denied)?;
         let now = self.clock.monotonic();
         if r.storage_checked
-            .is_none_or(|at| now.saturating_sub(at) >= Duration::from_secs(2))
+            .is_none_or(|at| now.saturating_sub(at) >= crate::storage_forecast::RECHECK)
         {
             if self.storage_report(id, true).await?["ready"] != true {
                 return Err(GuardError::Conflict(

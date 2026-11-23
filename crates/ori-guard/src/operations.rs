@@ -155,6 +155,7 @@ impl GuardService {
                     "minimum_free_bytes",
                     "minimum_retention_seconds",
                     "reserve_backup",
+                    "reserve_restore",
                 ],
                 false,
             )?;
@@ -175,11 +176,10 @@ impl GuardService {
             {
                 return Err(invalid("Недопустимый резерв/прогноз хранения архива"));
             }
-            if merged
-                .get("reserve_backup")
-                .is_some_and(|value| !value.is_boolean())
-            {
-                return Err(invalid("reserve_backup должен быть boolean"));
+            for key in ["reserve_backup", "reserve_restore"] {
+                if merged.get(key).is_some_and(|value| !value.is_boolean()) {
+                    return Err(invalid(format!("{key} должен быть boolean")));
+                }
             }
             p["archive"] = merged;
         }

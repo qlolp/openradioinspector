@@ -8,6 +8,7 @@ public struct PlatformReceiverPanorama: Decodable, Sendable {
         public let observationId, startedAt, endedAt: String
     }
     public let pass, totalPoints, measuredPoints: Int
+    public let contextId: String?
     public let complete, lowerIsStronger: Bool
     public let startHz, stopHz, stepHz: Int
     public let levelUnit: String
@@ -111,18 +112,22 @@ extension PlatformClient {
         "/sessions/\(Self.segment(session))/streams/\(Self.segment(stream))/receiver-panorama"
     }
 
-    public func receiverPanorama(sessionID: String, streamID: String, pass: Int? = nil, columns: Int = 512) async throws -> PlatformReceiverPanorama {
+    public func receiverPanorama(sessionID: String, streamID: String, pass: Int? = nil, columns: Int = 512, contextID: String? = nil) async throws -> PlatformReceiverPanorama {
         guard (2...1024).contains(columns), pass.map({ $0 > 0 }) != false else {
             throw PlatformError.invalidCommand("Нужны положительный номер прохода и 2–1024 колонки.")
         }
         var query = [URLQueryItem(name: "columns", value: String(columns))]
         if let pass { query.append(.init(name: "pass", value: String(pass))) }
+        if let contextID { query.append(.init(name: "context_id", value: contextID)) }
         let result: PlatformReceiverPanorama = try await get(receiverPanoramaPath(sessionID, streamID), query: query)
+        if let contextID, result.contextId != contextID {
+            throw PlatformError.invalidResponse("Архив вернул другой контекст прохода AR-DV1.")
+        }
         return try result.validated(requestedPass: pass, columns: columns)
     }
 
     public func receiverOriginal(sessionID: String, streamID: String, pass: Int, frequencyHz: Int64,
-                                 observationID: String, fromEvent: Bool = false) async throws -> MonitoringValue {
+                                 observationID: String, fromEvent: Bool = false, contextID: String? = nil) async throws -> MonitoringValue {
         guard pass > 0, (100_000...1_300_000_000).contains(frequencyHz), !observationID.isEmpty else {
             throw PlatformError.invalidCommand("Нужна ссылка на исходное наблюдение в проходе.")
         }
@@ -131,8 +136,9 @@ extension PlatformClient {
             // An event keeps its exact original even if another sample later became the bin peak.
             row = try await get("/sessions/\(Self.segment(sessionID))/observations/\(Self.segment(observationID))")
         } else {
-            row = try await get(receiverPanoramaPath(sessionID, streamID) + "/point",
-                query: [.init(name: "pass", value: String(pass)), .init(name: "frequency_hz", value: String(frequencyHz))])
+            var query = [URLQueryItem(name: "pass", value: String(pass)), .init(name: "frequency_hz", value: String(frequencyHz))]
+            if let contextID { query.append(.init(name: "context_id", value: contextID)) }
+            row = try await get(receiverPanoramaPath(sessionID, streamID) + "/point", query: query)
         }
         guard PlatformExactID.same(row["session_id"].text, sessionID), PlatformExactID.same(row["stream_id"].text, streamID),
               PlatformExactID.same(row["id"].text, observationID), row["metadata"]["scan_pass"].integer == Int64(pass),

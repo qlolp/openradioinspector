@@ -1,4 +1,5 @@
 """Bounded deadlines shared with the private packaged-core acceptance policy."""
+import math
 from time import monotonic,monotonic_ns,sleep
 from pathlib import Path
 
@@ -7,6 +8,41 @@ from ..config import BenchmarkError
 
 RATE = 20 * 1024**2
 MAX_SNAPSHOT = 16 * 1024**3
+
+
+def sample_duty_storage(fetch):
+    """A cold core needs two allocation readings at least five seconds apart."""
+    for _ in range(3):
+        report = fetch()
+        if report.get('forecast_status') != 'measuring_allocation' or report.get('next_recheck_seconds') != 2:
+            return report
+        sleep(2)
+    return fetch()
+
+
+def require_duty_storage(storage):
+    """Check the core's full local-volume forecast before starting physical duty."""
+    def measured(key, minimum):
+        value = storage.get(key)
+        return type(value) in (int, float) and math.isfinite(value) and value >= minimum
+
+    def byte_count(key):
+        value = storage.get(key)
+        return type(value) is int and 0 <= value < 2**64
+
+    complete = (
+        storage.get('ready') is True and storage.get('storage_id') == 'node-archive'
+        and storage.get('backup_reserve_requested') is True and storage.get('restore_reserve_requested') is True
+        and all(byte_count(key) for key in ('required_free_bytes', 'filesystem_free_bytes', 'shortfall_bytes',
+                                            'backup_reserve_bytes', 'restore_reserve_bytes'))
+        and storage['required_free_bytes'] > 0 and storage['filesystem_free_bytes'] >= storage['required_free_bytes']
+        and storage['shortfall_bytes'] == 0 and min(storage['backup_reserve_bytes'], storage['restore_reserve_bytes']) > 0
+        and measured('bytes_per_second', 0) and storage['bytes_per_second'] > 0
+        and measured('physical_growth_bytes_per_second', 0)
+        and measured('forecast_seconds', 43_200) and measured('estimated_retention_seconds', 43_200)
+    )
+    if not complete:
+        raise BenchmarkError('insufficient_space', 'Measured 8h +50% storage for recording, backup and restore is required')
 
 
 def deadlines(size):

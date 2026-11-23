@@ -2611,6 +2611,21 @@
         ],
         "type": "object"
       },
+      "NodeSerialPorts": {
+        "properties": {
+          "ports": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 256,
+            "type": "array"
+          }
+        },
+        "required": [
+          "ports"
+        ],
+        "type": "object"
+      },
       "PairedControls": {
         "additionalProperties": false,
         "properties": {
@@ -3521,6 +3536,13 @@
           },
           "complete": {
             "type": "boolean"
+          },
+          "context_id": {
+            "description": "Stable receiver profile identifier, scoped to session and stream. Events carry this value as receiver_context_key.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
           },
           "coverage_hex": {
             "description": "Byte i/8, bit i%8 marks an actually committed original at grid index i (hex bytes in ascending byte order).",
@@ -13663,6 +13685,20 @@
         "requestBody": {
           "content": {
             "application/json": {
+              "examples": {
+                "dutyArchiveForecast": {
+                  "description": "Requires monitoring_storage_forecast for reserve_restore. The core forecasts all selected files on the node archive volume. GET storage returns the required free bytes, shortfall and physical allocation growth.",
+                  "summary": "Space for recording, a backup and a restored database",
+                  "value": {
+                    "archive": {
+                      "minimum_free_bytes": 268435456,
+                      "minimum_retention_seconds": 28800,
+                      "reserve_backup": true,
+                      "reserve_restore": true
+                    }
+                  }
+                }
+              },
               "schema": {
                 "$ref": "#/components/schemas/JSONObject"
               }
@@ -14608,6 +14644,95 @@
         "x-ori-capability-requirements": [],
         "x-ori-feature-requirements": [],
         "x-ori-reader-access": true,
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
+      }
+    },
+    "/api/v1/serial-ports": {
+      "get": {
+        "description": "Serial port names reported by the recording node OS without opening ports or identifying instruments.",
+        "operationId": "get_api_v1_serial_ports",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/NodeSerialPorts"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Serial port names reported by the recording node OS without opening ports or identifying instruments."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "serial_port_candidates"
+        ],
         "x-ori-request-feature-requirements": [],
         "x-ori-runtime-support": "feature-gated"
       }
@@ -25799,7 +25924,7 @@
     },
     "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama": {
       "get": {
-        "description": "Peak-preserving bins of committed FM receiver observations in a sequential pass. Without pass, reads the latest pass.",
+        "description": "Peak-preserving bins of committed FM receiver observations in a sequential pass. Without pass, reads the latest pass. When context_id is supplied, only the matching acquisition context is searched.",
         "operationId": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",
         "parameters": [
           {
@@ -25843,6 +25968,17 @@
               "maximum": 1024,
               "minimum": 2,
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "context_id",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
             }
           }
         ],
@@ -25933,7 +26069,7 @@
     },
     "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point": {
       "get": {
-        "description": "Original receiver observation at the exact confirmed frequency and pass.",
+        "description": "Original receiver observation at the exact confirmed frequency and pass. When context_id is supplied, only the matching acquisition context is searched.",
         "operationId": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",
         "parameters": [
           {
@@ -25976,6 +26112,17 @@
               "maximum": 1300000000,
               "minimum": 100000,
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "context_id",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
             }
           }
         ],

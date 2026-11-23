@@ -423,6 +423,13 @@ final class NativeNodeConnectionTests: XCTestCase {
 
 extension NativeNodeConnectionTests {
     @MainActor
+    func testAReceiverWithoutWorkerStatusHasNoOperatorControlsUntilConnected() {
+        let model = RemoteDualModel()
+        XCTAssertNil(model.operatorClient)
+        XCTAssertEqual(model.analyzerReceptionLabel, "Состояние приёма неизвестно")
+    }
+
+    @MainActor
     func testPairedReaderOpensRunningSurveyAndRecallsItsSourceWithoutOperatorRoutes() async throws {
         let store = MemoryStore()
         try await store.save(.init(token: "fixture-reader"), for: PlatformBaseURL(server))
@@ -475,6 +482,14 @@ extension NativeNodeConnectionTests {
         XCTAssertTrue(stream.isRFExplorer3G)
         XCTAssertEqual(remote.displayInspectorSweeps.last?.id, "window")
         XCTAssertTrue(remote.followAnalyzerMeasurements)
+        XCTAssertEqual(remote.analyzerReceptionLabel, "Сеанс запущен · только чтение")
+        XCTAssertNil(remote.operatorClient)
+        let workspace = MonitoringWorkspaceModel()
+        await NativeMonitoringLifecycle.loadWorkspace(model: remote, workspace: workspace)
+        XCTAssertTrue(workspace.selected.isEmpty)
+        remote.startStream(stream)
+        remote.stopStream(stream)
+        XCTAssertFalse(remote.busy)
         let session = remote.selectedSessionID
         let sets = try await node.client.frequencyBookmarks(sessionID: session)
         let frequency = try XCTUnwrap(sets.items.first?.entries.first?.frequencyHz)

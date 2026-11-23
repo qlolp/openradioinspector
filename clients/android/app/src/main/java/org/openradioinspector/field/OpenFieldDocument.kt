@@ -4,6 +4,8 @@ import android.database.sqlite.SQLiteFullException
 import android.net.Uri
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
+import android.system.ErrnoException
+import android.system.OsConstants
 import androidx.activity.compose.BackHandler
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,10 +47,12 @@ internal fun OpenFieldDocument(uri: String, close: () -> Unit) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val detail = when (e) {
-                is SQLiteFullException -> "Недостаточно места для временного индекса или достигнут предел 384 МиБ."
-                is SecurityException -> "Хранилище не разрешило чтение."
-                is IllegalArgumentException -> e.message?.takeUnless { it == "Failed requirement." }
+            val noSpace = e is SQLiteFullException || generateSequence<Throwable>(e) { it.cause }
+                .any { it is ErrnoException && it.errno == OsConstants.ENOSPC }
+            val detail = when {
+                noSpace -> "Недостаточно места для временной копии и индекса выезда."
+                e is SecurityException -> "Хранилище не разрешило чтение."
+                e is IllegalArgumentException -> e.message?.takeUnless { it == "Failed requirement." }
                 else -> null
             }
             error = "Не удалось открыть файл выезда. " + (detail ?: "Проверьте доступ к файлу и его целостность в формате V1.")

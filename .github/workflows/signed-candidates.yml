@@ -64,6 +64,26 @@ jobs:
           rustup toolchain install 1.99.1 --profile minimal --target aarch64-apple-darwin
           python packaging/macos/build_personal_rc.py --developer-id --output-dir build/distribution/macos
           python packaging/macos/build_acceptance_kit.py --output-dir build/distribution/engineering --app-manifest build/distribution/macos/dmg-root/manifest.json
+      - name: Exercise the application from the frozen public DMG
+        if: inputs.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch=$(mktemp -d "$RUNNER_TEMP/ori-signed-smoke.XXXXXXXX")
+          mkdir "$scratch/image"
+          hdiutil attach -readonly -nobrowse -mountpoint "$scratch/image" build/distribution/macos/frozen/OpenRadioInspector-0.4.0-macos-arm64.dmg
+          trap 'hdiutil detach "$scratch/image"' EXIT
+          ditto "$scratch/image/OpenRadioInspector RC.app" "$scratch/OpenRadioInspector RC.app"
+          python tools/release/smoke_macos_personal_rc.py --app "$scratch/OpenRadioInspector RC.app" \
+            --manifest "$scratch/image/manifest.json" --profile rc1 --release-version 0.4.0 \
+            --report-dir "$RUNNER_TEMP/ori-signed-macos-smoke"
+      - name: Retain public Mac smoke result
+        if: always() && inputs.platform == 'macos'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: signed-macos-smoke-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ori-signed-macos-smoke/report.json
+          if-no-files-found: ignore
       - name: Remove temporary Apple keychain
         if: always() && inputs.platform == 'macos'
         run: python packaging/macos/signing_keychain.py cleanup

@@ -271,6 +271,17 @@ final class RemoteDualModel {
     }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
+    var operatorClient: PlatformClient? {
+        guard connected, let client, !client.readsMeasurementsOnly else { return nil }
+        return client
+    }
+    var analyzerReceptionLabel: String {
+        if client?.readsMeasurementsOnly == true {
+            return coreReachable && session?.state == "running" ? "Сеанс запущен · только чтение" : "Только чтение · состояние приёма неизвестно"
+        }
+        guard let worker = worker(for: analyzer?.id) else { return "Состояние приёма неизвестно" }
+        return NativeDeviceStatus.title(worker.state)
+    }
     var followAnalyzerMeasurements: Bool {
         guard coreReachable, let analyzer else { return false }
         if client?.readsMeasurementsOnly == true { return session?.state == "running" }
@@ -881,7 +892,7 @@ final class RemoteDualModel {
     func stopWorkers(mode: PlatformStopMode = .graceful) { performSessionAction { try await $0.stopWorkers($1, mode: mode) } }
 
     func startStream(_ stream: PlatformStream?) {
-        guard let stream else { return }
+        guard client?.readsMeasurementsOnly != true, let stream else { return }
         if stream.isRFExplorer3G {
             guard !busy else { return }
             let scope = generation
@@ -898,7 +909,7 @@ final class RemoteDualModel {
     }
 
     func stopStream(_ stream: PlatformStream?, mode: PlatformStopMode = .graceful) {
-        guard let stream else { return }
+        guard client?.readsMeasurementsOnly != true, let stream else { return }
         performStreamAction(stream) { try await $0.stopStream(sessionID: $1, streamID: stream.id, mode: mode) }
     }
 

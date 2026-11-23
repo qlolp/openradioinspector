@@ -151,7 +151,8 @@ public struct PlatformFieldDocument: Sendable {
         return .event(description: event.text ?? event.reason ?? row.summary, raw: raw)
     }
 
-    public init(opening url: URL) throws {
+    public init(opening url: URL, checkCancellation: () throws -> Void = { try Task.checkCancellation() }) throws {
+        try checkCancellation()
         let zip = try FieldStoredZIP(url: url)
         defer { try? zip.file.close() }
         let decoder = JSONDecoder()
@@ -186,7 +187,7 @@ public struct PlatformFieldDocument: Sendable {
 
         let measurements = manifest.files["measurements.ndjson"]!
         var hasHeader = false
-        try zip.lines("measurements.ndjson", bytes: measurements.bytes, sha: measurements.sha256) { line, offset in
+        try zip.lines("measurements.ndjson", bytes: measurements.bytes, sha: measurements.sha256, checkCancellation: checkCancellation) { line, offset in
             if !hasHeader {
                 _ = try StrictJSON.parse(line)
                 let header = try decoder.decode(FieldHeader.self, from: line)
@@ -217,7 +218,7 @@ public struct PlatformFieldDocument: Sendable {
               observationCount == manifest.observation_count else { throw FieldReadError.invalid("число измерений") }
 
         let events = manifest.files["events.ndjson"]!
-        try zip.lines("events.ndjson", bytes: events.bytes, sha: events.sha256) { line, offset in
+        try zip.lines("events.ndjson", bytes: events.bytes, sha: events.sha256, checkCancellation: checkCancellation) { line, offset in
             _ = try StrictJSON.parse(line, maxBytes: 16 * 1024 * 1024 + 1024)
             let event = try decoder.decode(FieldEvent.self, from: line)
             _ = try FieldInstant(event.time_utc)
@@ -256,7 +257,7 @@ public struct PlatformFieldDocument: Sendable {
 
         let track = manifest.files["track.geojson"]!
         var lineNumber = 0, trackEnded = false, features = 0
-        try zip.lines("track.geojson", bytes: track.bytes, sha: track.sha256) { line, _ in
+        try zip.lines("track.geojson", bytes: track.bytes, sha: track.sha256, checkCancellation: checkCancellation) { line, _ in
             defer { lineNumber += 1 }
             if lineNumber == 0 {
                 guard line == Data(#"{"type":"FeatureCollection","features":["#.utf8) else { throw FieldReadError.invalid("заголовок трека") }
@@ -272,6 +273,7 @@ public struct PlatformFieldDocument: Sendable {
             }
         }
         guard trackEnded, features == gpsFeatures.count, features == track.records else { throw FieldReadError.invalid("число точек трека") }
+        try checkCancellation()
         self.url = url
         self.rows = rows
         self.indices = index

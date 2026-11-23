@@ -85,7 +85,18 @@ trap cleanup EXIT
 offline() { "${launcher[@]}" env NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost "$@"; }
 verify() {
     "/usr/lib/$package/check-install" >/dev/null
-    offline python3 "$checks" "$1" --manifest "$manifest" >> "$report/lifecycle.jsonl"
+    local phase_report automatic_restarts
+    phase_report=$(offline python3 "$checks" "$1" --manifest "$manifest")
+    # Only a healthy, crash-free scenario clears this CI unit's manual starts.
+    # Preserve evidence of an automatic restart even if HTTP has recovered.
+    systemctl is-active --quiet "$unit"
+    automatic_restarts=$(systemctl show -p NRestarts --value "$unit")
+    if [ "$automatic_restarts" != 0 ]; then
+        printf 'Unexpected automatic restarts for %s: %s\n' "$unit" "$automatic_restarts" >&2
+        return 1
+    fi
+    systemctl reset-failed "$unit"
+    printf '%s\n' "$phase_report" >> "$report/lifecycle.jsonl"
 }
 
 if [ "$arch" = amd64 ]; then
@@ -155,6 +166,9 @@ sha256sum "/etc/$package/supervisor.json" > "$report/config.sha256"
 offline dpkg --force-confold -i "${upgrade[0]}"
 cmp "$second/release.json" "/usr/share/doc/$package/release.json"
 sha256sum -c "$report/config.sha256"
+systemctl stop "$unit"
+runuser -u "$service_user" -- "/usr/lib/$package/ori-supervisor" archive-location --data-dir "$state" --directory "$state/ci-archive-volume"
+systemctl start "$unit"
 verify upgrade
 offline dpkg --force-confold -i "${rc[0]}"
 cmp "$release/release.json" "/usr/share/doc/$package/release.json"
@@ -162,6 +176,9 @@ sha256sum -c "$report/config.sha256"
 verify rollback
 systemctl restart "$unit"
 verify restart
+offline dpkg --force-confold -i "${upgrade[0]}"
+cmp "$second/release.json" "$manifest"
+offline python3 "$checks" restart --manifest "$manifest" >/dev/null
 systemctl stop "$unit"
 runuser -u "$service_user" -- "/usr/lib/$package/ori-core" archive-materialize "$state/sessions.sqlite3" "$state/compat-v6.sqlite"
 offline dpkg --purge "$package"
@@ -173,7 +190,7 @@ for filename, version in [('sessions.sqlite3', 7), ('compat-v6.sqlite', 6)]:
         assert db.execute('PRAGMA integrity_check').fetchone() == ('ok',)
         assert db.execute('PRAGMA user_version').fetchone() == (version,)
         assert db.execute('SELECT COUNT(*) FROM sweeps').fetchone() == (1,)
-        assert db.execute('SELECT COUNT(*) FROM observations').fetchone() == (1,)
+        assert db.execute('SELECT COUNT(*) FROM observations').fetchone() == (2,)
 PY
 # Keep the entire original archive (including any sidecars) while exercising
 # a separate v6 data directory. The package must preserve an existing schema.

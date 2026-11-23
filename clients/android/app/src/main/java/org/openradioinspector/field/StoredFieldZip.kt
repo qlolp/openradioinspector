@@ -1,6 +1,5 @@
 package org.openradioinspector.field
 
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FilterInputStream
 import java.io.InputStream
@@ -14,8 +13,7 @@ import java.util.zip.CheckedInputStream
 
 internal val fieldPayloads = listOf("measurements.ndjson", "events.ndjson", "track.geojson")
 internal const val fieldManifest = "manifest.json"
-internal const val mobileLineLimit = 1024 * 1024
-internal const val mobileDocumentLimit = 128L * 1024 * 1024
+internal const val reviewPageBytes = 1024 * 1024
 
 private fun ByteBuffer.u16(offset: Int) = getShort(offset).toInt() and 0xffff
 private fun ByteBuffer.u32(offset: Int) = getInt(offset).toLong() and 0xffffffffL
@@ -41,7 +39,7 @@ internal class StoredFieldZip(private val file: File) {
     init {
         RandomAccessFile(file, "r").use { zip ->
             val size = zip.length()
-            require(size in 22..mobileDocumentLimit) { "Недопустимый размер ZIP" }
+            require(size in 22..FieldExporter.maxArchive) { "Недопустимый размер ZIP" }
             zip.seek(size - 22)
             val end = zip.header(22)
             val start = end.u32(16)
@@ -84,6 +82,7 @@ internal class StoredFieldZip(private val file: File) {
     }
 
     fun size(name: String) = members.getValue(name).length
+    fun dataStart(name: String) = members.getValue(name).data
 
     fun <T> read(name: String, sha256: String? = null, consume: (InputStream) -> T): T {
         val member = members.getValue(name)
@@ -119,34 +118,50 @@ internal class StoredFieldZip(private val file: File) {
     }
 }
 
-internal fun strictUtf8(bytes: ByteArray): String = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
+/** A verified record in the private STORED member. The terminating LF is outside the span. */
+internal data class FieldRow(val position: Long, val length: Int, val hash: ByteArray)
 
-internal class FieldLines(private val input: InputStream) {
-    private val buffer = ByteArray(16 * 1024)
+internal class FieldLines(private val input: InputStream, start: Long, private val checkpoint: () -> Unit) {
+    private val buffer = ByteArray(32 * 1024)
     private var offset = 0
     private var end = 0
+    private val sha = MessageDigest.getInstance("SHA-256")
+    private var nextStart = start
 
-    fun next(): String? {
+    fun next(): FieldRow? {
         if (end < 0) return null
-        val line = ByteArrayOutputStream()
+        var length = 0
         while (true) {
             if (offset == end) {
+                checkpoint()
                 offset = 0
                 end = input.read(buffer)
                 if (end < 0) {
-                    require(line.size() == 0) { "У записи отсутствует завершающий LF" }
+                    require(length == 0) { "У записи отсутствует завершающий LF" }
                     return null
                 }
+                require(end > 0)
             }
             val begin = offset
             while (offset < end && buffer[offset] != 10.toByte()) offset++
-            val n = offset - begin
-            require(line.size() + n < mobileLineLimit) { "Запись превышает предел 1 МиБ" }
-            line.write(buffer, begin, n)
+            val count = offset - begin
+            length += count
+            require(length < FieldExporter.maxLine) { "Запись превышает предел строки формата V1" }
+            sha.update(buffer, begin, count)
             if (offset < end) {
                 offset++
-                return strictUtf8(line.toByteArray())
+                return FieldRow(nextStart, length, sha.digest()).also { nextStart += length + 1L }
             }
         }
     }
+}
+
+internal fun RandomAccessFile.verifiedFieldBytes(offset: Long, size: Int, expectedHash: ByteArray): ByteArray {
+    require(offset >= 0 && size in 1 until FieldExporter.maxLine && offset + size < length())
+    seek(offset)
+    val bytes = bytes(size)
+    require(read() == 10 && MessageDigest.isEqual(MessageDigest.getInstance("SHA-256").digest(bytes), expectedHash)) {
+        "Содержимое выезда изменилось после проверки"
+    }
+    return bytes
 }

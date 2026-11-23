@@ -173,7 +173,7 @@ internal fun ArchiveDetail(reader: SessionReview, export: (() -> Unit)? = null) 
                 SourceDetails(json)
             }
             ReviewKind.NOTES, ReviewKind.GAPS -> {
-                Text(json.optString(if (kind == ReviewKind.NOTES) "text" else "reason"))
+                ArchiveText(json, if (kind == ReviewKind.NOTES) "text" else "reason", entryId)
                 Text(json.getString("time_utc"))
                 val sourceKey = listOf("sweep_id", "observation_id").firstOrNull { !json.isNull(it) }
                 if (sourceKey != null) OutlinedButton(onClick = {
@@ -215,6 +215,36 @@ private fun RouteReadingDetails(reading: RouteReading?, receiver: Boolean) {
 }
 
 @Composable
+private fun ArchivePages(page: Int, pages: Int, change: (Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = { change(page - 1) }, enabled = page > 0) { Text("Предыдущая часть") }
+        Text("${page + 1} / $pages")
+        TextButton(onClick = { change(page + 1) }, enabled = page + 1 < pages) { Text("Следующая часть") }
+    }
+}
+
+@Composable
+private fun ArchiveText(json: JSONObject, field: String, id: String) {
+    val source = json as? FieldRowObject
+    val local = if (source == null) json.optString(field) else ""
+    val length = source?.textLength(field) ?: local.length
+    val chars = 2048
+    val pages = maxOf(1, (length - 1) / chars + 1)
+    var page by rememberSaveable(id, pages) { mutableIntStateOf(0) }
+    val first = page * chars
+    val end = minOf(first + chars, length)
+    if (pages > 1) ArchivePages(page, pages) { page = it }
+    val visible = remember(json, field, page) {
+        if (source != null) source.textPage(field, first, end)
+        else {
+            fun boundary(at: Int) = if (at in 1 until length && local[at].isLowSurrogate() && local[at-1].isHighSurrogate()) at + 1 else at
+            local.substring(boundary(first), boundary(end))
+        }
+    }
+    Text(visible)
+}
+
+@Composable
 private fun SourceDetails(json: JSONObject) {
     val interval = json.getJSONObject("interval")
     Text(interval.getString("started_at") + " — " + interval.getString("ended_at"),
@@ -222,8 +252,19 @@ private fun SourceDetails(json: JSONObject) {
     if (json.has("frequencies_hz")) {
         val frequencies = json.getJSONArray("frequencies_hz")
         val levels = json.getJSONArray("levels")
-        SpectrumPanel(List(frequencies.length()) { frequencies.getLong(it) },
-            List(levels.length()) { levels.getDouble(it) }, json.getString("level_unit"), emptyList())
+        val points = frequencies.length()
+        val pageSize = 512
+        val pages = (points - 1) / pageSize + 1
+        var page by rememberSaveable(json.getString("id"), pages) { mutableIntStateOf(0) }
+        val first = page * pageSize
+        val count = minOf(pageSize, points - first)
+        if (pages > 1) {
+            Text("Исходные точки ${first + 1}–${first + count} из $points")
+            ArchivePages(page, pages) { page = it }
+        }
+        val x = remember(json, first) { List(count) { frequencies.getLong(first + it) } }
+        val y = remember(json, first) { List(count) { levels.getDouble(first + it) } }
+        SpectrumPanel(x, y, json.getString("level_unit"), emptyList())
     } else {
         Text("${showMHz(json.getLong("frequency_hz"))} МГц  ·  ${json.getString("mode")}")
         val unit = json.getString("level_unit")

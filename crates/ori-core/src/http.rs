@@ -586,6 +586,29 @@ async fn get(
                     .await?
             )
         }
+        ["api", "v1", "serial-ports"] => {
+            if !query.is_empty() {
+                return Err(ApiError::invalid(
+                    "Serial port listing accepts no parameters",
+                ));
+            }
+            let list = core
+                .config
+                .devices
+                .port_candidates
+                .ok_or_else(|| ApiError::unavailable("serial_port_candidates"))?;
+            let mut ports = tokio::task::spawn_blocking(list)
+                .await
+                .map_err(|_| ApiError::unavailable("serial_port_candidates"))?
+                .map_err(|_| ApiError::unavailable("serial_port_candidates"))?;
+            ports.retain(|port| {
+                !port.is_empty() && port.len() <= 1024 && !port.contains(char::is_control)
+            });
+            ports.sort();
+            ports.dedup();
+            ports.truncate(256);
+            json!({"ports":ports})
+        }
         ["api", "v1", "archive", "location"] => {
             core.archive()?;
             if !query.is_empty() {
@@ -910,8 +933,13 @@ fn capabilities(core: &Core) -> Value {
     value["features"]["single_source_duty"] = Value::Bool(domains);
     value["features"]["ardv1_cyclic_panorama"] = Value::Bool(serial);
     value["features"]["ardv1_receiver_panorama"] = Value::Bool(archived);
+    value["features"]["ardv1_receiver_panorama_context"] = Value::Bool(archived);
+    value["features"]["monitoring_storage_forecast"] = Value::Bool(domains);
     value["features"]["monitoring_duty_schedule"] = Value::Bool(domains);
     value["features"]["monitoring_notification_channels"] = Value::Bool(domains);
+    value["features"]["serial_port_candidates"] =
+        Value::Bool(core.config.devices.port_candidates.is_some());
+    value["features"]["monitoring_draft_port_correction"] = Value::Bool(domains);
     value["features"]["archive_location"] = Value::Bool(archived);
     value["features"]["frequency_bookmarks"] = Value::Bool(domains);
     value["features"]["rf_explorer_survey_panorama"] = Value::Bool(archived);

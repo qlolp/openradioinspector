@@ -39,6 +39,10 @@ final class NativeRCPreparationTests: XCTestCase {
         let base: [String: MonitoringValue] = ["ready": .boolean(true), "required_retention_seconds": .integer(43_200),
             "write_probe": .boolean(true), "bytes_per_second": .number(4096), "backup_reserve_requested": .boolean(true)]
         XCTAssertTrue(NativeRCReadiness(preflight: .object(["storage": .object(base)])).budgetReady)
+        let forecast = base.merging(["forecast_seconds": .integer(43_200), "forecast_status": .string("ready"),
+            "shortfall_bytes": .integer(0), "restore_reserve_requested": .boolean(true)]) { _, new in new }
+        XCTAssertTrue(NativeRCReadiness(preflight: .object(["storage": .object(forecast)])).budgetReady)
+        XCTAssertFalse(NativeRCReadiness(preflight: .object(["storage": .object(forecast.merging(["restore_reserve_requested": .boolean(false)]) { _, new in new })])).budgetReady)
         for patch: [String: MonitoringValue] in [["bytes_per_second": .null], ["backup_reserve_requested": .boolean(false)],
                                                 ["required_retention_seconds": .integer(3600)], ["write_probe": .boolean(false)]] {
             XCTAssertFalse(NativeRCReadiness(preflight: .object(["storage": .object(base.merging(patch) { _, new in new })])).budgetReady)

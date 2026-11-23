@@ -33,6 +33,10 @@ struct NativeLocalServicePane: View {
                     panel.message = "Выберите пустую папку на этом Mac. Служба проверит копию текущего архива перед переключением."
                     if panel.runModal() == .OK, let destination = panel.url { Task { await service.chooseArchiveDirectory(destination) } }
                 }.disabled(service.busy || service.phase != .stopped)
+                Button("Вернуть архив для отката") {
+                    Task { await service.chooseArchiveDirectory(NativeLocalServicePaths.dataDirectory()) }
+                }.disabled(service.busy || service.phase != .stopped)
+                .help("Вернуть проверенную копию в каталог узла перед установкой прежней версии.")
                 Text("Папку можно изменить после остановки службы.").font(.caption)
             }
             if !service.archiveLocationMessage.isEmpty { Text(service.archiveLocationMessage).font(.callout).textSelection(.enabled) }

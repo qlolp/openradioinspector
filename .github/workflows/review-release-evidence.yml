@@ -12,7 +12,7 @@ on:
         type: string
         required: true
       receipt_b64:
-        description: Base64 of sanitized UTF-8 acceptance JSON
+        description: Base64 of sanitized schema-v2 acceptance JSON covering five physical shifts
         type: string
         required: true
 

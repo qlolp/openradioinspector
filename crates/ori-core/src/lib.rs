@@ -325,6 +325,8 @@ impl Core {
                 }
             };
             let mut archive_config = ArchiveConfig::new(&config.database);
+            archive_config.require_existing =
+                config.database.parent() != Some(&config.data_directory);
             archive_config.max_database_bytes = config.max_archive_bytes;
             archive_config.commit_observer = config
                 .acceptance

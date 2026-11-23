@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from . import release_acceptance as gate
+from . import hardware_runs, release_acceptance as gate
 from .macos_rc_package import digest, read_json
 from .release_artifacts import ARTIFACTS, DEBIAN_VERSIONS, LINUX_AMD64, LINUX_CI, TARGETS, check_manifest, require, verify_sums
 
@@ -35,7 +35,7 @@ def template(platform, revision, artifact_hash, manifest_hash, run_id, *, native
         install = {version: dict(install, artifact_sha256=None) for version in DEBIAN_VERSIONS}
         hardware.update(blank('os_id os_version architecture artifact_sha256 coverage_sha256'))
         loads['three-clients'].update(blank('producer_report_sha256 history_report_sha256'))
-    return dict(schema_version=1, platform=platform, target=TARGETS[platform], source_revision=revision,
+    return dict(schema_version=2, hardware_runs=hardware_runs.template(), platform=platform, target=TARGETS[platform], source_revision=revision,
                 artifact_sha256=artifact_hash, manifest_sha256=manifest_hash, build_run_id=run_id,
                 software_runs=workflows,
                 protocol_passed=None, protocol_report_sha256=None,
@@ -91,6 +91,10 @@ def compare_linux_bench(row, folder, hardware):
 
 def compare_private(row, manifest, folder):
     from benchmarks.ori_bench import panorama_storage, scan_rate
+    if row['schema_version'] == 2:
+        for name in hardware_runs.CONFIGURATIONS:
+            require(hardware_runs.project(folder, name, manifest) == row['hardware_runs'][name],
+                    'receipt differs from original physical shift: ' + name)
     checked_file(folder / 'protocol.json', row['protocol_report_sha256'])
     hw = read_json(checked_file(folder / 'hardware.json', row['hardware']['report_sha256']), 32 * 1024 * 1024)
     if row['platform'] == LINUX_AMD64:
@@ -153,25 +157,37 @@ def scan_profile_digest(reference):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     operations = parser.add_subparsers(dest='operation', required=True)
-    for name in ('template', 'check'):
+    for name in ('template', 'check', 'hardware-template', 'hardware'):
         form = operations.add_parser(name)
         form.add_argument('--platform', choices=ARTIFACTS, required=True)
         form.add_argument('--candidate', type=Path, required=True)
-        form.add_argument('--build-run', type=int, required=True)
-        form.add_argument('--receipt', type=Path, required=True)
+        if name in ('template', 'check'):
+            form.add_argument('--build-run', type=int, required=True)
+            form.add_argument('--receipt', type=Path, required=True)
+        if name in ('hardware-template', 'hardware'):
+            form.add_argument('--configuration', choices=hardware_runs.CONFIGURATIONS, required=name == 'hardware-template')
+        if name in ('hardware', 'check'):
+            form.add_argument('--private-reports', type=Path, required=name == 'hardware')
         if name == 'check':
-            form.add_argument('--private-reports', type=Path)
+            form.add_argument('--historical', action='store_true', help='Also read version 1 evidence for historical inspection')
     operations.add_parser('displays').add_argument('--ledger', type=Path, required=True)
     args = parser.parse_args()
     if args.operation == 'displays':
         print(json.dumps(display_ledger(args.ledger), indent=2))
         return
-    require(args.build_run > 0, 'positive native workflow run ID required')
     manifest = args.candidate / f'{args.platform}-manifest.json'
     row = read_json(manifest)
     name = ARTIFACTS[args.platform]
     verify_sums(args.candidate, {manifest.name, name})
     check_manifest(row, args.platform, row['source_revision'], args.candidate / name)
+    if args.operation == 'hardware-template':
+        print(json.dumps(hardware_runs.private_template(args.configuration, row), indent=2))
+        return
+    if args.operation == 'hardware':
+        cases = [args.configuration] if args.configuration else hardware_runs.CONFIGURATIONS
+        print(json.dumps({name: hardware_runs.project(args.private_reports, name, row) for name in cases}, indent=2))
+        return
+    require(args.build_run > 0, 'positive native workflow run ID required')
     identity = (args.platform, row['source_revision'], row['artifact']['sha256'], digest(manifest), args.build_run)
     if args.operation == 'template':
         with args.receipt.open('x', encoding='utf-8', newline='\n') as out:
@@ -179,10 +195,12 @@ def main():
             out.write('\n')
         return
     form = read_json(args.receipt)
-    gate.validate_receipt(form, *identity, native_ci=row.get('native_ci'))
+    gate.validate_receipt(form, *identity, native_ci=row.get('native_ci'), historical=args.historical)
+    if form['schema_version'] == 2:
+        require(args.private_reports is not None, 'local version 2 qualification requires the private bench originals')
     if args.private_reports:
         compare_private(form, row, args.private_reports)
-    print('Validated receipt SHA-256', digest(args.receipt))
+    print(f'Validated version {form["schema_version"]} receipt SHA-256', digest(args.receipt))
 
 
 if __name__ == '__main__':

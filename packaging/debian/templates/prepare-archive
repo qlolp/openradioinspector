@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
-db=/var/lib/@PACKAGE@/sessions.sqlite3
+data=/var/lib/@PACKAGE@
+db="$data/sessions.sqlite3"
+marker="$data/.ori-runtime/archive-location.json"
+# Earlier relocated nodes may lack the guard at the default name. The core
+# verifies and upgrades the registered selection under its writer lease.
+if [ -e "$marker" ] || [ -L "$marker" ]; then exit 0; fi
 # Run under the service UID. Existing archives keep their format.
 if [ ! -e "$db" ] && [ ! -L "$db" ]; then
     exec /usr/lib/@PACKAGE@/ori-core archive-init-compact "$db"

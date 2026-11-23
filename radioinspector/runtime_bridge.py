@@ -114,10 +114,15 @@ class _ArchiveLeases:
         self.node.close()
 
 
-def _local_selection(path, limit):
+_ARCHIVE_POINTER = b'ORI relocated archive v1\n'
+
+
+def _local_selection(path, limit, prefix=b''):
     _safe_path(path)
     _private(path.lstat())
     with path.open('rb') as source:
+        if source.read(len(prefix)) != prefix:
+            raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
         raw = source.read(limit + 1)
     if len(raw) > limit:
         raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
@@ -130,6 +135,32 @@ def _local_selection(path, limit):
     return value
 
 
+def _archive_pointer(database):
+    _safe_path(database)
+    try:
+        metadata = database.lstat()
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(metadata.st_mode):
+        raise RuntimeBridgeError(500, 'runtime_unsafe_path')
+    # The Supervisor publishes the pointer as a private owner-readable file.
+    # Plain writer admission also supports an existing write-only archive.
+    if os.name != 'nt' and not metadata.st_mode & stat.S_IRUSR:
+        return None
+    if not len(_ARCHIVE_POINTER) + 64 <= metadata.st_size <= len(_ARCHIVE_POINTER) + 8192:
+        return None
+    with database.open('rb') as source:
+        if source.read(len(_ARCHIVE_POINTER)) != _ARCHIVE_POINTER:
+            return None
+    for suffix in ('-wal', '-shm', '-journal'):
+        try:
+            database.with_name(database.name + suffix).lstat()
+        except FileNotFoundError:
+            continue
+        raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
+    return _local_selection(database, 8192, _ARCHIVE_POINTER)
+
+
 def _open_archive_writer(directory, database):
     """Follow the supervisor selection under the same two writer locks as Rust."""
     lease = _writer_lease(directory)
@@ -137,11 +168,21 @@ def _open_archive_writer(directory, database):
         marker = directory / '.ori-runtime' / 'archive-location.json'
         if database != directory / 'sessions.sqlite3':
             return lease, database
+        pointer = _archive_pointer(database)
         try:
             marker.lstat()
         except FileNotFoundError:
-            return lease, database
-        selected = _local_selection(marker, 8192)
+            if pointer is None:
+                return lease, database
+            selected = pointer
+        else:
+            selected = _local_selection(marker, 8192)
+            if pointer is None:
+                # Upgrade the previous on-disk selection and retain its stale node
+                # copy with the stopped Supervisor before admitting another writer.
+                raise RuntimeBridgeError(500, 'runtime_archive_location_requires_stopped_supervisor')
+            if selected != pointer:
+                raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
         identifier = selected.get('id')
         if (set(selected) != {'directory', 'id', 'version'} or not isinstance(identifier, str)
                 or len(identifier) != 64 or any(c not in '0123456789abcdef' for c in identifier)
@@ -233,10 +274,12 @@ class RuntimeBridge:
             raise RuntimeBridgeError(500, 'runtime_writer_unavailable') from error
         result = cls(token, instance, directory, lease)
         result.database_path = database
+        result.require_existing_archive = isinstance(lease, _ArchiveLeases)
         return result
 
     def __init__(self, token, instance, directory, lease):
         self.database_path = None
+        self.require_existing_archive = False
         self._token, self._instance = token, instance
         self.data_directory = directory
         self._lease = lease

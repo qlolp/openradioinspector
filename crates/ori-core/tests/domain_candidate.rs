@@ -138,9 +138,9 @@ async fn archived_receiver_observations_keep_time_order_and_measure_the_storage_
         .as_array()
         .unwrap()
         .iter()
-        .map(|r| &r["id"])
+        .map(|r| r["id"].as_str().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(ids, [&json!("middle"), &json!("late")]);
+    assert_eq!(ids, ["middle", "late"]);
 
     let (status, preflight) = server
         .request("GET", &format!("{root}/preflight"), None)
@@ -164,6 +164,7 @@ async fn archived_receiver_observations_keep_time_order_and_measure_the_storage_
         "{storage}"
     );
     assert_eq!(storage["ready"], true, "{storage}");
+    assert!(storage["required_free_bytes"].as_u64().unwrap() > 1_048_576);
     assert!(
         storage["estimated_retention_seconds"]
             .as_f64()

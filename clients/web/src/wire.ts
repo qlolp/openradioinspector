@@ -70,12 +70,14 @@ export function responseValue(path: string, raw: string | Uint8Array): unknown {
   const route = path.split('?')[0];
   let data = envelope.data;
   if (/^\/api\/v1\/sessions\/[^/]+\/streams\/[^/]+\/receiver-panorama$/.test(route)) {
-    const selected = new URLSearchParams(path.split('?')[1]).get('pass');
+    const query = new URLSearchParams(path.split('?')[1]);
+    const selected = query.get('pass');
     return {
       ...envelope,
       data: decodeReceiverPass(
         decodeReceiverPanorama(data),
         selected === null ? undefined : Number(selected),
+        query.get('context_id') ?? undefined,
       ),
     };
   }

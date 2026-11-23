@@ -1593,6 +1593,26 @@ public struct NodeArchiveLocation: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct NodeSerialPorts: ContractModel, Equatable, Sendable {
+    public var ports: [String]
+    public var extra: JSONObject
+    public init(ports: [String], extra: JSONObject = [:]) {
+        self.ports = ports
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let portsValue = object.removeValue(forKey: "ports") else { throw ContractError.invalid("Missing ports") }
+        ports = try portsValue.requireArray().map { try $0.requireString() }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["ports"] = .array(ports.map { .string($0) })
+        return .object(object)
+    }
+}
+
 public struct PairedControls: ContractModel, Equatable, Sendable {
     public var lower: PairedOriginals
     public var upper: PairedOriginals
@@ -2237,6 +2257,7 @@ public struct RFExplorerPassWindows: ContractModel, Equatable, Sendable {
 public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
     public var bins: [ReceiverPanoramaBin]
     public var complete: Bool
+    public var context_id: String?
     public var coverage_hex: String
     public var ended_at: UtcTimestamp
     public var level_unit: ReceiverPanoramaLevelUnit
@@ -2249,9 +2270,10 @@ public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
     public var stop_hz: UInt64
     public var total_points: UInt64
     public var extra: JSONObject
-    public init(bins: [ReceiverPanoramaBin], complete: Bool, coverage_hex: String, ended_at: UtcTimestamp, level_unit: ReceiverPanoramaLevelUnit, lower_is_stronger: Bool, measured_points: UInt64, pass: UInt64, start_hz: UInt64, started_at: UtcTimestamp, step_hz: UInt64, stop_hz: UInt64, total_points: UInt64, extra: JSONObject = [:]) {
+    public init(bins: [ReceiverPanoramaBin], complete: Bool, context_id: String? = nil, coverage_hex: String, ended_at: UtcTimestamp, level_unit: ReceiverPanoramaLevelUnit, lower_is_stronger: Bool, measured_points: UInt64, pass: UInt64, start_hz: UInt64, started_at: UtcTimestamp, step_hz: UInt64, stop_hz: UInt64, total_points: UInt64, extra: JSONObject = [:]) {
         self.bins = bins
         self.complete = complete
+        self.context_id = context_id
         self.coverage_hex = coverage_hex
         self.ended_at = ended_at
         self.level_unit = level_unit
@@ -2271,6 +2293,7 @@ public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
         bins = try binsValue.requireArray().map { try ReceiverPanoramaBin(json: $0) }
         guard let completeValue = object.removeValue(forKey: "complete") else { throw ContractError.invalid("Missing complete") }
         complete = try completeValue.requireBool()
+        if let value = object.removeValue(forKey: "context_id"), value != .null { context_id = try value.requireString() } else { context_id = nil }
         guard let coverage_hexValue = object.removeValue(forKey: "coverage_hex") else { throw ContractError.invalid("Missing coverage_hex") }
         coverage_hex = try coverage_hexValue.requireString()
         guard let ended_atValue = object.removeValue(forKey: "ended_at") else { throw ContractError.invalid("Missing ended_at") }
@@ -2302,6 +2325,7 @@ public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
         var object = extra
         object["bins"] = .array(bins.map { $0.json })
         object["complete"] = .bool(complete)
+        if let value = context_id { object["context_id"] = .string(value) }
         object["coverage_hex"] = .string(coverage_hex)
         object["ended_at"] = ended_at.json
         object["level_unit"] = level_unit.json
@@ -2740,6 +2764,7 @@ RuntimeOperationDescriptor(operationId: "delete_api_v1_security_credentials_curr
 RuntimeOperationDescriptor(operationId: "post_api_v1_security_credentials_current_revoke",method: "POST",path: "/api/v1/security/credentials/current/revoke",backends: ["rust-candidate"],features: [],capabilities: ["lan_tls"], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: 4096),
 RuntimeOperationDescriptor(operationId: "post_api_v1_security_pair",method: "POST",path: "/api/v1/security/pair",backends: ["rust-candidate"],features: [],capabilities: ["lan_tls"], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: 4096),
 RuntimeOperationDescriptor(operationId: "get_api_v1_security_status",method: "GET",path: "/api/v1/security/status",backends: ["rust-candidate"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_serial_ports",method: "GET",path: "/api/v1/serial-ports",backends: ["rust-candidate"],features: ["serial_port_candidates"],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions",method: "GET",path: "/api/v1/sessions",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions",method: "POST",path: "/api/v1/sessions",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id",method: "GET",path: "/api/v1/sessions/{id}",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: nil),
@@ -2811,8 +2836,8 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_screen",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/screen",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
-RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "columns"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
-RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "frequency_hz"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "columns", "context_id"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "frequency_hz", "context_id"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_recover",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/recover",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["limit", "before"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["columns", "hold_since"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),

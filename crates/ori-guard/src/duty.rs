@@ -68,19 +68,30 @@ impl Window {
 }
 impl Schedule {
     fn window(&self, now: &UtcTimestamp) -> Result<Window> {
+        self.windows(now, false).map(|(active, _)| active)
+    }
+    /// The optional duration belongs to the next future weekly shift and is
+    /// used for storage planning only. Acquisition always uses the active window.
+    fn windows(&self, now: &UtcTimestamp, include_next: bool) -> Result<(Window, Option<u64>)> {
         match self {
-            Self::Continuous => Ok(Window::Open {
-                from: i64::MIN,
-                until: i64::MAX,
-            }),
-            Self::Until { until_at } => Ok(if now.unix_micros() < until_at.unix_micros() {
+            Self::Continuous => Ok((
                 Window::Open {
                     from: i64::MIN,
-                    until: until_at.unix_micros(),
-                }
-            } else {
-                Window::Expired
-            }),
+                    until: i64::MAX,
+                },
+                None,
+            )),
+            Self::Until { until_at } => Ok((
+                if now.unix_micros() < until_at.unix_micros() {
+                    Window::Open {
+                        from: i64::MIN,
+                        until: until_at.unix_micros(),
+                    }
+                } else {
+                    Window::Expired
+                },
+                None,
+            )),
             Self::Weekly {
                 timezone,
                 weekdays,
@@ -106,7 +117,14 @@ impl Schedule {
                     return Err(invalid("Начало и конец смены должны различаться"));
                 }
                 let mut active = Window::Closed;
-                for day in [today.yesterday().ok(), Some(today)].into_iter().flatten() {
+                let mut next_duration = None;
+                // A spring-forward gap can erase the next shift entirely.
+                // Include the following week when looking for the next real interval.
+                let days = today.yesterday().ok().into_iter().chain(
+                    std::iter::successors(Some(today), |day| day.tomorrow().ok())
+                        .take(if include_next { 15 } else { 1 }),
+                );
+                for day in days {
                     if !weekdays.contains(&(day.weekday().to_monday_one_offset() as u8)) {
                         continue;
                     }
@@ -143,9 +161,16 @@ impl Schedule {
                                 until: to.as_microsecond(),
                             },
                         };
+                    } else if include_next && instant < from && from < to {
+                        next_duration = Some(
+                            to.as_microsecond()
+                                .abs_diff(from.as_microsecond())
+                                .div_ceil(1_000_000),
+                        );
+                        break;
                     }
                 }
-                Ok(active)
+                Ok((active, next_duration))
             }
         }
     }
@@ -272,6 +297,24 @@ impl GuardService {
             }) => true,
             Some(Window::Open { from, until }) => (from..until).contains(&self.clock.now_micros()),
             _ => false,
+        }
+    }
+    /// Active finite schedules share the serial executor's UTC/DST bounds.
+    /// Waiting weekly duty forecasts the next civil shift; continuous duty uses the configured horizon.
+    pub(crate) fn remaining_duty_seconds(&self, project: &Value) -> Result<Option<u64>> {
+        if project["duty"]["enabled"] != true {
+            return Ok(None);
+        }
+        let schedule: Schedule = serde_json::from_value(project["duty"]["schedule"].clone())
+            .map_err(|_| invalid("Сохранённое расписание дежурства"))?;
+        let now = self.clock.now();
+        let (active, next_duration) = schedule.windows(&now, true)?;
+        match active {
+            Window::Open { until, .. } if until != i64::MAX => {
+                Ok(Some(until.abs_diff(now.unix_micros()).div_ceil(1_000_000)))
+            }
+            Window::Expired => Ok(Some(0)),
+            _ => Ok(next_duration),
         }
     }
     pub(crate) fn require_duty_window(&self, project: &Value) -> Result<()> {

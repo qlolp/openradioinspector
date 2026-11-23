@@ -121,9 +121,9 @@ pub(crate) fn ensure_archive_directory(path: &Path) -> Result<()> {
 
 async fn initialize_archive(config: &ServiceConfig) -> Result<()> {
     let _writer = WriterLease::acquire(&config.data_directory)?;
-    let database =
-        crate::archive_location::directory(&config.data_directory)?.join("sessions.sqlite3");
-    if database.try_exists()? {
+    let storage = crate::archive_location::directory(&config.data_directory)?;
+    let database = storage.join("sessions.sqlite3");
+    if storage != config.data_directory || database.try_exists()? {
         return Ok(());
     }
     let mut command = Command::new(&config.backend.program);
@@ -429,6 +429,13 @@ pub async fn command(action: &str) -> Result<()> {
             response
         }
         "archive-target" => stopped_archive_target(&data)?,
+        "prepare-rollback" => {
+            if data.try_exists()? {
+                pipe::ensure_data_directory(&data)?;
+                crate::archive_location::select(&data, &data).await?;
+            }
+            json!({"ok":true})
+        }
         "check-stopped" => {
             assert_stopped(&data)?;
             json!({"ok":true})
@@ -437,7 +444,7 @@ pub async fn command(action: &str) -> Result<()> {
         "unregister" => logon("Unregister")?,
         _ => {
             return Err(Error::Unsafe(
-                "windows-node run|start|status|shutdown|register|unregister|check-stopped|archive-target".into(),
+                "windows-node run|start|status|shutdown|register|unregister|check-stopped|archive-target|prepare-rollback".into(),
             ));
         }
     };

@@ -4,6 +4,9 @@ import SpektrKomandy
 struct NativeReceiverOriginalPane: View {
     let client: PlatformClient
     let source: NativeReceiverOriginalLink
+    var showEventPanorama = false
+    @State private var observedPass: PlatformReceiverPanorama?
+    @State private var panoramaError = ""
     var hold: ((Int64) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var row: MonitoringValue = .null
@@ -26,6 +29,10 @@ struct NativeReceiverOriginalPane: View {
                     }
                 }
                 Text("Ответ RX · " + row["metadata"]["raw_receiver_status"].scalar)
+                if let observedPass {
+                    Text("Архивная панорама · проход №\(observedPass.pass)").font(.headline)
+                    NativeReceiverPanoramaPane.spectrum(.init(observedPass))
+                } else if !panoramaError.isEmpty { ErrorLine(text: panoramaError) }
                 if let hold {
                     Button("Удерживать эту частоту · приостановить обзор") { hold(source.frequencyHz); dismiss() }
                 }
@@ -36,12 +43,20 @@ struct NativeReceiverOriginalPane: View {
         }
         .textSelection(.enabled).padding(18).frame(minWidth: 580, minHeight: 420)
         .task(id: source) {
-            row = .null; error = ""
+            row = .null; error = ""; observedPass = nil; panoramaError = ""
             do {
                 let value = try await client.receiverOriginal(sessionID: source.session.rawValue, streamID: source.stream.rawValue,
-                    pass: source.pass, frequencyHz: source.frequencyHz, observationID: source.observation.rawValue, fromEvent: source.archivedEvent)
+                    pass: source.pass, frequencyHz: source.frequencyHz, observationID: source.observation.rawValue, fromEvent: source.archivedEvent, contextID: source.contextID)
                 try Task.checkCancellation()
                 row = value
+                if showEventPanorama, let context = source.contextID {
+                    do {
+                        let pass = try await client.receiverPanorama(sessionID: source.session.rawValue, streamID: source.stream.rawValue,
+                            pass: source.pass, contextID: context)
+                        try Task.checkCancellation()
+                        observedPass = pass
+                    } catch { if !Task.isCancelled { panoramaError = error.localizedDescription } }
+                }
             } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
@@ -67,6 +82,7 @@ struct NativeReceiverPanoramaPane: View {
     @State private var reload = 0
     @State private var archiveInput = ""
     @State private var archivePass: Int?
+    @State private var archiveContext: String?
     @State private var refreshedThrough = 0
     private var displayed: Row? { selectedPass.flatMap { p in rows.first { $0.id == p } } ?? rows.last }
     private var isCurrentProject: Bool {
@@ -88,11 +104,12 @@ struct NativeReceiverPanoramaPane: View {
                 TextField("№ архивного прохода", text: $archiveInput).textFieldStyle(.roundedBorder).frame(width: 150)
                 Button("Открыть проход") {
                     guard let number = Int(archiveInput), number > 0 else { return }
+                    archiveContext = displayed?.value.contextId
                     rows = []; selectedPass = nil; heldDisplay = false; archivePass = number; reload += 1
                 }.disabled((Int(archiveInput) ?? 0) < 1)
                 if archivePass != nil {
                     Button("К текущему проходу") {
-                        rows = []; selectedPass = nil; archivePass = nil; heldDisplay = false; reload += 1
+                        rows = []; selectedPass = nil; archivePass = nil; archiveContext = nil; heldDisplay = false; reload += 1
                     }
                 }
             }.controlSize(.small)
@@ -104,7 +121,7 @@ struct NativeReceiverPanoramaPane: View {
                         Text("\(strong.formatted())…\(weak.formatted()) s_meter_count")
                     }
                 }.font(.caption).foregroundStyle(.secondary)
-                spectrum(row)
+                Self.spectrum(row) { column in select(column: column, row: row) }
                 HStack {
                     Text("Водопад по проходам").font(.headline)
                     Spacer()
@@ -140,15 +157,15 @@ struct NativeReceiverPanoramaPane: View {
             if heldDisplay && !rows.isEmpty { return }
             repeat {
                 do {
-                    let latest = try await client.receiverPanorama(sessionID: session, streamID: stream.id, pass: archivePass)
+                    let latest = try await client.receiverPanorama(sessionID: session, streamID: stream.id, pass: archivePass, contextID: archiveContext)
                     try Task.checkCancellation()
-                    var recent = rows.filter { $0.id < latest.pass && $0.id >= latest.pass - 7 }
+                    var recent = rows.filter { $0.value.contextId == latest.contextId && $0.id < latest.pass && $0.id >= latest.pass - 7 }
                     // A pass seen in progress may have closed between polls. Re-read it once.
                     if latest.pass > 1 {
                         for n in stride(from: latest.pass - 1, through: max(1, latest.pass - 7), by: -1) {
                             if recent.contains(where: { $0.id == n && ($0.value.complete || n <= refreshedThrough) }) { continue }
                             do {
-                                let older = try await client.receiverPanorama(sessionID: session, streamID: stream.id, pass: n)
+                                let older = try await client.receiverPanorama(sessionID: session, streamID: stream.id, pass: n, contextID: latest.contextId)
                                 try Task.checkCancellation()
                                 recent.removeAll { $0.id == n }
                                 recent.append(Row(older))
@@ -192,7 +209,7 @@ struct NativeReceiverPanoramaPane: View {
         }.font(.caption).monospacedDigit()
     }
 
-    private func spectrum(_ row: Row) -> some View {
+    fileprivate static func spectrum(_ row: Row, select: ((CGFloat) -> Void)? = nil) -> some View {
         let bins = row.value.bins
         let low = bins.map(\.level).min() ?? 0, high = bins.map(\.level).max() ?? 0
         return GeometryReader { geo in
@@ -209,7 +226,7 @@ struct NativeReceiverPanoramaPane: View {
                                  with: .color(.cyan))
                 }
             }.background(Color.black.opacity(0.9)).contentShape(Rectangle())
-                .onTapGesture { point in select(column: point.x / max(1, geo.size.width), row: row) }
+                .onTapGesture { point in select?(point.x / max(1, geo.size.width)) }
         }.frame(minHeight: 96, idealHeight: 150, maxHeight: 245)
         .accessibilityLabel("Панорама измеренных отсчётов, сверху \(low.formatted()), снизу \(high.formatted())")
     }
@@ -247,7 +264,7 @@ struct NativeReceiverPanoramaPane: View {
         }.frame(minHeight: 46, idealHeight: 85, maxHeight: 135)
     }
 
-    private func xFraction(_ bin: PlatformReceiverPanorama.Bin, in row: Row) -> Double {
+    private static func xFraction(_ bin: PlatformReceiverPanorama.Bin, in row: Row) -> Double {
         Double(bin.frequencyHz - Int64(row.value.startHz)) / Double(row.value.stopHz - row.value.startHz)
     }
 
@@ -262,6 +279,6 @@ struct NativeReceiverPanoramaPane: View {
     private func open(_ bin: PlatformReceiverPanorama.Bin, in row: Row) {
         error = ""
         source = .init(session: PlatformExactID(session), stream: PlatformExactID(stream.id),
-            observation: PlatformExactID(bin.observationId), pass: row.id, frequencyHz: bin.frequencyHz)
+            observation: PlatformExactID(bin.observationId), pass: row.id, frequencyHz: bin.frequencyHz, contextID: row.value.contextId)
     }
 }

@@ -7,3 +7,7 @@ case "$1" in
         fi
         ;;
 esac
+
+if [ "$1" = upgrade ] && dpkg --compare-versions "$2" lt '@VERSION@' && [ -d /var/lib/@PACKAGE@ ]; then
+    runuser -u @SERVICE_USER@ -- /usr/lib/@PACKAGE@/ori-supervisor archive-prepare-rollback --data-dir /var/lib/@PACKAGE@
+fi

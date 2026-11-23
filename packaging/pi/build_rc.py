@@ -146,9 +146,9 @@ def install_file(source, path, executable=False):
     path.chmod(0o755 if executable else 0o644)
 
 
-def install_template(name, path, profile, executable=False):
+def install_template(name, path, profile, executable=False, version=None):
     fields = dict(PACKAGE=profile.package, SERVICE_USER=profile.user,
-                  DISPLAY_NAME=profile.display_name, BACKEND_NAME=profile.backend)
+                  DISPLAY_NAME=profile.display_name, BACKEND_NAME=profile.backend, VERSION=version)
     template = (TEMPLATES / name).read_text(encoding='ascii')
     content = re.sub(r'@([A-Z_]+)@', lambda match: fields[match[1]], template)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,7 +176,7 @@ def assemble(stage, output, debian_revision, env, build, profile=PI):
     control = stage / 'DEBIAN'
     control.mkdir(exist_ok=True)
     for script in ['postinst', 'prerm', 'postrm']:
-        install_template(script, control / script, profile, executable=True)
+        install_template(script, control / script, profile, executable=True, version=version)
     (control / 'conffiles').write_text(f'/{profile.config.as_posix()}\n', encoding='ascii')
     payload = sorted(path for path in stage.rglob('*') if path.is_file() and control not in path.parents)
     size = sum(path.stat().st_size for path in payload)

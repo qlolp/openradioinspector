@@ -23,7 +23,26 @@ NATIVE_CI = {'run_id': 100, 'run_attempt': 2,
                                '13': {'environment_sha256': '2' * 64, 'lifecycle_sha256': HASH}}}
 
 
-def receipt(platform, artifact_hash=HASH, manifest_hash=HASH):
+CONFIGURATIONS = {'tinysa': ('tinysa',), 'rf-explorer': ('rf-explorer',), 'ardv1': ('ardv1',),
+                  'tinysa-ardv1': ('tinysa', 'ardv1'), 'rf-explorer-ardv1': ('rf-explorer', 'ardv1')}
+
+
+def hardware_runs():
+    runs = {}
+    for config, roles in CONFIGURATIONS.items():
+        def fingerprint(name):
+            return sha256((config + '/' + name).encode()).hexdigest()
+        sources = {role: {'kind': 'observation' if role == 'ardv1' else 'sweep',
+                          'unit': 's_meter_count' if role == 'ardv1' else 'dBm',
+                          'records': 4312 if role == 'ardv1' else 4852,
+                          'ids_sha256': fingerprint(role)} for role in roles}
+        runs[config] = dict(seconds=28800, physical=True, unexplained_losses=0, duplicates=0,
+                            session_sha256=fingerprint('session'), sources=sources,
+                            coverage_sha256=fingerprint('archive'), report_sha256=fingerprint('report'))
+    return runs
+
+
+def receipt(platform, artifact_hash=HASH, manifest_hash=HASH, *, version=2):
     counts = {'sweeps': 18000, 'observations': 18000, 'pcm_samples': 0 if platform == 'macos' else 86400000}
     work = {'seconds': 1800, 'points_per_sweep': 4096, 'history_points_per_sweep': 290,
             'pcm_rate_hz': None if platform == 'macos' else 48000, 'pcm_channels': None if platform == 'macos' else 1,
@@ -62,6 +81,11 @@ def receipt(platform, artifact_hash=HASH, manifest_hash=HASH):
         row['loads']['three-clients'].update(producer_report_sha256='0' * 64, history_report_sha256='7' * 64)
         row['installation'] = {version: dict(row['installation'], artifact_sha256=artifact_hash, report_sha256=c * 64)
                                for version, c in [('12', '8'), ('13', '9')]}
+    if version == 2:
+        row['schema_version'] = 2
+        row['hardware_runs'] = hardware_runs()
+        if platform == bundles.LINUX_AMD64:
+            row['hardware']['coverage_sha256'] = row['hardware_runs']['tinysa-ardv1']['coverage_sha256']
     return row
 
 

@@ -174,10 +174,11 @@ All seven hashes must match one snapshot together; mixing individually approved
 files, an unknown edit or a missing file fails before any node starts. The report
 records the matched revision and these actual source hashes. This pins the route
 inventory and reviewed transport code, rather than every file in the repository.
-The bounded history retains nine additional complete seven-file maps. The candidate
+The bounded history retains twelve additional complete seven-file maps. The candidate
 list pagination map pins the Python HTTP and OpenAPI sources at `097fc436c63e8c5e18831a6fb393021c2a6c9641`.
 The live-capability schema adds no HTTP operation. Its complete source map is
 pinned at `bb64f27716b510c1b5580fa299c17017bf3314d1`; the earlier maps remain intact.
+The archive relocation snapshot at `9597f50002e9d669a713497f50177296dc62c702` verifies that Python opens the selected existing database after a move. All seven source hashes are pinned together. The route and CLI inventories match the previous snapshot.
 Historical source snapshots remain recorded, but a producer without the new RMS
 method cannot pass the extended public profile. The original source-only profile
 remains available; unavailable routes never satisfy a required successful case.

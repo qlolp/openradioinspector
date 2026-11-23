@@ -16,8 +16,9 @@ Use “Stop service” and wait for confirmation before replacing/moving the app
 Do not install over a running service. A failed stop is not permission to update.
 Data: ~/Library/Application Support/OpenRadioInspector/macOS-RC
 This is separate from an existing installation. Original measurements are not
-removed automatically. Backup/restore must target a separate directory; never
-restore an older archive over newer measurements during rollback.
+removed automatically. Keep a backup in a separate directory. If you moved the
+archive, reconnect that volume. Before installing an earlier app, choose
+“Вернуть архив для отката” in the stopped service pane and wait for confirmation.
 
 Audio capture and Python/DuckDB analysis are unavailable in RC1. Rust remains a
 candidate. Software checks, full 30-minute offered-load acceptance and eight

@@ -1,6 +1,6 @@
 import { t } from './i18n';
 import { ReceiverSegment } from './ReceiverSegment';
-import { PairedRechecks } from './PairedRechecks';
+import { PairedRechecks, supportsPairedRechecks } from './PairedRechecks';
 import { encodePathSegment } from './wire';
 import { useEffect, useRef, useState } from 'react';
 import { historyQuery, ResourceScope, type HistoryFilters } from './api';
@@ -525,35 +525,32 @@ export function Research({
             </>
           )}
         </Panel>
-        {active &&
-          !!desk.project?.receiver_stream_id &&
-          !!desk.project.analyzer_stream_id &&
-          desk.capabilities?.features.paired_event_rechecks === true && (
-            <Panel title={t('Compare paired visits')}>
-              <label>
-                {t('Event to recheck')}
-                <select
-                  value={pairedEvent}
-                  onChange={(event) => setPairedEvent?.(event.target.value)}
-                >
-                  <option value="">{t('Choose an event')}</option>
-                  {desk.events.map((event) => (
-                    <option key={event.id} value={event.id}>
-                      {hz(event.center_frequency_hz)} · {utc(event.last_seen)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {desk.events.some((event) => event.id === pairedEvent) && (
-                <PairedRechecks
-                  key={JSON.stringify([desk.connectionVersion, desk.projectId, pairedEvent])}
-                  desk={desk}
-                  eventId={pairedEvent}
-                  editable
-                />
-              )}
-            </Panel>
-          )}
+        {active && supportsPairedRechecks(desk) && (
+          <Panel title={t('Compare paired visits')}>
+            <label>
+              {t('Event to recheck')}
+              <select
+                value={pairedEvent}
+                onChange={(event) => setPairedEvent?.(event.target.value)}
+              >
+                <option value="">{t('Choose an event')}</option>
+                {desk.events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {hz(event.center_frequency_hz)} · {utc(event.last_seen)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {desk.events.some((event) => event.id === pairedEvent) && (
+              <PairedRechecks
+                key={JSON.stringify([desk.connectionVersion, desk.projectId, pairedEvent])}
+                desk={desk}
+                eventId={pairedEvent}
+                editable
+              />
+            )}
+          </Panel>
+        )}
         {desk.capabilities?.features.ardv1_sampled_scope === true && (
           <ReceiverSegment desk={desk} />
         )}

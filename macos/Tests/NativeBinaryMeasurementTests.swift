@@ -78,8 +78,10 @@ final class NativeBinaryMeasurementTests: XCTestCase {
     @MainActor func testReplayBeyondInt64UsesAppliedSourceCursorWithoutTruncationOrFreshHealth()async throws {
         let fixture=try Fixture(mode:"cursor-boundary"),client=try PlatformClient(baseURL:fixture.url),stream=RemoteMeasurementStream()
         var recoveries=0,issues:[PlatformMeasurementDisplayIssue]=[]
-        let receive:@MainActor([PlatformSweep],PlatformObservation?,PlatformMeasurementEvent,PlatformLiveMeasurements.Change)async throws->Void={_,_,event,_ in if let issue=event.displayIssue{issues.append(issue)}}
-        let recover:@MainActor(Error)async->Void={_ in recoveries+=1}
+        let receive: @MainActor ([PlatformSweep], PlatformObservation?, PlatformMeasurementEvent, PlatformLiveMeasurements.Change) async throws -> Void = { _, _, event, _ in
+            if let issue = event.displayIssue { issues.append(issue) }
+        }
+        let recover: @MainActor (Error) async -> Void = { _ in recoveries += 1 }
         stream.start(client:client,sessionID:"synthetic-é",streamID:"a",watermark:Int64.max-1,transport:.binaryV1,
             sweeps:[],observation:nil,receive:receive,recover:recover)
         defer{stream.stop()};try await wait{recoveries==1}

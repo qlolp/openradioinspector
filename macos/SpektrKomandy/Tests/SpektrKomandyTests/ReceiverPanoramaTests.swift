@@ -90,6 +90,13 @@ struct ReceiverPanoramaTests {
     }
 
     @Test func foreignOrIncompatibleEvidenceCannotOpen() async throws {
+        let context = String(repeating: "a", count: 64)
+        let checked = try peer([partial().merging(["context_id": context]) { _, new in new }])
+        let scoped = try await checked.receiverPanorama(sessionID: "s", streamID: "r", pass: 2, columns: 2, contextID: context)
+        #expect(scoped.contextId == context)
+        #expect(Core.records.last?.url?.query?.contains("context_id=" + context) == true)
+        let changed = try peer([partial().merging(["context_id": String(repeating: "b", count: 64)]) { _, new in new }])
+        await #expect(throws: PlatformError.self) { try await changed.receiverPanorama(sessionID: "s", streamID: "r", pass: 2, columns: 2, contextID: context) }
         for change: [String: Any] in [["coverage_hex":"13"],["complete":true],["lower_is_stronger":false],
                                       ["level_unit":"dBm"],["pass":1],["total_points":6]] {
             let api = try peer([partial().merging(change) { _, new in new }])

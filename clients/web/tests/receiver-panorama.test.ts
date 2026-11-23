@@ -42,6 +42,14 @@ const read = (data: unknown) =>
 it('decodes bounded original S-meter levels and admits a partial bin with its off-grid final original', () => {
   expect(read(pass).bins.map((b) => b.level)).toEqual([26.5, 4.5]);
 });
+it('pins a stored event to its own receiver context even when pass numbers coincide', () => {
+  const context = 'a'.repeat(64);
+  const url = path + '?pass=3&columns=2&context_id=' + context;
+  const open = (data: unknown) => responseValue(url, JSON.stringify({ data }));
+  expect(() => open({ ...pass, context_id: context })).not.toThrow();
+  expect(() => open({ ...pass, context_id: 'b'.repeat(64) })).toThrow();
+  expect(() => open(pass)).toThrow();
+});
 it('rejects falsely complete coverage or a reported original outside its bin', () => {
   for (const invalid of [
     { ...pass, complete: true },

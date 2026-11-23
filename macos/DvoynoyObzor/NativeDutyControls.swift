@@ -42,12 +42,12 @@ struct NativeDutyControls: View {
                      (workspace.duty["resume_after_restart"].bool == true ? " · возобновление разрешено" : " · возобновление выключено")).font(.caption)
             }
             ForEach(workspace.duty["deliveries"].items.prefix(8).map { $0 }, id: \.exactID) { delivery in
-                Text(delivery["created_at"].text + " · " + delivery["channel"].text + " · " + delivery["state"].text +
+                Text(delivery["id"].text + " · " + delivery["created_at"].text + " · " + delivery["channel"].text + " · " + delivery["state"].text +
                     " · попыток " + delivery["attempts"].scalar).font(.caption)
                 if !delivery["error"].text.isEmpty { Text(delivery["error"].text).font(.caption).foregroundStyle(.orange) }
             }
         }
-        .task { await workspace.refreshDuty() }
+        .task(id: workspace.signalContext) { await workspace.refreshDuty() }
         .onChange(of: channel, initial: true) { _, _ in clearChannel() }
         .onChange(of: stored["enabled"].bool) { _, value in enabled = value ?? false }
         .onDisappear { address = ""; secret = "" }
@@ -113,6 +113,12 @@ struct NativeDutyControls: View {
                 Text(stored["configured"].bool == true ? "Реквизиты сохранены на узле. Заполняйте только изменяемые поля." : "Введите реквизиты доставки.").font(.caption)
                 SecureField(channel == "telegram" ? "Chat ID" : "URL webhook", text: $address)
                 SecureField(channel == "telegram" ? "Токен бота" : "Секрет webhook", text: $secret)
+                if let testID = workspace.notificationTests[channel] {
+                    let result = workspace.duty["deliveries"].items.first { PlatformExactID.same($0["id"].text, testID) && $0["channel"].text == channel }
+                    Text("Проверка " + testID + " · " + (result?["state"].text ?? workspace.notificationTestStates[channel] ?? "ожидается результат"))
+                        .font(.caption).textSelection(.enabled)
+                    if let detail = result?["error"].text, !detail.isEmpty { ErrorLine(text: detail) }
+                }
                 HStack {
                     Button("Сохранить канал") {
                         let name = channel
@@ -121,11 +127,11 @@ struct NativeDutyControls: View {
                         if !address.isEmpty { fields[name == "telegram" ? "chat_id" : "url"] = .string(address) }
                         secret = ""; address = ""
                         workspace.perform { await workspace.setNotificationChannel(name, settings: fields) }
-                    }.disabled(configuring || stored == .null)
+                    }.disabled(configuring || stored == .null || enabled && stored["configured"].bool != true && (address.isEmpty || secret.isEmpty))
                     Button("Отправить тест") {
                         let name = channel
                         workspace.perform { await workspace.testNotification(name) }
-                    }.disabled(stored["enabled"].bool != true || configuring || workspace.operationsPending.contains("notification-test"))
+                    }.disabled(stored["enabled"].bool != true || stored["configured"].bool != true || configuring || workspace.operationsPending.contains("notification-test"))
                 }
             }.textFieldStyle(.roundedBorder)
         }

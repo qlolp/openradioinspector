@@ -63,6 +63,12 @@ export interface Session {
 export interface Project {
   scan_plan?: import('../../../contracts/generated/typescript/runtime').ScanPlanRevision;
   band_baselines?: Record<string, string>;
+  archive?: {
+    minimum_retention_seconds: number;
+    minimum_free_bytes: number;
+    reserve_backup?: boolean;
+    reserve_restore?: boolean;
+  };
   id: string;
   name: string;
   site: string;
@@ -130,6 +136,16 @@ export interface StorageReport {
     retained_bytes: number;
     writer_byte_limit: number;
   };
+  storage_id?: string;
+  forecast_seconds?: number;
+  forecast_status?: string;
+  database_allocated_bytes?: number | null;
+  wal_allocated_bytes?: number | null;
+  recording_bytes_per_second?: number | null;
+  required_free_bytes?: number | null;
+  restore_reserve_bytes?: number | null;
+  shortfall_bytes?: number | null;
+  minimum_shortfall_bytes?: number | null;
   ready?: boolean;
   write_probe?: boolean | null;
   available_bytes?: number | null;
@@ -192,6 +208,7 @@ export interface Preflight {
 }
 export interface MonitoringEvent {
   id: string;
+  receiver_context_key?: string;
   project_id: string;
   run_session_id?: string;
   kind: string;

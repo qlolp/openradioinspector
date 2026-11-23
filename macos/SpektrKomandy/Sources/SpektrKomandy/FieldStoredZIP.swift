@@ -115,7 +115,8 @@ struct FieldStoredZIP {
 
     /// Delivers one bounded line at a time, along with its absolute source offset.
     /// Hashes the same bytes passed to the parser, including all line terminators.
-    func lines(_ name: String, bytes: Int, sha: String, body: (Data, Int) throws -> Void) throws {
+    func lines(_ name: String, bytes: Int, sha: String, checkCancellation: () throws -> Void,
+               body: (Data, Int) throws -> Void) throws {
         let member = members[name]!
         guard bytes == member.size else { throw FieldReadError.invalid("размер " + name) }
         let maxLine = 16 * 1024 * 1024 + 1024
@@ -123,7 +124,7 @@ struct FieldStoredZIP {
         var remaining = bytes, offset = member.offset
         var line = Data(), digest = FieldDigest()
         while remaining > 0 {
-            try Task.checkCancellation()
+            try checkCancellation()
             let chunk = try file.fieldRead(min(remaining, 128 * 1024))
             remaining -= chunk.count
             digest.update(chunk)
@@ -134,6 +135,7 @@ struct FieldStoredZIP {
                 guard line.count + end - start < maxLine else { throw FieldReadError.invalid("слишком длинная запись") }
                 line.append(chunk[start..<end])
                 if newline != nil {
+                    try checkCancellation()
                     try body(line, offset)
                     offset += line.count + 1
                     line.removeAll(keepingCapacity: true)

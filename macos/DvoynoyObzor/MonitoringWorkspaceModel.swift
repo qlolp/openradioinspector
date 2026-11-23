@@ -193,6 +193,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
     var schedulesAvailable: Bool { capabilities["features"]["monitoring_duty_schedule"].bool == true }
+    var receiverPanoramaContextsAvailable: Bool { capabilities["features"]["ardv1_receiver_panorama_context"].bool == true }
     var notificationChannelsAvailable: Bool { capabilities["features"]["monitoring_notification_channels"].bool == true }
     var dutyEnabled: Bool { duty["enabled"].bool == true }
     var isArmed: Bool { status["active"].bool == true || ["armed", "searching"].contains(project["state"].text) }
@@ -228,6 +229,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
     var isCollecting: Bool { project["state"].text == "collecting" || project["coverage"].text == "preparation" }
     var canEditPreparation: Bool { canConfigure && !isCollecting }
+    var canCorrectDraftPorts: Bool {
+        capabilities["features"]["monitoring_draft_port_correction"].bool == true && canEditPreparation &&
+            project["baseline_id"] == .null && (project["band_baselines"] == .null || project["band_baselines"] == .object([:]))
+    }
     var preparationSimulation: Bool {
         project["profile"]["analyzer"]["settings"]["adapter"].text == "tinysa-sim" &&
         project["profile"]["receiver"]["settings"]["adapter"].text == "ardv1-sim"
@@ -251,8 +256,14 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
     var canPlay: Bool { !pending && !selectedEvent.isEmpty && event["analysis"]["audio"] != .null }
     var audioEvidenceAvailable: Bool { capabilities["features"]["audio_evidence_export"].bool == true }
+    var storageForecastAvailable: Bool { capabilities["features"]["monitoring_storage_forecast"].bool == true }
     var scanPlansAvailable: Bool { capabilities["features"]["monitoring_scan_plans"].bool == true }
-    var pairedRechecksAvailable: Bool { capabilities["features"]["paired_event_rechecks"].bool == true }
+    var pairedRechecksAvailable: Bool {
+        guard capabilities["features"]["paired_event_rechecks"].bool == true else { return false }
+        let analyzer = project["profile"]["analyzer"]["settings"]["adapter"].text
+        let receiver = project["profile"]["receiver"]["settings"]["adapter"].text
+        return (analyzer == "tinysa-serial" && receiver == "ardv1-serial") || (analyzer == "tinysa-sim" && receiver == "ardv1-sim")
+    }
     var signalCatalogAvailable: Bool { capabilities["features"]["monitoring_signal_catalog"].bool == true }
     var signalContext: Int { revision }
     var knownSignalsHasNext: Bool { knownSignalsBefore.indices.contains(knownSignalsPage + 1) }
@@ -350,7 +361,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         antennaNotes = ""; receivePathConfirmed = false; locationConfirmed = false; preparationSeeded = false
         detectorMargin = "6"; detectorImpulse = "12"; detectorHysteresis = "3"
         detectorConfirmations = "3"; detectorWindow = "5"; detectorDwell = "10"
-        operationsSettings = .null; duty = .null; storage = .null; alerts = []; alertsNext = ""; alertsLatest = true
+        notificationTests = [:]; notificationTestStates = [:]; operationsSettings = .null; duty = .null; storage = .null; alerts = []; alertsNext = ""; alertsLatest = true
         alertsPageAfter = nil; soundState = MonitoringAlertSoundState(); operationsErrors = [:]; operationsNotice = ""
         autostart = false; archiveReserve = "268435456"; archiveRetention = "3600"
         webhookEnabled = false; webhookURL = ""; webhookSecret = ""; localSoundEnabled = false
@@ -1083,6 +1094,18 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
     }
 
+    func correctDraftPort(role: String, from: String, to: String) async {
+        guard canCorrectDraftPorts, preparationInputValid, ["analyzer", "receiver"].contains(role),
+              project["profile"][role]["port"].text == from, !to.isEmpty, to != from else { return }
+        let current = revision
+        let notes = antennaNotes, receive = receivePathConfirmed, location = locationConfirmed
+        let saved = await operationsRequest("preparation", request: { client, id in
+            try await client.monitoringSavePreparation(projectID: id, antennaNotes: notes,
+                receivePathConfirmed: receive, locationConfirmed: location, correctingPort: (role, from, to))
+        }) { _ in operationsNotice = "Порт проекта сохранён. Следующий сбор получит отдельную сессию." }
+        if current == revision, saved, !Task.isCancelled { await refreshStatus(); await checkPreflight() }
+    }
+
     func savePreparation(notes: String, receivePath: Bool, location: Bool) async {
         guard canEditPreparation else { return }
         let current = revision
@@ -1152,7 +1175,14 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func refreshDuty() async {
         guard schedulesAvailable else { return }
-        await operationsRequest("duty-status", readOnly: true, request: { client, id in try await client.monitoringDuty(projectID: id) }) { duty = $0 }
+        await operationsRequest("duty-status", readOnly: true, request: { client, id in try await client.monitoringDuty(projectID: id) }) { report in
+            duty = report
+            for (channel, id) in notificationTests {
+                if let delivery = report["deliveries"].items.first(where: { PlatformExactID.same($0["id"].text, id) && $0["channel"].text == channel }) {
+                    notificationTestStates[channel] = delivery["state"].text
+                }
+            }
+        }
     }
 
     func startDuty(schedule: MonitoringValue, resume: Bool) async {
@@ -1176,11 +1206,17 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
     }
 
+    @Published private(set) var notificationTests: [String: String] = [:]
+    @Published private(set) var notificationTestStates: [String: String] = [:]
+
     func testNotification(_ channel: String) async {
-        guard notificationChannelsAvailable, operationsSettings["notifications"][channel]["enabled"].bool == true else { return }
+        guard notificationChannelsAvailable, operationsSettings["notifications"][channel]["enabled"].bool == true,
+              operationsSettings["notifications"][channel]["configured"].bool == true else { return }
         let context = revision
         await operationsRequest("notification-test", request: { client, id in try await client.testDutyNotification(projectID: id, channel: channel) }) {
-            operationsNotice = "Проверка поставлена в очередь · " + $0["notification_id"].text
+            notificationTests[channel] = $0["notification_id"].text
+            notificationTestStates[channel] = $0["state"].text
+            operationsNotice = "Проверка принята узлом · " + $0["notification_id"].text
         }
         if revision == context { await refreshDuty() }
     }

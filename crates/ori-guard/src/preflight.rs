@@ -1,5 +1,5 @@
 use crate::{
-    GuardError, GuardService, Result, StorageProbe, measurement_qualification,
+    GuardError, GuardService, Result, measurement_qualification,
     qualification::{
         analyzer_adapter, eligible_windows, source_qualification, unverified_reference,
     },
@@ -562,8 +562,11 @@ impl GuardService {
         }
         let n = sweeps.len();
         let mut performance = json!({"sweeps":n,"mean_sweep_seconds":if n>0{Some(durations.iter().sum::<f64>()/n as f64)}else{None},"mean_sweep_bytes":if n>0{Some(bytes as f64/n as f64)}else{None}});
-        if p.get("archive")
-            .is_some_and(|archive| archive.get("reserve_backup").is_some())
+        let storage = self.storage_report(id, true).await?;
+        if storage["forecast_basis"] == "duty_window"
+            || p.get("archive").is_some_and(|archive| {
+                archive.get("reserve_backup").is_some() || archive.get("reserve_restore").is_some()
+            })
         {
             let cycle = if n > 1 {
                 let span = elapsed(
@@ -593,7 +596,6 @@ impl GuardService {
                 }
             }
         }
-        let storage = self.storage_report(id, true).await?;
         check(
             "storage_budget",
             storage["ready"] == true,
@@ -615,167 +617,8 @@ impl GuardService {
             json!({"project_id":id,"ready":checks.iter().all(|c|c["ok"]==true),"preparation_ready":preparation_ready,"checks":checks,"storage":storage,"baseline_collection":self.baseline_collection(&p).await?,"capacity":capacity,"performance":performance,"workers":value(&workers)?,"hardware_validation":"not_run","baseline_ready":crate::scan_plan::all_baselines_ready(&p)? && !checks.iter().any(|c| (c["name"]=="baseline_acquisition_context" || (p["primary_source_kind"].is_string() && c["name"]=="baseline_cadence")) && c["ok"]==false)}),
         )
     }
-    pub async fn storage_report(&self, id: &str, probe: bool) -> Result<Value> {
-        let project = self.project(id).await?;
-        let config = project.get("archive").cloned().unwrap_or_else(
-            || json!({"minimum_free_bytes":268435456,"minimum_retention_seconds":3600}),
-        );
-        let minimum = integer(&config, "minimum_free_bytes")?;
-        let retention_required = integer(&config, "minimum_retention_seconds")?;
-        let reserve_backup = match config.get("reserve_backup") {
-            None => false,
-            Some(value) => value
-                .as_bool()
-                .ok_or_else(|| invalid("archive reserve_backup"))?,
-        };
-        let capacity = self.archive.capacity().await?;
-        let inspected = self.control.storage_probe().await.unwrap_or(StorageProbe {
-            filesystem_free_bytes: None,
-            writable: None,
-        });
-        let receiver_primary = project["primary_source_kind"] == "ardv1";
-        let sid = s(&project, "active_session_id")?;
-        let stream = s(
-            &project,
-            if receiver_primary {
-                "receiver_stream_id"
-            } else {
-                "analyzer_stream_id"
-            },
-        )?;
-        let mut sample = self.archive.sweep_storage_sample(sid, stream).await?;
-        if receiver_primary {
-            let observations = self
-                .archive
-                .list_observations(sid, Some(stream), 64)
-                .await?;
-            sample.count = observations.len() as i64;
-            sample.first_started_at = observations
-                .first()
-                .and_then(|v| v["interval"]["started_at"].as_str())
-                .map(str::to_owned);
-            sample.last_ended_at = observations
-                .last()
-                .and_then(|v| v["interval"]["ended_at"].as_str())
-                .map(str::to_owned);
-            let mut bytes = 0;
-            for v in &observations {
-                bytes += spaced_json(v, true)?.len() as i64;
-            }
-            sample.column_bytes = Some(bytes);
-            sample.array_bytes = None;
-        }
-        let mean_stored_sweep_bytes = sample
-            .array_bytes
-            .map(|bytes| bytes as f64 / sample.count as f64);
-        let mut rate = None;
-        if sample.count >= 2
-            && let (Some(first), Some(last), Some(bytes)) = (
-                &sample.first_started_at,
-                &sample.last_ended_at,
-                sample.column_bytes,
-            )
-        {
-            let span = elapsed(first, last)?;
-            if span > 0. {
-                // Forecast the original plus ledger, with room for record envelopes.
-                // Measured whole-archive page growth below may raise this estimate.
-                rate = Some(2. * (bytes as f64 + 256. * sample.count as f64) / span);
-            }
-        }
-        let source_rate_measured = rate.is_some_and(|rate| rate.is_finite() && rate > 0.);
-        let now = self.clock.monotonic();
-        let size = capacity["database_bytes"]
-            .as_u64()
-            .ok_or_else(|| invalid("archive database_bytes"))?;
-        {
-            let mut samples = self
-                .capacity_samples
-                .lock()
-                .map_err(|_| GuardError::Conflict("capacity samples lock failed".into()))?;
-            if samples
-                .back()
-                .is_none_or(|(t, _)| now.saturating_sub(*t).as_secs_f64() >= 1.)
-            {
-                if samples.len() == 60 {
-                    samples.pop_front();
-                }
-                samples.push_back((now, size));
-            }
-            if let Some((first, old_size)) = samples.front() {
-                let span = now.saturating_sub(*first).as_secs_f64();
-                if span >= 5. && size > *old_size {
-                    let growth_rate = (size - *old_size) as f64 / span;
-                    rate = Some(rate.unwrap_or(0.).max(growth_rate));
-                }
-            }
-        }
-        let mut startup_basis_used = false;
-        if reserve_backup
-            && !source_rate_measured
-            && let Some(runtime) = self.runtime_snapshot(id)?
-            && !runtime.stopped
-            && runtime.sid == s(&project, "active_session_id")?
-            && let Some(basis) = runtime.startup_storage_basis
-            && project["baseline_id"] == basis.baseline_id
-            && now < basis.expires
-        {
-            rate = Some(rate.unwrap_or(0.).max(basis.bytes_per_second));
-            startup_basis_used = true;
-        }
-        if reserve_backup && !source_rate_measured && !startup_basis_used {
-            // Metadata/page growth alone does not establish the new run's
-            // measurement rate once the validated startup window ends.
-            rate = None;
-        }
-        let backup_reserve = if reserve_backup {
-            rate.filter(|rate| rate.is_finite() && *rate > 0.)
-                .and_then(|rate| {
-                    let projected = (rate * retention_required as f64).ceil();
-                    if projected.is_finite() && projected >= 0. && projected < u64::MAX as f64 {
-                        size.checked_add(projected as u64)
-                    } else {
-                        None
-                    }
-                })
-        } else {
-            Some(0)
-        };
-        let effective_minimum = backup_reserve.and_then(|backup| minimum.checked_add(backup));
-        let mut available = inspected
-            .filesystem_free_bytes
-            .zip(effective_minimum)
-            .map_or(0, |(free, reserve)| free.saturating_sub(reserve));
-        if let Some(remaining) = capacity["remaining_bytes"].as_u64() {
-            available = available.min(remaining);
-        }
-        let retention = rate.filter(|r| *r > 0.).map(|r| available as f64 / r);
-        let ready = inspected.writable == Some(true)
-            && available > 0
-            && capacity["state"] != "full"
-            && retention.is_none_or(|r| r >= retention_required as f64);
-        let mut report = json!({"capacity":capacity,"filesystem_free_bytes":inspected.filesystem_free_bytes,"minimum_free_bytes":minimum,"available_bytes":available,"bytes_per_second":rate,"estimated_retention_seconds":retention,"required_retention_seconds":retention_required,"ready":ready,"write_probe":if probe{inspected.writable}else{None},"rate_source":"measured_archive_or_conservative_payload_window","automatic_deletion":false});
-        if receiver_primary {
-            report["sampled_observations"] = json!(sample.count);
-        } else {
-            report["sampled_sweeps"] = json!(sample.count);
-            report["mean_stored_sweep_bytes"] = json!(mean_stored_sweep_bytes);
-        }
-        report["projected_bytes_per_day"] = json!(rate.filter(|r| *r > 0.).map(|r| r * 86_400.));
-        report["wal_bytes"] = json!(sample.wal_bytes);
-        report["writer_queue"] = json!(self.archive.queue_status());
-        if startup_basis_used {
-            report["rate_source"] = json!("validated_preflight_startup");
-        }
-        if reserve_backup {
-            report["backup_reserve_requested"] = json!(true);
-            report["backup_reserve_bytes"] = json!(backup_reserve);
-            report["effective_minimum_free_bytes"] = json!(effective_minimum);
-        }
-        Ok(report)
-    }
 }
-fn valid_com(raw: &str) -> bool {
+pub(crate) fn valid_com(raw: &str) -> bool {
     let name = raw.strip_prefix(r"\\.\").unwrap_or(raw);
     name.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("COM"))
         && name

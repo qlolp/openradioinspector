@@ -42,6 +42,19 @@ struct NativeRCPreparationDraft {
     var tinyUsesGrid = true
     var explorer = NativeRFExplorerDraft()
 
+    mutating func chooseSource(_ value: NativeDutySource) {
+        guard source != value else { return }
+        source = value
+        switch value {
+        case .ardv1:
+            startHz = "100000000"; stopHz = "100200000"; receiverStepKHz = Self.defaultReceiverStepKHz
+        case .tinySA:
+            startHz = "88000000"; stopHz = "108000000"
+        case .rfExplorer:
+            explorer.applySurveyRange(250_000_000...251_110_000)
+        }
+    }
+
     private func port(_ value: String) throws -> String {
         let path = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty, path.utf8.count <= 1024, !path.contains("://"), !path.contains("\0") else {
@@ -183,9 +196,12 @@ struct NativeDutyOriginal {
         if case .object(let identity)? = sweep.settings?["device_identity"], case .string(let firmware)? = identity["firmware"] {
             description += " · прошивка " + firmware
         }
+        guard let firstFrequency = sweep.frequenciesHz.first, let firstLevel = sweep.levels.first else {
+            throw PlatformError.invalidResponse("В исходном свипе нет отсчётов.")
+        }
         let data = zip(sweep.frequenciesHz, sweep.levels).map { "\($0) Гц · \($1) dBm" }.joined(separator: "\n")
         return Self(run: run, id: sweep.id, started: sweep.interval.startedAt, ended: sweep.interval.endedAt, unit: sweep.levelUnit,
-            reading: "\(sweep.frequenciesHz.count) точек · \(sweep.levelUnit)", readback: description, data: data)
+            reading: "\(sweep.frequenciesHz.count) точек · первая точка \(firstFrequency) Гц · \(firstLevel) \(sweep.levelUnit)", readback: description, data: data)
     }
 }
 
@@ -197,6 +213,10 @@ struct NativeRCReadiness {
     var budgetReady: Bool {
         let storage = preflight["storage"]
         guard let rate = storage["bytes_per_second"].double, rate.isFinite, rate > 0 else { return false }
+        if storage["forecast_seconds"] != .null {
+            guard storage["forecast_status"].text == "ready", storage["shortfall_bytes"].integer == 0,
+                  storage["restore_reserve_requested"].bool == true else { return false }
+        }
         return storage["ready"].bool == true && storage["write_probe"].bool == true && storage["backup_reserve_requested"].bool == true
             && (storage["required_retention_seconds"].integer ?? 0) >= 43_200
     }
@@ -234,5 +254,6 @@ struct NativeReceiverOriginalLink: Identifiable, Equatable {
     let pass: Int
     let frequencyHz: Int64
     var archivedEvent = false
+    var contextID: String?
     var id: PlatformExactID { observation }
 }

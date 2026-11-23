@@ -76,7 +76,10 @@ struct NativeGuardSignalsPane: View {
         }
 
         .sheet(item: $observationLink) { link in
-            if let client = remote?.client { NativeReceiverOriginalPane(client: client, source: link) }
+            if let client = remote?.client {
+                NativeReceiverOriginalPane(client: client, source: link,
+                    showEventPanorama: workspace.receiverPanoramaContextsAvailable)
+            }
         }
     }
 
@@ -487,7 +490,7 @@ private struct NativePairedRechecksPane: View {
         GroupBox("Повторная проверка") {
             VStack(alignment: .leading, spacing: 6) {
                 if !workspace.pairedRechecksAvailable {
-                    Text("Ядро не сообщает о поддержке парных проверок.")
+                    Text("Парная проверка доступна для tinySA и AR-DV1 на совместимом узле.")
                 } else {
                     if workspace.signalPending.contains(.rechecks) {
                         ProgressView("Проверяем исходники…").controlSize(.small)

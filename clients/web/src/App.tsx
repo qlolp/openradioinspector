@@ -8,6 +8,7 @@ import { Prepare } from './Prepare';
 import { preparationReady } from './station';
 import { BaselineCounts, sourceNames } from './DutySetup';
 import {
+  EventReceiverPanorama,
   OriginalObservation,
   readObservation,
   ReceiverHold,
@@ -18,7 +19,7 @@ import { RfExplorer, RfExplorerSettings } from './RfExplorer';
 import { RfExplorerResearch } from './RfExplorerResearch';
 import { rfExplorerAvailable, rfExplorerReadback } from './rf-explorer';
 import { Research } from './Research';
-import { PairedRechecks } from './PairedRechecks';
+import { PairedRechecks, supportsPairedRechecks } from './PairedRechecks';
 import { AudioEvidence } from './AudioEvidence';
 import { ScanPlan } from './ScanPlan';
 import { coverageBands, scanChoices, scanKey } from './scan-plan';
@@ -1425,15 +1426,13 @@ export function App({
           {desk.capabilities?.features.monitoring_signal_catalog === true && (
             <SignalHypotheses api={desk.api} projectId={desk.projectId} event={event} />
           )}
-          {!!p?.analyzer_stream_id &&
-            !!p.receiver_stream_id &&
-            desk.capabilities?.features.paired_event_rechecks === true && (
-              <PairedRechecks
-                key={JSON.stringify([desk.connectionVersion, desk.projectId, event.id])}
-                desk={desk}
-                eventId={event.id}
-              />
-            )}
+          {supportsPairedRechecks(desk, event.run_session_id) && (
+            <PairedRechecks
+              key={JSON.stringify([desk.connectionVersion, desk.projectId, event.id])}
+              desk={desk}
+              eventId={event.id}
+            />
+          )}
           <audio
             ref={audio}
             controls
@@ -1503,7 +1502,16 @@ export function App({
         <OriginalObservation
           source={sourceObservation}
           close={() => setSourceObservation(undefined)}
-        />
+        >
+          {event?.receiver_context_key &&
+            desk.capabilities?.features.ardv1_receiver_panorama_context === true && (
+              <EventReceiverPanorama
+                api={desk.api}
+                source={sourceObservation}
+                context={event.receiver_context_key}
+              />
+            )}
+        </OriginalObservation>
       )}
       {originalDialog}
     </div>

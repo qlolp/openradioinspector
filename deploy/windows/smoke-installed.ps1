@@ -188,9 +188,15 @@ function Invoke-Node([string]$Action) {
     $output
 }
 
-function Assert-RawSweep([string]$Route) {
-    $saved = (Invoke-RestMethod -TimeoutSec 30 "$Route/sweeps/windows-rc-sweep").data
-    if ($saved.id -ne 'windows-rc-sweep' -or ($saved.frequencies_hz -join ',') -ne '100000001,100000011' -or
+function Add-RollbackSweep([string]$Id) {
+    $copy = $sampleSweep.Clone()
+    $copy.id = $Id
+    $null = Invoke-RestMethod -TimeoutSec 30 "$route/sweeps" -Method Post -ContentType 'application/json' -Body ($copy | ConvertTo-Json -Depth 5)
+}
+
+function Assert-RawSweep([string]$Route, [string]$Id = 'windows-rc-sweep') {
+    $saved = (Invoke-RestMethod -TimeoutSec 30 "$Route/sweeps/$Id").data
+    if ($saved.id -ne $Id -or ($saved.frequencies_hz -join ',') -ne '100000001,100000011' -or
         $saved.level_unit -ne 'dBm' -or $saved.levels[0] -ne -95.375 -or $saved.levels[1] -ne -87.25) {
         throw 'Recovered measurement differs from the original sweep'
     }
@@ -302,6 +308,9 @@ try {
     Invoke-Node 'shutdown' | Out-Null
     Invoke-Node 'check-stopped' | Out-Null
     if ((Invoke-Node 'status').service_state -ne 'stopped') { throw 'Explicit shutdown was not completed' }
+    $external = Join-Path $data 'smoke-archive-volume'
+    & $supervisor archive-location --data-dir $data --directory $external | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Installed archive relocation failed' }
     Enter-SmokePhase 'reinstall_update'
     # Move one package resource from this fresh test account to prove /UPDATE
     # actually writes files. The application archive stays outside the install.
@@ -317,12 +326,13 @@ try {
     $restored = (Invoke-RestMethod -TimeoutSec 30 "$url/api/v1/sessions/windows-rc-smoke").data
     if ($restored.id -ne 'windows-rc-smoke') { throw 'Committed session not recovered after restart' }
     Assert-RawSweep $route
+    Add-RollbackSweep 'after-move'
     Assert-TaskBook
     Invoke-Node 'shutdown' | Out-Null
     Enter-SmokePhase 'materialize_v6'
-    $previous = Join-Path $data 'smoke-format-v6.sqlite3'
-    $database = Join-Path $data 'sessions.sqlite3'
-    $savedV7 = Join-Path $data 'smoke-source-v7.sqlite3'
+    $previous = Join-Path $external 'smoke-format-v6.sqlite3'
+    $database = Join-Path $external 'sessions.sqlite3'
+    $savedV7 = Join-Path $external 'smoke-source-v7.sqlite3'
     $leases = @()
     try {
         # The installed controller opens these files for its instance and writer leases.
@@ -331,6 +341,8 @@ try {
             $lock = Join-Path (Join-Path $data '.ori-runtime') $name
             $leases += [IO.File]::Open($lock, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
         }
+        $volumeLock = Join-Path (Join-Path $external '.ori-runtime') 'writer.lock'
+        $leases += [IO.File]::Open($volumeLock, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
         & $core archive-materialize --stopped $database $previous
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $previous)) { throw 'Installed compatibility export failed' }
         if (Test-Path -LiteralPath $savedV7) { throw 'Previous archive backup already exists' }
@@ -355,6 +367,8 @@ try {
         $report.prior_revision = $PriorRevision.ToLowerInvariant()
         $null = Invoke-Node 'start'
         Assert-RawSweep $route
+        Assert-RawSweep $route 'after-move'
+        Add-RollbackSweep 'during-rollback'
         Assert-TaskBook
         Invoke-Node 'shutdown' | Out-Null
         $report.package_rollback = 'passed'
@@ -367,6 +381,8 @@ try {
     Assert-Revision $manifest.source_revision
     $null = Invoke-Node 'start'
     Assert-RawSweep $route
+    Assert-RawSweep $route 'after-move'
+    if ($PriorInstaller) { Assert-RawSweep $route 'during-rollback' }
     Assert-TaskBook
     Invoke-Node 'shutdown' | Out-Null
     Enter-SmokePhase 'final_uninstall'

@@ -56,14 +56,22 @@ def exercise(url, phase):
         request(url, 'POST', route + '/sweeps', fixture['sweep'])
     if phase == 'upgrade':
         request(url, 'POST', route + '/observations', fixture['observation'])
+    rollback = dict(fixture['observation'], id='during-package-rollback', level=96.0)
+    if phase == 'rollback':
+        request(url, 'POST', route + '/observations', rollback)
     resources = [('sweeps', 'sweep')]
     if phase != 'install':
         resources.append(('observations', 'observation'))
     for plural, key in resources:
         rows = request(url, 'GET', route + '/' + plural + '?limit=100')
-        if len(rows) != 1:
+        expected = [fixture[key]]
+        if key == 'observation' and phase in ('rollback', 'restart', 'existing-v6'):
+            expected.append(rollback)
+        by_id = {row['id']: row for row in rows}
+        if len(rows) != len(expected) or set(by_id) != {item['id'] for item in expected}:
             raise ValueError(f'{phase} lost or duplicated {plural}')
-        verify_original(rows[0], fixture[key], key)
+        for item in expected:
+            verify_original(by_id[item['id']], item, key)
     if any(worker['alive'] for worker in request(url, 'GET', '/api/v1/workers')):
         raise ValueError('Fixture unexpectedly started hardware')
 

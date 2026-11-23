@@ -1,4 +1,4 @@
-//! Explicit native serial connector. This module never enumerates ports.
+//! Explicit native serial connector. Listing OS candidates does not open a port.
 //! Core ownership/cutover policy must be established before calling `open`.
 use crate::{InstrumentError, Result};
 use serde::{Deserialize, Serialize};
@@ -6,6 +6,15 @@ use tokio_serial::{
     ClearBuffer, DataBits, FlowControl, Parity, SerialPort, SerialPortBuilderExt, SerialStream,
     StopBits,
 };
+
+/// Names reported by the OS. Device identity is verified only after the operator starts collection.
+pub fn available_port_names() -> std::io::Result<Vec<String>> {
+    Ok(serialport::available_ports()
+        .map_err(std::io::Error::from)?
+        .into_iter()
+        .map(|port| port.port_name)
+        .collect())
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
