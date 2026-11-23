@@ -33,6 +33,7 @@ tokio-tungstenite = { version = "=0.30.0", default-features = false, features = 
 url = "=2.5.8"
 
 [target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", default-features = false, features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Threading"] }
 tauri = { version = "=2.12.4", default-features = false, features = ["wry", "compression", "common-controls-v6"] }
 webbrowser = "=1.2.6"

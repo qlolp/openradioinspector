@@ -313,6 +313,13 @@ fn assert_stopped(data: &Path) -> Result<()> {
     Ok(())
 }
 
+fn stopped_archive_target(data: &Path) -> Result<Value> {
+    // Permit first-run selection before the node has ever been started.
+    pipe::ensure_data_directory(data)?;
+    assert_stopped(data)?;
+    Ok(json!({"ok":true,"data_directory":data}))
+}
+
 fn logon_command(runtime: &Path, action: &str) -> Result<Command> {
     let system = std::env::var_os("SystemRoot")
         .map(PathBuf::from)
@@ -416,6 +423,7 @@ pub async fn command(action: &str) -> Result<()> {
             }
             response
         }
+        "archive-target" => stopped_archive_target(&data)?,
         "check-stopped" => {
             assert_stopped(&data)?;
             json!({"ok":true})
@@ -424,7 +432,7 @@ pub async fn command(action: &str) -> Result<()> {
         "unregister" => logon("Unregister")?,
         _ => {
             return Err(Error::Unsafe(
-                "windows-node run|start|status|shutdown|register|unregister|check-stopped".into(),
+                "windows-node run|start|status|shutdown|register|unregister|check-stopped|archive-target".into(),
             ));
         }
     };
@@ -435,6 +443,23 @@ pub async fn command(action: &str) -> Result<()> {
 #[cfg(test)]
 mod task_tests {
     use super::*;
+
+    #[test]
+    fn first_run_archive_target_requires_a_stopped_private_node() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("new per-user node");
+        let reply = stopped_archive_target(&data).unwrap();
+        assert_eq!(reply["data_directory"], json!(data));
+        assert_eq!(reply["ok"], true);
+        assert!(!data.join("sessions.sqlite3").exists());
+        let writer = WriterLease::acquire(&data).unwrap();
+        assert!(matches!(stopped_archive_target(&data), Err(Error::Busy)));
+        drop(writer);
+        let instance = InstanceLease::acquire(&data).unwrap();
+        assert!(matches!(stopped_archive_target(&data), Err(Error::Busy)));
+        drop(instance);
+        assert!(stopped_archive_target(&data).is_ok());
+    }
 
     #[test]
     fn packaged_logon_uses_windows_powershell_modules_and_reports_private_failure_stage() {
