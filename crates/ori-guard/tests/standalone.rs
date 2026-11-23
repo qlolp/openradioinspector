@@ -553,76 +553,169 @@ async fn analyzer_only_guard_arms_and_detects_without_a_receiver() {
     h.close().await;
 }
 
-#[tokio::test]
-async fn duty_reports_the_verified_detector_at_immediate_and_scheduled_start() {
+async fn prepared_explorer_duty() -> (Harness, String) {
     let session = single(
         "spectrum_analyzer",
         json!({"adapter":"rf-explorer-3g-serial","start_hz":100_000_000,"stop_hz":101_110_000}),
     );
     let h = Harness::with_session(session.clone()).await;
-    let p = prepared_single(&h, &session).await;
-    let id = p["id"].as_str().unwrap();
+    let project = prepared_single(&h, &session).await;
+    let id = project["id"].as_str().unwrap().to_owned();
     h.archive
-        .append_sweeps((1..=20).map(|n| explorer_frame(&p, n, 1, false)).collect())
+        .append_sweeps(
+            (1..=20)
+                .map(|n| explorer_frame(&project, n, 1, false))
+                .collect(),
+        )
         .await
         .unwrap();
     h.service
-        .create_baseline(id, baseline_request())
+        .create_baseline(&id, baseline_request())
         .await
         .unwrap();
-    h.service.stop_preparation(id, json!({})).await.unwrap();
-    for (weekly, verified) in [(false, true), (true, true), (false, false)] {
-        *h.sources.now.lock().unwrap() = "2026-11-23T12:00:00Z".parse().unwrap();
-        *h.control.rfe_readback_override.lock().unwrap() = serde_json::from_value(json!({
-            "detector":"max_hold","detector_code":4,"artifact_kind":"processed_trace",
-            "private_readback":"fixture-private","settings_readback":verified
-        }))
-        .unwrap();
-        let schedule = if weekly {
-            json!({"mode":"weekly","timezone":"UTC","weekdays":[1],"start_local":"13:00","end_local":"14:00"})
+    h.service.stop_preparation(&id, json!({})).await.unwrap();
+    *h.sources.now.lock().unwrap() = "2026-11-23T12:00:00Z".parse().unwrap();
+    (h, id)
+}
+
+fn hold_readback(verified: bool) -> Value {
+    json!({"detector":"max_hold","detector_code":4,"artifact_kind":"processed_trace",
+        "private_readback":"fixture-private","settings_readback":verified})
+}
+
+fn weekly_rf_shift() -> Value {
+    json!({"schedule":{"mode":"weekly","timezone":"UTC","weekdays":[1],"start_local":"13:00","end_local":"14:00"}})
+}
+
+fn worker_starts(h: &Harness) -> usize {
+    h.control
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|call| call.starts_with("start:"))
+        .count()
+}
+
+#[tokio::test]
+async fn duty_reports_the_verified_detector_at_immediate_and_scheduled_start() {
+    for (weekly, verified) in [
+        (false, Some(true)),
+        (true, Some(true)),
+        (false, Some(false)),
+        (false, None),
+    ] {
+        let (h, id) = prepared_explorer_duty().await;
+        let readback = verified.map_or_else(
+            || json!({"rbw_hz":30000,"private_readback":"fixture-private"}),
+            hold_readback,
+        );
+        *h.control.rfe_readback_override.lock().unwrap() =
+            serde_json::from_value(readback).unwrap();
+        let policy = if weekly {
+            weekly_rf_shift()
         } else {
-            json!({"mode":"continuous"})
+            json!({"schedule":{"mode":"continuous"}})
         };
-        let mut duty = h
-            .service
-            .arm_duty(id, json!({"schedule":schedule}))
-            .await
-            .unwrap();
+        let before = worker_starts(&h);
+        let mut duty = h.service.arm_duty(&id, policy).await.unwrap();
         if weekly {
             assert_eq!(duty["status"], "waiting");
+            assert_eq!(worker_starts(&h), before);
             *h.sources.now.lock().unwrap() = "2026-11-23T13:00:00Z".parse().unwrap();
             h.service
-                .reconcile_duty(id, ori_guard::DutyTrigger::Timer)
+                .reconcile_duty(&id, ori_guard::DutyTrigger::Timer)
                 .await
                 .unwrap();
-            duty = h.service.duty(id).await.unwrap();
+            duty = h.service.duty(&id).await.unwrap();
         }
+        assert_eq!(worker_starts(&h), before + 1);
         assert_eq!(duty["status"], "preflight_failed");
         let reason = duty["last_error"].as_str().unwrap();
-        assert!(
-            reason.contains("RF Explorer") && reason.contains("Normal"),
-            "{reason}"
-        );
-        assert_eq!(reason.contains("Max Hold"), verified, "{reason}");
+        if let Some(verified) = verified {
+            assert!(
+                reason.contains("RF Explorer") && reason.contains("Normal"),
+                "{reason}"
+            );
+            assert_eq!(reason.contains("Max Hold"), verified, "{reason}");
+        } else {
+            assert_eq!(reason, "Проверка прибора, эталона или архива не пройдена");
+        }
         assert!(!reason.contains("fixture-private"));
-        assert_eq!(h.service.duty(id).await.unwrap()["last_error"], reason);
+        assert_eq!(h.service.duty(&id).await.unwrap()["last_error"], reason);
         assert!(!h.service.any_armed());
-        h.service.disarm(id, json!({})).await.unwrap();
+        h.close().await;
     }
-    *h.control.rfe_readback_override.lock().unwrap() = serde_json::from_value(json!({
-        "rbw_hz":30000,"private_readback":"fixture-private"
-    }))
-    .unwrap();
-    let duty = h
+}
+
+#[tokio::test]
+async fn weekly_rf_duty_requires_a_measured_source_after_a_rejected_empty_run() {
+    let (h, id) = prepared_explorer_duty().await;
+    let baseline = h.service.project(&id).await.unwrap()["baseline_id"].clone();
+    *h.control.rfe_readback_override.lock().unwrap() =
+        serde_json::from_value(hold_readback(true)).unwrap();
+    let rejected = h
         .service
-        .arm_duty(id, json!({"schedule":{"mode":"continuous"}}))
+        .arm_duty(&id, json!({"schedule":{"mode":"continuous"}}))
         .await
         .unwrap();
-    assert_eq!(duty["status"], "preflight_failed");
-    assert_eq!(
-        duty["last_error"],
-        "Проверка прибора, эталона или архива не пройдена"
+    assert!(
+        rejected["last_error"]
+            .as_str()
+            .unwrap()
+            .contains("Max Hold")
     );
+    h.service.disarm(&id, json!({})).await.unwrap();
+
+    let before = worker_starts(&h);
+    assert_eq!(
+        h.service.arm_duty(&id, weekly_rf_shift()).await.unwrap()["status"],
+        "waiting"
+    );
+    *h.sources.now.lock().unwrap() = "2026-11-23T13:00:00Z".parse().unwrap();
+    h.service
+        .reconcile_duty(&id, ori_guard::DutyTrigger::Timer)
+        .await
+        .unwrap();
+    let failed = h.service.duty(&id).await.unwrap();
+    assert_eq!(failed["status"], "preflight_failed");
+    assert_eq!(worker_starts(&h), before);
+    let preflight = h.service.preflight(&id, false).await.unwrap();
+    assert_eq!(
+        preflight["storage"]["forecast_status"],
+        "source_rate_unavailable"
+    );
+    assert_eq!(preflight["storage"]["sampled_sweeps"], 0);
+    assert!(
+        preflight["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| check["name"] == "storage_budget" && check["ok"] == false)
+    );
+    assert!(preflight["storage"]["bytes_per_second"].is_null());
+
+    h.service.disarm(&id, json!({})).await.unwrap();
+    h.control.rfe_readback_override.lock().unwrap().clear();
+    let collecting = h.service.start_preparation(&id, json!({})).await.unwrap()["project"].clone();
+    h.archive
+        .append_sweeps(
+            (1..=2)
+                .map(|n| explorer_frame(&collecting, n, 1, false))
+                .collect(),
+        )
+        .await
+        .unwrap();
+    h.service.stop_preparation(&id, json!({})).await.unwrap();
+    assert_eq!(
+        h.service.project(&id).await.unwrap()["baseline_id"],
+        baseline
+    );
+    assert_eq!(
+        h.service.arm_duty(&id, weekly_rf_shift()).await.unwrap()["status"],
+        "armed"
+    );
+    h.service.disarm(&id, json!({})).await.unwrap();
     h.close().await;
 }
 
