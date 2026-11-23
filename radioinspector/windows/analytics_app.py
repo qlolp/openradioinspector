@@ -172,7 +172,7 @@ class AnalyticsWindowsApp(CompletionWindowsApp):
         def export() -> dict[str, Any]:
             try:
                 return client.export_archive(session_id, destination)
-            except (ArchiveIngestError, OSError, ValueError) as exc:
+            except (ArchiveIngestError, PlatformClientError, OSError, ValueError) as exc:
                 return {"error": str(exc)}
 
         self._submit_action(
