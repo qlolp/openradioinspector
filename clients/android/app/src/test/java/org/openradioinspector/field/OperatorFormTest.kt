@@ -87,4 +87,10 @@ class OperatorFormTest {
         assertEquals(1, closestPoint(track, track[1].x, track[1].y))
         assertNull(closestPoint(emptyList(), 0.0, 0.0))
     }
+
+    @Test fun tappingOverlappingFixesSelectsTheMarkerDrawnOnTop() {
+        val stationary = listOf(MapPoint(50.0, 20.0), MapPoint(50.0, 20.0))
+        assertEquals(1, closestPoint(stationary, 49.0, 21.0))
+        assertNull(closestPoint(stationary, 100.0, 100.0, radius = 18.0))
+    }
 }

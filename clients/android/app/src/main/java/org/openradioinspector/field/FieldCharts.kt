@@ -8,13 +8,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -52,11 +55,13 @@ internal fun SeriesPlot(x: List<Long>, y: List<Double>, description: String) {
     }
 }
 
-private fun unitLabel(unit: String) = when (unit.lowercase()) {
+internal fun unitLabel(unit: String) = when (unit.lowercase()) {
     "dbm" -> "дБм"
     "s_meter_count" -> "отсч."
     else -> unit
 }
+
+internal fun archivedLevel(value: Double) = value.toString().removeSuffix(".0").replace('.', ',')
 
 @Composable
 internal fun SpectrumPanel(x: List<Long>, y: List<Double>, unit: String, history: List<List<Double>>) {
@@ -95,28 +100,73 @@ internal fun SpectrumPanel(x: List<Long>, y: List<Double>, unit: String, history
 }
 
 @Composable
-internal fun TrackPlot(track: List<TrackPoint>, selected: String? = null, select: ((String) -> Unit)? = null) {
+internal fun TrackPlot(track: List<TrackPoint>, selected: String? = null,
+    routeLevels: Map<String, RouteReading>? = null, select: ((String) -> Unit)? = null) {
     if (track.isEmpty()) return
     val links = remember(track) { trackLinks(track) }
-    val tap = if (select == null) Modifier else Modifier.pointerInput(track, select) {
+    val samples = remember(routeLevels) { routeLevels?.values?.filterIsInstance<RouteReading.Measured>().orEmpty() }
+    val low = samples.minOfOrNull { it.level }
+    val high = samples.maxOfOrNull { it.level }
+    val weak = Color(0xff699ae9)
+    val strong = Color(0xffffdc74)
+    val onSelect by rememberUpdatedState(select)
+    val mapped = routeLevels != null
+    val tap = if (select == null) Modifier else Modifier.pointerInput(track, mapped) {
         detectTapGestures { offset ->
             val projected = projectTrack(track, size.width.toDouble(), size.height.toDouble())
-            closestPoint(projected, offset.x.toDouble(), offset.y.toDouble())?.let { select(track[it].id) }
+            val radius = if (mapped) 18.dp.toPx().toDouble() else Double.POSITIVE_INFINITY
+            closestPoint(projected, offset.x.toDouble(), offset.y.toDouble(), radius)?.let { onSelect?.invoke(track[it].id) }
         }
     }
+    val description = if (mapped) "Уровни по треку GPS" else "Трек GPS"
     Canvas(Modifier.fillMaxWidth().height(145.dp).background(plotBackground).then(tap)
-        .semantics { contentDescription = "Трек GPS, север сверху, ${track.size} точек" }) {
+        .semantics { contentDescription = "$description, север сверху. Точек на экране ${track.size}" }) {
         val points = projectTrack(track, size.width.toDouble(), size.height.toDouble())
         val path = Path()
         points.forEachIndexed { i, point ->
             val x = point.x.toFloat()
             val y = point.y.toFloat()
             if (links[i]) path.lineTo(x, y) else path.moveTo(x, y)
-            drawCircle(traceColor, 2.dp.toPx(), Offset(x, y))
         }
-        drawPath(path, traceColor, style = Stroke(1.5.dp.toPx()))
+        drawPath(path, if (mapped) Color(0xff62717e) else traceColor, style = Stroke(1.5.dp.toPx()))
+        points.forEachIndexed { i, point ->
+            val center = Offset(point.x.toFloat(), point.y.toFloat())
+            if (!mapped) drawCircle(traceColor, 2.dp.toPx(), center)
+            else when (val reading = routeLevels?.get(track[i].id)) {
+                is RouteReading.Measured -> {
+                    val t = if (low == null || high == null || low == high) 0.5f else ((reading.level - low) / (high - low)).toFloat()
+                    drawCircle(lerp(weak, strong, t), 4.dp.toPx(), center)
+                }
+                is RouteReading.OutsideRange -> {
+                    val d = 3.dp.toPx()
+                    drawLine(Color.LightGray, center - Offset(d, d), center + Offset(d, d), 1.5.dp.toPx())
+                    drawLine(Color.LightGray, center - Offset(d, -d), center + Offset(d, -d), 1.5.dp.toPx())
+                }
+                is RouteReading.MissingLevel, null -> drawCircle(Color.LightGray, 3.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
+            }
+        }
         val index = if (selected == null) points.lastIndex else track.indexOfFirst { it.id == selected }
-        points.getOrNull(index)?.let { drawCircle(Color(0xffffc97d), 5.dp.toPx(), Offset(it.x.toFloat(), it.y.toFloat())) }
+        points.getOrNull(index)?.let {
+            val center = Offset(it.x.toFloat(), it.y.toFloat())
+            if (mapped) drawCircle(Color.White, 7.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
+            else drawCircle(Color(0xffffc97d), 5.dp.toPx(), center)
+        }
     }
     Text("Север ↑  ·  ${track.size} точек на экране", style = MaterialTheme.typography.bodySmall)
+    if (mapped) {
+        if (low != null && high != null) {
+            val unit = unitLabel(samples.first().unit)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Шкала страницы", style = MaterialTheme.typography.bodySmall)
+                Text("${archivedLevel(low)} $unit", style = MaterialTheme.typography.bodySmall)
+                if (low == high) Box(Modifier.size(10.dp).background(lerp(weak, strong, 0.5f)))
+                else {
+                    Box(Modifier.weight(1f).height(8.dp).background(Brush.horizontalGradient(listOf(weak, strong))))
+                    Text("${archivedLevel(high)} $unit", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        Text("○ Нет отсчёта  ·  × Вне диапазона", style = MaterialTheme.typography.bodySmall)
+    }
 }
