@@ -33,6 +33,9 @@ struct Clock {
     start: Instant,
 }
 impl ori_guard::Clock for Clock {
+    fn now_micros(&self) -> i64 {
+        chrono::Utc::now().timestamp_micros()
+    }
     fn now(&self) -> UtcTimestamp {
         crate::utc_now().parse().expect("system UTC")
     }
@@ -235,9 +238,17 @@ fn gate(
     permit: ControlPermit,
 ) -> ControlResult<ExecutionGate> {
     let guard = Arc::downgrade(&core.domains.get().ok_or_else(unavailable)?.guard);
-    let target = target.clone();
+    Ok(guard_gate(guard, target.clone(), permit))
+}
+fn guard_gate(
+    guard: Weak<GuardService>,
+    target: ControlTarget,
+    permit: ControlPermit,
+) -> ExecutionGate {
+    let project = permit.project_id().to_owned();
+    let duty = guard.clone();
     let expected = permit.expected_worker_instance().map(str::to_owned);
-    Ok(ExecutionGate::new(
+    ExecutionGate::new(
         move || {
             guard
                 .upgrade()
@@ -246,7 +257,11 @@ fn gate(
                 .map_err(|_| DeviceError::Denied)
         },
         expected,
-    ))
+    )
+    .with_acquisition_window(Arc::new(move || {
+        duty.upgrade()
+            .is_some_and(|guard| guard.duty_acquisition_allowed(&project))
+    }))
 }
 fn worker(status: crate::devices::WorkerStatus) -> ControlResult<ori_guard::WorkerStatus> {
     let mut extra = status
@@ -325,6 +340,18 @@ impl SessionEffects for Effects {
         })
     }
 }
+async fn close_control_targets(core: &Core, session: &str) -> ControlResult<()> {
+    if let Some(service) = core.instrument_control.get() {
+        let devices = core.devices.as_ref().ok_or_else(unavailable)?;
+        for status in devices.list(Some(session)).await.map_err(control)? {
+            service
+                .close_target(&Target::new(&status.session_id, &status.stream_id))
+                .await
+                .map_err(control)?;
+        }
+    }
+    Ok(())
+}
 impl InstrumentControl for Effects {
     fn preflight<'a>(
         &'a self,
@@ -366,23 +393,14 @@ impl InstrumentControl for Effects {
         Box::pin(async move {
             let core = self.core.upgrade().ok_or_else(unavailable)?;
             let guard = Arc::downgrade(&core.domains.get().ok_or_else(unavailable)?.guard);
-            let expected = permit.expected_worker_instance().map(str::to_owned);
             let factory = Arc::new(move |target: &Target| {
-                let guard = guard.clone();
-                let permit = permit.clone();
-                let target = ControlTarget {
-                    session_id: target.session_id.clone(),
-                    stream_id: target.stream_id.clone(),
-                };
-                ExecutionGate::new(
-                    move || {
-                        guard
-                            .upgrade()
-                            .ok_or(DeviceError::Closed)?
-                            .authorize_control(&target, Some(&permit))
-                            .map_err(|_| DeviceError::Denied)
+                guard_gate(
+                    guard.clone(),
+                    ControlTarget {
+                        session_id: target.session_id.clone(),
+                        stream_id: target.stream_id.clone(),
                     },
-                    expected.clone(),
+                    permit.clone(),
                 )
             });
             core.devices
@@ -402,21 +420,7 @@ impl InstrumentControl for Effects {
     ) -> ControlFuture<'a, Vec<ori_guard::WorkerStatus>> {
         Box::pin(async move {
             let core = self.core.upgrade().ok_or_else(unavailable)?;
-            if let Some(control_service) = core.instrument_control.get() {
-                for status in core
-                    .devices
-                    .as_ref()
-                    .ok_or_else(unavailable)?
-                    .list(Some(session))
-                    .await
-                    .map_err(control)?
-                {
-                    control_service
-                        .close_target(&Target::new(&status.session_id, &status.stream_id))
-                        .await
-                        .map_err(control)?;
-                }
-            }
+            close_control_targets(&core, session).await?;
             core.devices
                 .as_ref()
                 .ok_or_else(unavailable)?
@@ -426,6 +430,29 @@ impl InstrumentControl for Effects {
                 .into_iter()
                 .map(joined_worker)
                 .collect()
+        })
+    }
+    fn finish_duty_session<'a>(
+        &'a self,
+        session: &'a str,
+    ) -> ControlFuture<'a, Vec<ori_guard::WorkerStatus>> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            let devices = core.devices.as_ref().ok_or_else(unavailable)?;
+            // Hold session admission through both the receiver join and control-scope cleanup.
+            // close_target normally cancels its transport, so it must follow the current RX.
+            let _stopping = devices
+                .quiesce_session_mode(session, true)
+                .map_err(control)?;
+            let joined: Vec<_> = devices
+                .stop_session_quiesced_mode(session, true)
+                .await
+                .map_err(control)?
+                .into_iter()
+                .map(joined_worker)
+                .collect::<ControlResult<_>>()?;
+            close_control_targets(&core, session).await?;
+            Ok(joined)
         })
     }
     fn start_stream<'a>(

@@ -131,6 +131,7 @@ type Policy = Arc<dyn Fn(&Target) -> DeviceResult<()> + Send + Sync>;
 pub(crate) struct ExecutionGate {
     check: Arc<dyn Fn() -> DeviceResult<()> + Send + Sync>,
     expected_worker: Option<String>,
+    acquisition_window: Option<ori_instruments::AcquisitionWindow>,
 }
 impl ExecutionGate {
     pub(crate) fn authorize(&self) -> DeviceResult<()> {
@@ -143,7 +144,15 @@ impl ExecutionGate {
         Self {
             check: Arc::new(check),
             expected_worker,
+            acquisition_window: None,
         }
+    }
+    pub(crate) fn with_acquisition_window(
+        mut self,
+        window: ori_instruments::AcquisitionWindow,
+    ) -> Self {
+        self.acquisition_window = Some(window);
+        self
     }
     fn check(&self, worker: Option<&Worker>) -> DeviceResult<()> {
         (self.check)()?;
@@ -761,6 +770,9 @@ impl DeviceManager {
                 Profile::Receiver(config, scope, readback) => {
                     let mut adapter =
                         ArDv1::new(transport, config, self.options.io_limits.clone())?;
+                    if let Some(window) = &gate.acquisition_window {
+                        adapter = adapter.with_acquisition_window(window.clone());
+                    }
                     adapter = match scope {
                         Some(Scope::Once(scope)) => {
                             scope_points = Some(scope.points());
@@ -864,7 +876,7 @@ impl DeviceManager {
     pub fn quiesce_session(self: &Arc<Self>, session: &str) -> DeviceResult<SessionStop> {
         self.quiesce_session_mode(session, false)
     }
-    fn quiesce_session_mode(
+    pub(crate) fn quiesce_session_mode(
         self: &Arc<Self>,
         session: &str,
         graceful: bool,
@@ -960,7 +972,7 @@ impl DeviceManager {
     ) -> DeviceResult<Vec<WorkerStatus>> {
         self.stop_session_quiesced_mode(session, false).await
     }
-    async fn stop_session_quiesced_mode(
+    pub(crate) async fn stop_session_quiesced_mode(
         self: &Arc<Self>,
         session: &str,
         graceful: bool,
@@ -2020,6 +2032,9 @@ impl Worker {
                 break;
             }
             let committed = match result {
+                Err(DeviceError::Instrument(
+                    ori_instruments::InstrumentError::AcquisitionWindowClosed,
+                )) => break,
                 Err(DeviceError::NonRawMonitoring(sample)) => {
                     if let Err(error) = self.pause_non_raw_monitoring(*sample).await {
                         let mut status = self.status.lock().expect("worker status poisoned");

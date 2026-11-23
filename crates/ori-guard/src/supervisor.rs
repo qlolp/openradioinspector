@@ -1,5 +1,5 @@
 use crate::{
-    runtime::{JobKind, MAX_ACTIVE_PROJECTS},
+    runtime::{JobKind, MAX_ACTIVE_PROJECTS, StopMode},
     util::*,
     *,
 };
@@ -374,6 +374,10 @@ impl GuardService {
             })?;
         }
         let statuses = self.control.list_workers(&r.sid).await?;
+        // A receiver can finish the shift before the periodic scheduler publishes waiting.
+        if !self.duty_acquisition_allowed(id) {
+            return Ok(());
+        }
         self.device_health(id, &statuses).await?;
         let current = self
             .runtime_snapshot(id)?
@@ -630,7 +634,7 @@ impl GuardService {
         }
         self.publish_shutdown_intent(failure.as_ref())?;
         for (id, _) in &snapshots {
-            let cleaned = self.cleanup_project(id, true).await;
+            let cleaned = self.cleanup_project(id, true, StopMode::Immediate).await;
             if failure.is_none()
                 && let Err(error) = cleaned
             {
@@ -710,7 +714,7 @@ impl GuardService {
                     );
                     self.archive.put_monitoring("project", p).await?;
                 }
-                self.cleanup_project(&id, true).await?;
+                self.cleanup_project(&id, true, StopMode::Immediate).await?;
                 Ok::<(), GuardError>(())
             }
             .await;

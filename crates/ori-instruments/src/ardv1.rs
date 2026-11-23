@@ -213,6 +213,7 @@ impl CyclicStreamIdentity {
 /// Documented receive control only. AUTO excludes TETRA; levels are raw counts.
 pub struct ArDv1<T> {
     connection: Connection<T>,
+    acquisition_window: Option<AcquisitionWindow>,
     requested: ReceiverConfig,
     ready: bool,
     frequency: Option<u64>,
@@ -236,6 +237,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         validate_mode(config.profile, config.mode)?;
         Ok(Self {
             connection: Connection::new(transport, limits)?,
+            acquisition_window: None,
             requested: config,
             ready: false,
             frequency: None,
@@ -294,6 +296,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.requested.frequency_hz = plan.start;
         self.cyclic_scope = Some(plan);
         Ok(self)
+    }
+    pub fn with_acquisition_window(mut self, window: AcquisitionWindow) -> Self {
+        self.acquisition_window = Some(window);
+        self
     }
     pub fn with_cyclic_stream(
         self,
@@ -395,12 +401,23 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.settled_at = None;
     }
     fn failed<E>(&mut self, error: InstrumentError) -> Result<E> {
-        self.connection.taint();
+        if !matches!(error, InstrumentError::AcquisitionWindowClosed) {
+            self.connection.taint();
+        }
         self.invalidate_device_knowledge();
         Err(error)
     }
+    async fn line(&mut self, phase: &'static str, command: &str) -> Result<String> {
+        // Cleanup only restores the saved raster and leaves remote mode.
+        let window = if phase == "close" {
+            None
+        } else {
+            self.acquisition_window.as_ref()
+        };
+        self.connection.line(command, window).await
+    }
     async fn transact(&mut self, phase: &'static str, command: &str) -> Result<String> {
-        let text = self.connection.line(command).await?;
+        let text = self.line(phase, command).await?;
         match body(phase, command, &text) {
             Ok((code, value))
                 if self.verify_frequency && (code != Some("20") || value.is_empty()) =>
@@ -414,7 +431,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         }
     }
     async fn acknowledge(&mut self, phase: &'static str, command: &str) -> Result<()> {
-        let raw = self.connection.line(command).await?;
+        let raw = self.line(phase, command).await?;
         let code = match body(phase, command, &raw) {
             Ok((code, _)) => code,
             Err(error) => return self.failed(error),
@@ -437,7 +454,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             ));
         }
         for command in ["VR", "RN"] {
-            let reply = self.connection.line(command).await?;
+            let reply = self.line("identify", command).await?;
             let (code, value) = body("identify", command, &reply)?;
             let recognized = match command {
                 "VR" => value == "VR2504A",

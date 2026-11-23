@@ -60,7 +60,9 @@ pub fn classify_adapter_error(
         InstrumentError::UnsafeState(_) => ControlError::Conflict(
             "instrument state requires explicit preparation or a valid lab lease",
         ),
-        InstrumentError::PolicyDenied => ControlError::Denied,
+        InstrumentError::PolicyDenied | InstrumentError::AcquisitionWindowClosed => {
+            ControlError::Denied
+        }
         InstrumentError::QueueFull => {
             ControlError::Conflict("owned instrument executor queue full; no command accepted")
         }

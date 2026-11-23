@@ -1,5 +1,5 @@
 //! A duty plan records operator intent separately from actual guard ownership.
-use crate::{GuardError, GuardService, Result, util::invalid};
+use crate::{GuardError, GuardService, Result, runtime::StopMode, util::invalid};
 use jiff::{Timestamp, tz::TimeZone};
 use ori_contracts::UtcTimestamp;
 use serde::{Deserialize, Serialize};
@@ -55,18 +55,29 @@ fn minute(s: &str) -> Result<u16> {
     }
     Ok(h * 60 + m)
 }
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Window {
-    Open,
+    Open { from: i64, until: i64 },
     Closed,
     Expired,
+}
+impl Window {
+    fn is_open(self) -> bool {
+        matches!(self, Self::Open { .. })
+    }
 }
 impl Schedule {
     fn window(&self, now: &UtcTimestamp) -> Result<Window> {
         match self {
-            Self::Continuous => Ok(Window::Open),
+            Self::Continuous => Ok(Window::Open {
+                from: i64::MIN,
+                until: i64::MAX,
+            }),
             Self::Until { until_at } => Ok(if now.unix_micros() < until_at.unix_micros() {
-                Window::Open
+                Window::Open {
+                    from: i64::MIN,
+                    until: until_at.unix_micros(),
+                }
             } else {
                 Window::Expired
             }),
@@ -94,7 +105,7 @@ impl Schedule {
                 if start == end {
                     return Err(invalid("Начало и конец смены должны различаться"));
                 }
-                let mut active = false;
+                let mut active = Window::Closed;
                 for day in [today.yesterday().ok(), Some(today)].into_iter().flatten() {
                     if !weekdays.contains(&(day.weekday().to_monday_one_offset() as u8)) {
                         continue;
@@ -120,16 +131,28 @@ impl Schedule {
                         .to_ambiguous_timestamp(finish.at((end / 60) as i8, (end % 60) as i8, 0, 0))
                         .later()
                         .map_err(|_| invalid("Конец смены вне диапазона"))?;
-                    active |= (from..to).contains(&instant);
+                    if (from..to).contains(&instant) {
+                        // All matching intervals contain this instant. Keep the union of overlapping intervals.
+                        active = match active {
+                            Window::Open { from: a, until: b } => Window::Open {
+                                from: a.min(from.as_microsecond()),
+                                until: b.max(to.as_microsecond()),
+                            },
+                            _ => Window::Open {
+                                from: from.as_microsecond(),
+                                until: to.as_microsecond(),
+                            },
+                        };
+                    }
                 }
-                Ok(if active { Window::Open } else { Window::Closed })
+                Ok(active)
             }
         }
     }
 }
 #[derive(Default)]
 pub(crate) struct DutyRuntime {
-    ids: Mutex<BTreeSet<String>>,
+    windows: Mutex<BTreeMap<String, Window>>,
     sampled: Mutex<Option<(i64, Duration)>>,
     pending_wakes: Mutex<BTreeSet<String>>,
     stops: Mutex<BTreeMap<String, usize>>,
@@ -152,6 +175,11 @@ impl Drop for StopIntent<'_> {
     }
 }
 impl DutyRuntime {
+    fn cancel_pending(&self, id: &str) -> bool {
+        self.stops
+            .lock()
+            .map_or(true, |stops| stops.contains_key(id))
+    }
     pub(crate) fn stopping<'a>(&'a self, project: &'a str) -> Result<StopIntent<'a>> {
         let mut stops = self.stops.lock().map_err(|_| invalid("duty intent"))?;
         *stops.entry(project.to_owned()).or_default() += 1;
@@ -183,12 +211,12 @@ impl DutyRuntime {
             .iter()
             .any(|entry| entry.1 == ch.name()))
     }
-    fn track(&self, id: &str, enabled: bool) -> Result<()> {
-        let mut ids = self.ids.lock().map_err(|_| invalid("duty registry"))?;
-        if enabled {
-            ids.insert(id.to_owned());
+    fn track(&self, id: &str, window: Option<Window>) -> Result<()> {
+        let mut windows = self.windows.lock().map_err(|_| invalid("duty registry"))?;
+        if let Some(window) = window {
+            windows.insert(id.to_owned(), window);
         } else {
-            ids.remove(id);
+            windows.remove(id);
             self.pending_wakes
                 .lock()
                 .map_err(|_| invalid("duty clock"))?
@@ -225,19 +253,38 @@ fn off() -> Value {
     json!({"enabled":false,"schedule":{"mode":"continuous"},"resume_after_restart":false,"status":"disarmed","last_error":null})
 }
 impl GuardService {
+    /// The serial writer checks the currently registered civil interval before dispatch.
+    /// A pending reply keeps its own bounded deadline and may finish after the shift.
+    pub fn duty_acquisition_allowed(&self, id: &str) -> bool {
+        let window = match self.duty_runtime.windows.lock() {
+            Ok(windows) => windows.get(id).copied(),
+            Err(_) => return false,
+        };
+        // Cancellation latches stop intent before removing the registered interval.
+        if self.duty_runtime.cancel_pending(id) {
+            return false;
+        }
+        match window {
+            None
+            | Some(Window::Open {
+                from: i64::MIN,
+                until: i64::MAX,
+            }) => true,
+            Some(Window::Open { from, until }) => (from..until).contains(&self.clock.now_micros()),
+            _ => false,
+        }
+    }
     pub(crate) fn require_duty_window(&self, project: &Value) -> Result<()> {
-        if project["id"].as_str().is_some_and(|id| {
-            self.duty_runtime
-                .stops
-                .lock()
-                .map_or(true, |stops| stops.contains_key(id))
-        }) {
+        if project["id"]
+            .as_str()
+            .is_some_and(|id| self.duty_runtime.cancel_pending(id))
+        {
             return Err(GuardError::Conflict("Отмена дежурства".into()));
         }
         if project["duty"]["enabled"] == true {
             let schedule: Schedule = serde_json::from_value(project["duty"]["schedule"].clone())
                 .map_err(|_| invalid("Сохранённое расписание дежурства"))?;
-            if schedule.window(&self.clock.now())? != Window::Open {
+            if !schedule.window(&self.clock.now())?.is_open() {
                 return Err(GuardError::Conflict("Окно дежурства закрыто".into()));
             }
         }
@@ -273,7 +320,7 @@ impl GuardService {
         state["deliveries"] = json!(self.archive.duty_delivery_journal(id, 32).await?);
         Ok(state)
     }
-    async fn store_duty(&self, id: &str, state: &Value) -> Result<()> {
+    async fn store_duty(&self, id: &str, state: &Value, window: Option<Window>) -> Result<()> {
         let _transaction = self.coordinator.lock().await;
         self.ensure_open()?;
         let mut p = self.project(id).await?;
@@ -281,12 +328,13 @@ impl GuardService {
         // A duty policy supersedes the legacy unconditional restart switch.
         p["autostart"] = json!(false);
         self.archive.put_monitoring("project", p).await?;
-        self.duty_runtime.track(id, state["enabled"] == true)
+        self.duty_runtime.track(id, window)
     }
     pub async fn arm_duty(&self, id: &str, payload: Value) -> Result<Value> {
         let policy: Policy = serde_json::from_value(payload)
             .map_err(|_| invalid("Неверное расписание дежурства"))?;
-        if policy.schedule.window(&self.clock.now())? == Window::Expired {
+        let window = policy.schedule.window(&self.clock.now())?;
+        if window == Window::Expired {
             return Err(invalid("Окончание дежурства должно быть в будущем"));
         }
         let _operation = self.lock_project(&format!("duty/{id}")).await?;
@@ -295,7 +343,7 @@ impl GuardService {
         state["enabled"] = json!(true);
         state["status"] = json!("starting");
         state["last_error"] = Value::Null;
-        self.store_duty(id, &state).await?;
+        self.store_duty(id, &state, Some(window)).await?;
         self.advance_duty(id, state, DutyTrigger::Timer).await?;
         self.duty(id).await
     }
@@ -303,10 +351,10 @@ impl GuardService {
         let _operation = self.lock_project(&format!("duty/{id}")).await?;
         let tracked = self
             .duty_runtime
-            .ids
+            .windows
             .lock()
             .map_err(|_| invalid("duty registry"))?
-            .contains(id);
+            .contains_key(id);
         if trigger == DutyTrigger::Timer && !tracked {
             return Ok(());
         }
@@ -315,7 +363,7 @@ impl GuardService {
             && let Some(runtime) = self.runtime_snapshot(id)?
         {
             // Latch revocation before archive I/O, including when a removable store vanished during sleep.
-            self.disarm_runtime(id).await?;
+            self.disarm_runtime(id, StopMode::Immediate).await?;
             self.notify_error(
                 &runtime.cached_project,
                 "Разрыв покрытия после сна",
@@ -333,13 +381,22 @@ impl GuardService {
         let prior = state.clone();
         let schedule: Schedule = serde_json::from_value(state["schedule"].clone())
             .map_err(|_| invalid("Сохранённое расписание дежурства"))?;
-        let window = schedule.window(&self.clock.now())?;
+        let mut window = schedule.window(&self.clock.now())?;
+        self.duty_runtime.track(id, Some(window))?;
         let interrupted = trigger != DutyTrigger::Timer;
         let running = self.runtime_snapshot(id)?.is_some();
-        if running && (window != Window::Open || interrupted) {
-            self.disarm_runtime(id).await?;
+        if running && (!window.is_open() || interrupted) {
+            self.disarm_runtime(
+                id,
+                if interrupted {
+                    StopMode::Immediate
+                } else {
+                    StopMode::DutyWindowEnd
+                },
+            )
+            .await?;
         }
-        if window != Window::Open || (interrupted && state["resume_after_restart"] != true) {
+        if !window.is_open() || (interrupted && state["resume_after_restart"] != true) {
             let _life = self.lock_project(id).await?;
             let collecting = self
                 .runtime
@@ -351,7 +408,7 @@ impl GuardService {
                 state["status"] = json!("stop_failed");
                 state["last_error"] =
                     json!("Не удалось подтвердить остановку подготовительного приёма");
-                self.store_duty(id, &state).await?;
+                self.store_duty(id, &state, Some(window)).await?;
                 return Err(error);
             }
         }
@@ -375,19 +432,20 @@ impl GuardService {
                 let resume_receiver = interrupted
                     && (prior["status"] == "armed" || prior["receiver_run_id"].is_string());
                 let attempt = self.arm_project(id, resume_receiver).await;
-                match (schedule.window(&self.clock.now())?, attempt) {
+                window = schedule.window(&self.clock.now())?;
+                match (window, attempt) {
                     (Window::Closed, _) => state["status"] = json!("waiting"),
                     (Window::Expired, _) => {
                         state["status"] = json!("expired");
                         state["enabled"] = json!(false);
                     }
-                    (Window::Open, Ok(armed)) => {
+                    (Window::Open { .. }, Ok(armed)) => {
                         state["status"] = json!("armed");
                         if armed["primary_source_kind"] == "ardv1" {
                             state["receiver_run_id"] = armed["active_session_id"].clone();
                         }
                     }
-                    (Window::Open, Err(_)) => {
+                    (Window::Open { .. }, Err(_)) => {
                         self.ensure_open()?;
                         state["status"] = json!("preflight_failed");
                         state["last_error"] =
@@ -398,7 +456,15 @@ impl GuardService {
                     }
                 }
                 if state["status"] != "armed" && self.runtime_snapshot(id)?.is_some() {
-                    self.disarm_runtime(id).await?;
+                    self.disarm_runtime(
+                        id,
+                        if window.is_open() {
+                            StopMode::Immediate
+                        } else {
+                            StopMode::DutyWindowEnd
+                        },
+                    )
+                    .await?;
                 }
             }
         }
@@ -409,14 +475,13 @@ impl GuardService {
                 .remove("receiver_run_id");
         }
         if state != prior {
-            self.store_duty(id, &state).await?;
-        } else {
-            self.duty_runtime.track(id, state["enabled"] == true)?;
+            let enabled_window = (state["enabled"] == true).then_some(window);
+            self.store_duty(id, &state, enabled_window).await?;
         }
         Ok(())
     }
     pub(crate) async fn cancel_duty(&self, id: &str) -> Result<()> {
-        self.duty_runtime.track(id, false)?;
+        self.duty_runtime.track(id, None)?;
         let p = self.project(id).await?;
         if let Some(mut state) = p.get("duty").cloned() {
             state["enabled"] = json!(false);
@@ -426,7 +491,7 @@ impl GuardService {
                 .expect("duty object")
                 .remove("receiver_run_id");
             state["last_error"] = Value::Null;
-            self.store_duty(id, &state).await?;
+            self.store_duty(id, &state, None).await?;
         }
         Ok(())
     }
@@ -439,10 +504,12 @@ impl GuardService {
         };
         let ids = self
             .duty_runtime
-            .ids
+            .windows
             .lock()
             .map_err(|_| GuardError::Conflict("duty registry".into()))?
-            .clone();
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
         if trigger == DutyTrigger::Wake {
             self.duty_runtime
                 .pending_wakes

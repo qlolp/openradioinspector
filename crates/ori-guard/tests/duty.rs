@@ -19,6 +19,7 @@ async fn local_overnight_window_arms_stops_and_acknowledges_explicit_cancellatio
     clock(&f, "2026-11-23T21:00:00Z");
     let waiting = f.service.arm_duty(&id, weekly()).await.unwrap();
     assert_eq!(waiting["status"], "waiting");
+    assert!(!f.service.duty_acquisition_allowed(&id));
     assert!(!f.service.any_armed());
     clock(&f, "2026-11-24T03:00:00Z");
     f.service
@@ -26,7 +27,9 @@ async fn local_overnight_window_arms_stops_and_acknowledges_explicit_cancellatio
         .await
         .unwrap();
     assert!(f.service.any_armed());
+    assert!(f.service.duty_acquisition_allowed(&id));
     clock(&f, "2026-11-24T07:00:00Z");
+    assert!(!f.service.duty_acquisition_allowed(&id));
     f.service
         .reconcile_duty(&id, DutyTrigger::Timer)
         .await
@@ -125,7 +128,9 @@ async fn autumn_shift_remains_armed_between_the_two_local_one_thirties() {
         .await
         .unwrap();
     assert!(f.service.any_armed());
+    assert!(f.service.duty_acquisition_allowed(&id));
     clock(&f, "2026-11-01T07:00:00Z");
+    assert!(!f.service.duty_acquisition_allowed(&id));
     f.service
         .reconcile_duty(&id, DutyTrigger::Timer)
         .await

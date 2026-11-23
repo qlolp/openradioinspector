@@ -232,6 +232,13 @@ pub trait InstrumentControl: Send + Sync + 'static {
     ) -> ControlFuture<'a, Vec<WorkerStatus>>;
     /// Trusted domain/core cleanup; must wait for actual stop or return failure.
     fn stop_session<'a>(&'a self, session_id: &'a str) -> ControlFuture<'a, Vec<WorkerStatus>>;
+    /// Scheduled closing lets an already dispatched original finish before joining the worker.
+    fn finish_duty_session<'a>(
+        &'a self,
+        session_id: &'a str,
+    ) -> ControlFuture<'a, Vec<WorkerStatus>> {
+        self.stop_session(session_id)
+    }
     fn start_stream<'a>(
         &'a self,
         session: &'a Session,

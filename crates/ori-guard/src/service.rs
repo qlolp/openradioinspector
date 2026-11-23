@@ -68,6 +68,9 @@ impl GuardError {
 }
 pub trait Clock: Send + Sync + 'static {
     fn now(&self) -> UtcTimestamp;
+    fn now_micros(&self) -> i64 {
+        self.now().unix_micros()
+    }
     fn monotonic(&self) -> Duration;
 }
 pub trait IdSource: Send + Sync + 'static {
@@ -87,6 +90,9 @@ struct SystemClock {
     start: Instant,
 }
 impl Clock for SystemClock {
+    fn now_micros(&self) -> i64 {
+        chrono::Utc::now().timestamp_micros()
+    }
     fn now(&self) -> UtcTimestamp {
         chrono::Utc::now()
             .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)

@@ -533,6 +533,193 @@ async fn receiver_duty_fixture(node: &Core) -> String {
     id.to_owned()
 }
 
+/// Keep the supervisor's monotonic tick frozen and advance civil time at a specific
+/// command on the serial fixture. Driver measurement timestamps still come from the driver.
+struct CutoffClock(AtomicBool);
+impl ori_guard::Clock for CutoffClock {
+    fn now(&self) -> ori_contracts::UtcTimestamp {
+        if self.0.load(Ordering::Acquire) {
+            "2026-11-23T10:59:59.999999Z"
+        } else {
+            "2026-11-23T11:00:00Z"
+        }
+        .parse()
+        .unwrap()
+    }
+    fn monotonic(&self) -> Duration {
+        Duration::ZERO
+    }
+}
+impl ori_guard::IdSource for CutoffClock {
+    fn next_id(&self, _: ori_guard::IdKind) -> String {
+        crate::new_id()
+    }
+}
+
+async fn cutoff_node(
+    path: &std::path::Path,
+    factory: &Arc<Factory>,
+    first: &str,
+) -> (Arc<Core>, String, Arc<CutoffClock>) {
+    factory.pause_poll.store(true, Ordering::Release);
+    *factory.pause_command.lock().unwrap() = first.to_owned();
+    let clock = Arc::new(CutoffClock(AtomicBool::new(true)));
+    let mut config = CoreConfig::replay(path);
+    config.devices.transport = Some(factory.clone());
+    config.domain_sources = Some(crate::DomainSources {
+        clock: clock.clone(),
+        ids: clock.clone(),
+    });
+    let node = Core::open(config).await.unwrap();
+    let id = receiver_duty_fixture(&node).await;
+    (node, id, clock)
+}
+
+#[tokio::test]
+async fn weekly_cutoff_between_tune_and_rx_does_not_start_a_late_measurement() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let factory = Factory::new(false);
+    let (node, id, clock) = cutoff_node(dir.path(), &factory, "RF0000.10000").await;
+    let guard = &node.domains.get().unwrap().guard;
+    let armed = guard
+        .arm_duty(
+            &id,
+            json!({"schedule":{"mode":"weekly","timezone":"Europe/Moscow","weekdays":[1],
+        "start_local":"13:00","end_local":"14:00"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(armed["status"], "armed");
+    until(|| factory.poll_started.load(Ordering::Acquire) == 1).await;
+    clock.0.store(false, Ordering::Release);
+    factory.poll_release.add_permits(1);
+    until(|| {
+        factory
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c == "RX" || c == "EX")
+    })
+    .await;
+    let commands = factory.commands.lock().unwrap().clone();
+    assert!(commands.iter().any(|c| c == "RF0000.10000"));
+    assert!(
+        !commands.iter().any(|c| c == "RX"),
+        "RX dispatched after the weekly closing instant: {commands:?}"
+    );
+    let p = guard.project(&id).await.unwrap();
+    let sid = p["active_session_id"].as_str().unwrap();
+    let devices = node.devices.as_ref().unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while devices
+            .list(Some(sid))
+            .await
+            .unwrap()
+            .iter()
+            .any(|worker| worker.alive)
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    // The worker has closed at the deadline, while the periodic duty tick is still frozen.
+    guard.tick(&id).await.unwrap();
+    assert_eq!(guard.duty(&id).await.unwrap()["status"], "armed");
+    guard
+        .reconcile_duty(&id, ori_guard::DutyTrigger::Timer)
+        .await
+        .unwrap();
+    let saved = node
+        .archive()
+        .unwrap()
+        .list_observations(sid, None, 2)
+        .await
+        .unwrap();
+    assert!(saved.is_empty());
+    assert_eq!(guard.duty(&id).await.unwrap()["status"], "waiting");
+    node.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn until_cutoff_drains_a_dispatched_rx_and_archives_its_original() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let factory = Factory::new(false);
+    let (node, id, clock) = cutoff_node(dir.path(), &factory, "RX").await;
+    let guard = node.domains.get().unwrap().guard.clone();
+    let armed = guard
+        .arm_duty(
+            &id,
+            json!({"schedule":{"mode":"until","until_at":"2026-11-23T11:00:00Z"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(armed["status"], "armed");
+    until(|| factory.poll_started.load(Ordering::Acquire) == 1).await;
+    clock.0.store(false, Ordering::Release);
+    let p = guard.project(&id).await.unwrap();
+    let sid = p["active_session_id"].as_str().unwrap();
+    let stream = p["primary_stream_id"].as_str().unwrap();
+    let stop = tokio::spawn({
+        let guard = guard.clone();
+        let id = id.clone();
+        async move {
+            guard
+                .reconcile_duty(&id, ori_guard::DutyTrigger::Timer)
+                .await
+        }
+    });
+    let manager = node.devices.as_ref().unwrap();
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            let worker = manager
+                .list(Some(sid))
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|w| w.stream_id == stream)
+                .unwrap();
+            if worker.stopping == Some(true) || !worker.alive {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    factory.poll_release.add_permits(1);
+    stop.await.unwrap().unwrap();
+    assert_eq!(guard.duty(&id).await.unwrap()["status"], "expired");
+    let rows = node
+        .archive()
+        .unwrap()
+        .list_observations(sid, Some(stream), 8)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "An RX sent inside the window must finish and its original must survive the cutoff"
+    );
+    assert_eq!(rows[0]["metadata"]["scan_index"], 0);
+    assert_eq!(
+        rows[0]["metadata"]["raw_receiver_status"],
+        "RX VFA RF0000.10000 ST010.00 MD0F0 LM1371"
+    );
+    assert_eq!(
+        factory
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.as_str() == "RX")
+            .count(),
+        1
+    );
+    node.close().await.unwrap();
+}
+
 async fn arm_receiver_duty(node: &Core, id: &str, resume_after_restart: bool) -> Value {
     let guard = &node.domains.get().unwrap().guard;
     let preflight = guard.preflight(id, false).await.unwrap();

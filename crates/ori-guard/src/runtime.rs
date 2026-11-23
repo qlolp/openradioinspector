@@ -11,6 +11,12 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
+#[derive(Clone, Copy)]
+pub(crate) enum StopMode {
+    Immediate,
+    DutyWindowEnd,
+}
+
 pub(crate) const MAX_ACTIVE_PROJECTS: usize = 64;
 #[derive(Clone)]
 pub(crate) struct ManualLease {
@@ -834,7 +840,7 @@ impl GuardService {
         }
         if let Err(expired) = self.require_duty_window(&p) {
             drop(_life);
-            self.disarm_runtime(id).await?;
+            self.disarm_runtime(id, StopMode::Immediate).await?;
             return Err(expired);
         }
         match self
@@ -878,7 +884,7 @@ impl GuardService {
         let _stop = self.duty_runtime.stopping(id)?;
         let _operation = self.lock_project(&format!("duty/{id}")).await?;
         let cancelled = self.cancel_duty(id).await;
-        let stopped = self.disarm_runtime(id).await;
+        let stopped = self.disarm_runtime(id, StopMode::Immediate).await;
         cancelled?;
         let stopped = stopped?;
         if stopped["manual_primary_hold"] == true {
@@ -912,7 +918,7 @@ impl GuardService {
         self.wake.notify_waiters();
         Ok(())
     }
-    pub(crate) async fn disarm_runtime(&self, id: &str) -> Result<Value> {
+    pub(crate) async fn disarm_runtime(&self, id: &str, mode: StopMode) -> Result<Value> {
         self.fence_stopping_runtime(id)?;
         let persisted = async {
             let _life = self.lock_project(id).await?;
@@ -925,16 +931,29 @@ impl GuardService {
         }
         .await;
         self.wake.notify_waiters();
-        let cleaned = self.cleanup_project(id, false).await;
+        let cleaned = self.cleanup_project(id, false, mode).await;
         persisted?;
         cleaned
     }
-    pub(crate) async fn cleanup_project(&self, id: &str, preserve_intent: bool) -> Result<Value> {
+    pub(crate) async fn cleanup_project(
+        &self,
+        id: &str,
+        preserve_intent: bool,
+        mode: StopMode,
+    ) -> Result<Value> {
         let r = self.runtime_snapshot(id)?;
         let mut failure = None;
         if let Some(r) = &r {
             for sid in r.claims.iter().map(|(sid, _)| sid).collect::<BTreeSet<_>>() {
-                let stopped = match self.control.stop_session(sid).await {
+                let receipt = match mode {
+                    StopMode::DutyWindowEnd
+                        if r.cached_project["primary_source_kind"] == "ardv1" =>
+                    {
+                        self.control.finish_duty_session(sid).await
+                    }
+                    _ => self.control.stop_session(sid).await,
+                };
+                let stopped = match receipt {
                     Ok(_) => self.stop_archived_session(sid).await,
                     Err(error) => Err(GuardError::Control(error)),
                 };

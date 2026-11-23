@@ -17,5 +17,5 @@ mod transport;
 pub use actor::*;
 pub use ardv1::{ArDv1, CyclicReceiverScope, ReceiverScope};
 pub use tinysa::{CONTROL_PROFILE, FIRMWARE, RECEIVE_PROFILE, TinySa, decode_scanraw};
-pub use transport::{CancellationHandle, ExecutionCheck};
+pub use transport::{AcquisitionWindow, CancellationHandle, ExecutionCheck};
 pub use types::*;
