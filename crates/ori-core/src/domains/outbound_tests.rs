@@ -1,6 +1,16 @@
 use super::outbound::*;
 use serde_json::json;
 
+async fn request_headers(socket: &mut tokio::net::TcpStream) -> String {
+    use tokio::io::AsyncReadExt;
+    let mut header = Vec::new();
+    while !header.ends_with(b"\r\n\r\n") {
+        assert!(header.len() < 8192);
+        header.push(socket.read_u8().await.unwrap());
+    }
+    String::from_utf8(header).unwrap().to_ascii_lowercase()
+}
+
 #[test]
 fn telegram_request_only_contains_allowlisted_text_and_fixed_send_message_destination() {
     let client = reqwest::Client::new();
@@ -31,14 +41,17 @@ fn telegram_request_only_contains_allowlisted_text_and_fixed_send_message_destin
     assert_eq!(body.as_object().unwrap().len(), 2);
 }
 #[tokio::test]
-async fn telegram_body_retry_after_is_bounded_and_webhook_does_not_read_response_body() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+async fn telegram_rate_limit_reads_retry_after_from_the_bot_api_response() {
+    use tokio::io::AsyncWriteExt;
     let server = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = server.local_addr().unwrap();
     let respond = tokio::spawn(async move {
         let (mut socket, _) = server.accept().await.unwrap();
-        let mut input = [0; 512];
-        socket.read(&mut input).await.unwrap();
+        assert!(
+            request_headers(&mut socket)
+                .await
+                .starts_with("get /fixture ")
+        );
         let body = r#"{"ok":false,"error_code":429,"description":"synthetic-private","parameters":{"retry_after":120}}"#;
         socket.write_all(format!("HTTP/1.1 429 Too Many Requests\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
     });
@@ -56,8 +69,8 @@ async fn telegram_body_retry_after_is_bounded_and_webhook_does_not_read_response
 async fn operator_setup_reaches_real_outbox_and_429_journal_without_persisting_destination() {
     use crate::{Core, CoreConfig};
     use std::time::Duration;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let dir = tempfile::tempdir().unwrap();
+    use tokio::io::AsyncWriteExt;
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     let core = Core::open(CoreConfig::replay(dir.path())).await.unwrap();
     let archive = core.archive.as_ref().unwrap();
     archive
@@ -75,9 +88,7 @@ async fn operator_setup_reaches_real_outbox_and_429_journal_without_persisting_d
     );
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
-        let mut bytes = [0; 4096];
-        let n = socket.read(&mut bytes).await.unwrap();
-        let request = String::from_utf8_lossy(&bytes[..n]).to_lowercase();
+        let request = request_headers(&mut socket).await;
         assert!(request.contains("x-openradioinspector-signature: sha256="));
         socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 240\r\nConnection: close\r\nContent-Length: 0\r\n\r\n").await.unwrap();
     });
