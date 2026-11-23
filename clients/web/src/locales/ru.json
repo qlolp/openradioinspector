@@ -948,5 +948,14 @@
   "To choose another drive on this PC, stop the local node in Connection settings and choose the archive folder before restarting.": "Чтобы выбрать другой диск на этом ПК, остановите локальный узел в настройках подключения, затем выберите папку архива и снова запустите узел.",
   "Leave setup for local archive settings": "Выйти из мастера и открыть настройки архива",
   "Test notification": "Проверочное уведомление",
-  "Collection available · duty checks need attention": "Запись доступна · проверьте условия дежурства"
+  "Collection available · duty checks need attention": "Запись доступна · проверьте условия дежурства",
+  "stop_failed": "Остановка записи не подтверждена",
+  "coverage_lost": "Радиоконтроль прерван",
+  "sleep": "Узел в спящем режиме",
+  "sleep_gap": "Перерыв наблюдения после спящего режима",
+  "manual_hold": "Прибор передан для ручной проверки",
+  "degraded": "Часть приборов недоступна",
+  "starting": "Запуск дежурства",
+  "restart_error": "Ошибка возобновления дежурства",
+  "Retry duty": "Повторить запуск дежурства"
 }

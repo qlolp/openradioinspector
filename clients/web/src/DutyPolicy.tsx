@@ -353,7 +353,14 @@ export function DutyPolicy({ desk, onArmed }: { desk: Desk; onArmed?: () => void
               (scheduleAvailable && !current)
             }
           >
-            {t(scheduleAvailable ? 'Arm duty' : 'Arm guard')}
+            {t(
+              scheduleAvailable
+                ? current &&
+                  ['stop_failed', 'coverage_lost', 'preflight_failed'].includes(current.status)
+                  ? 'Retry duty'
+                  : 'Arm duty'
+                : 'Arm guard',
+            )}
           </button>
           {current?.enabled && (
             <button
@@ -375,7 +382,7 @@ export function DutyPolicy({ desk, onArmed }: { desk: Desk; onArmed?: () => void
           <ul>
             {current.deliveries.map((d) => (
               <li key={d.id}>
-                {d.channel} · {t(d.state)} · {d.kind} · {utc(d.created_at)} · {t('Attempts')}{' '}
+                {d.channel} · {t(d.state)} · {t(d.kind)} · {utc(d.created_at)} · {t('Attempts')}{' '}
                 {d.attempts} {d.error}
               </li>
             ))}

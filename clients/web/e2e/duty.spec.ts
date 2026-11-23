@@ -712,3 +712,55 @@ test('observation-only tinySA windows can collect originals while arming stays u
     'preparation/start',
   ]);
 });
+
+test('scheduled stop failure keeps its reason and stop action available in both languages', async ({
+  page,
+}) => {
+  const state = {
+    ...project,
+    state: 'collecting',
+    duty: { enabled: true, status: 'stop_failed', last_error: 'Synthetic receiver could not stop' },
+  };
+  await page.route('**/api/v1/capabilities', async (r) => {
+    const response = await r.fetch(),
+      data = (await response.json()).data;
+    Object.assign(data.features, { single_source_duty: true, monitoring_duty_schedule: true });
+    await r.fulfill({ response, json: envelope(data) });
+  });
+  await page.addInitScript((id) => localStorage.setItem('ori-modern-project', id), pid);
+  await page.route('**/api/v1/monitoring-projects?*', (r) =>
+    r.fulfill({ json: envelope({ items: [state], next_cursor: null }) }),
+  );
+  await page.route('**/api/v1/monitoring-projects/' + pid + '/**', (r) => {
+    const key = new URL(r.request().url()).pathname.split(pid + '/')[1];
+    const data =
+      key === 'status'
+        ? { project: state, active: false, workers: [], manual: [] }
+        : key === 'preflight'
+          ? { ready: true, baseline_ready: true, checks: [], baseline_collection: { ready: true } }
+          : key === 'duty'
+            ? {
+                ...state.duty,
+                schedule: { mode: 'continuous' },
+                resume_after_restart: false,
+                deliveries: [],
+              }
+            : key === 'search/status'
+              ? { active: false, series: [], marks: [] }
+              : { items: [], next_cursor: null };
+    return r.fulfill({ json: envelope(data) });
+  });
+  await openDesk(page);
+  await expect(page.getByTestId('guard-state')).toHaveText('Collection stop unconfirmed');
+  await expect(
+    page.getByText('Synthetic receiver could not stop', { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop duty', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Duty setup' }).click();
+  const wizard = page.getByRole('dialog', { name: 'Prepare a receive-only project' });
+  await expect(wizard.getByRole('button', { name: 'Retry duty' })).toBeEnabled();
+  await expect(wizard.getByRole('button', { name: 'Stop duty' })).toBeEnabled();
+  await wizard.getByRole('button', { name: 'Close setup' }).click();
+  await page.getByTestId('locale-select').selectOption('ru');
+  await expect(page.getByTestId('guard-state')).toHaveText('Остановка записи не подтверждена');
+});

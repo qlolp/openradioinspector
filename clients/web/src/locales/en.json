@@ -936,7 +936,7 @@
   "armed": "armed",
   "waiting": "waiting",
   "disarmed": "disarmed",
-  "preflight_failed": "preflight_failed",
+  "preflight_failed": "Duty preflight failed",
   "interrupted": "interrupted",
   "delivered": "delivered",
   "retrying": "retrying",
@@ -948,5 +948,14 @@
   "To choose another drive on this PC, stop the local node in Connection settings and choose the archive folder before restarting.": "To choose another drive on this PC, stop the local node in Connection settings and choose the archive folder before restarting.",
   "Leave setup for local archive settings": "Leave setup for local archive settings",
   "Test notification": "Test notification",
-  "Collection available · duty checks need attention": "Collection available · duty checks need attention"
+  "Collection available · duty checks need attention": "Collection available · duty checks need attention",
+  "stop_failed": "Collection stop unconfirmed",
+  "coverage_lost": "Coverage interrupted",
+  "sleep": "Node sleeping",
+  "sleep_gap": "Coverage gap after sleep",
+  "manual_hold": "Instrument under manual control",
+  "degraded": "Partial instrument coverage",
+  "starting": "Starting duty",
+  "restart_error": "Duty restart failed",
+  "Retry duty": "Retry duty"
 }

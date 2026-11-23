@@ -779,12 +779,16 @@ export function App({
     </div>
   );
   const coverage = p?.coverage || 'stopped';
-  const waitingDuty = p?.duty?.enabled && p.duty.status === 'waiting';
+  const dutyStatus = p?.duty?.status;
+  const waitingDuty = p?.duty?.enabled && dutyStatus === 'waiting';
   const guardLabel = waitingDuty
     ? t('Waiting for scheduled window')
-    : p?.duty?.status === 'preflight_failed'
+    : dutyStatus === 'preflight_failed'
       ? t('Duty preflight failed')
-      : titleCase(p?.state || t('unavailable'));
+      : dutyStatus &&
+          ['stop_failed', 'coverage_lost', 'sleep', 'sleep_gap', 'manual_hold'].includes(dutyStatus)
+        ? t(dutyStatus)
+        : titleCase(p?.state || t('unavailable'));
   const header = (
     <>
       <a className="skip-link" href="#main">
@@ -996,9 +1000,9 @@ export function App({
                   : t('Coverage: {state}', { state: titleCase(coverage) })}
             </strong>
             <small>
-              {desk.guard?.error ||
+              {p?.duty?.last_error ||
+                desk.guard?.error ||
                 p?.last_error ||
-                p?.duty?.last_error ||
                 (waitingDuty
                   ? t('The node will run preflight when the scheduled window opens.')
                   : desk.guard?.active
