@@ -52,6 +52,30 @@ the canonical writer only hands off their bounded receipt, then continues.
 There is one active maintenance pass and at most one pending maintenance
 request, with no raw payload queue.
 
+A continuous receiver can commit new frames while a PASSIVE checkpoint copies
+its snapshot. Waiting a full retry interval after every such pass can prevent
+SQLite from reaching the current end of the WAL. On a MacBook Air collecting
+AR-DV1 observations at revision `7217e393`, the database file measured
+270,323,712 bytes at 62,538 observations. The WAL file measured 7,747,210,952 bytes. The
+WAL-index reported 1,859,153 frames already backfilled out of 1,880,391.
+
+When a completed PASSIVE snapshot leaves a small advancing tail, the maintenance
+executor can request up to six immediate follow-up passes. Each requests its
+own I/O permit. A pinned snapshot, lack of progress or denied admission sends
+maintenance back to its normal retry interval. Once SQLite reaches the current
+end, subsequent commits can reuse the allocated WAL space. A long-lived read
+transaction can postpone reuse. Capacity planning includes the existing WAL
+file and the space needed for backups.
+
+On a synthetic Linux stream of 1,440 commits at 120 KiB each, the earlier
+executor grew the WAL to 190,599,472 bytes. With the follow-up passes, the
+observed peak was 7,280,072 bytes and SQLite reused the WAL 29 times during
+acquisition. Both archives returned all 1,440 original payloads byte for byte
+after reopening. Storage speed and concurrent readers affect these figures.
+The standard archive suite makes a writer commit during a controlled PASSIVE
+checkpoint. To repeat the longer measurement on a temporary volume, run
+`ORI_WAL_MEASUREMENT_BATCHES=12 cargo test --offline --locked -p ori-archive --lib commit_during_bulk_backfill -- --nocapture`.
+
 The maintenance connection alone selects a uniquely named, non-default VFS
 which forwards the existing native SQLite VFS. Its bounded data reads and
 writes are charged before forwarding. Cancellation can stop the next bounded
