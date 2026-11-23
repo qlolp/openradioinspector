@@ -68,8 +68,9 @@ async fn telegram_rate_limit_reads_retry_after_from_the_bot_api_response() {
 #[tokio::test]
 async fn operator_setup_reaches_real_outbox_and_429_journal_without_persisting_destination() {
     use crate::{Core, CoreConfig};
+    use hmac::{Hmac, KeyInit, Mac};
     use std::time::Duration;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     let core = Core::open(CoreConfig::replay(dir.path())).await.unwrap();
     let archive = core.archive.as_ref().unwrap();
@@ -89,8 +90,36 @@ async fn operator_setup_reaches_real_outbox_and_429_journal_without_persisting_d
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let request = request_headers(&mut socket).await;
-        assert!(request.contains("x-openradioinspector-signature: sha256="));
+        assert!(request.starts_with("post /private-endpoint-fixture http/1.1\r\n"));
+        let length = request
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .unwrap()
+            .trim()
+            .parse::<usize>()
+            .unwrap();
+        assert!((1..=4096).contains(&length));
+        // Closing a TCP socket with unread POST bytes can reset the connection
+        // before the client receives the 429. Accept the complete signed body.
+        let mut body = vec![0; length];
+        socket.read_exact(&mut body).await.unwrap();
+        let mut mac =
+            Hmac::<sha2::Sha256>::new_from_slice(b"synthetic-private-outbox-signature").unwrap();
+        mac.update(&body);
+        let signature: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert!(
+            request
+                .lines()
+                .any(|line| line == format!("x-openradioinspector-signature: sha256={signature}"))
+        );
+        let message: serde_json::Value = serde_json::from_slice(&body).unwrap();
         socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 240\r\nConnection: close\r\nContent-Length: 0\r\n\r\n").await.unwrap();
+        message
     });
     let patch = json!({"notifications":{"webhook":{"enabled":true,"url":url,"secret":"synthetic-private-outbox-signature"}}});
     let settings = guard
@@ -110,21 +139,25 @@ async fn operator_setup_reaches_real_outbox_and_429_journal_without_persisting_d
         loop {
             let duty = guard.duty("outbound-fixture").await.unwrap();
             let item = &duty["deliveries"][0];
-            if item["error"] == "HTTP 429" {
+            if item["attempts"].as_u64().is_some_and(|n| n > 0) && item["state"] != "delivering" {
                 break item.clone();
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
-    .unwrap();
+    .expect("outbox did not finish the first delivery attempt");
+    assert_eq!(journal["error"], "HTTP 429", "{journal}");
     assert_eq!(journal["attempts"], 1);
     assert_eq!(journal["id"], queued["notification_id"]);
     let created =
         chrono::DateTime::parse_from_rfc3339(journal["created_at"].as_str().unwrap()).unwrap();
     let next = chrono::DateTime::parse_from_rfc3339(journal["next_at"].as_str().unwrap()).unwrap();
     assert!((next - created).num_seconds() >= 240);
-    server.await.unwrap();
+    let message = server.await.unwrap();
+    assert_eq!(message["kind"], "test");
+    assert_eq!(message["project_id"], "outbound-fixture");
+    assert_eq!(message["notification_id"], queued["notification_id"]);
     guard
         .update_settings(
             "outbound-fixture",
