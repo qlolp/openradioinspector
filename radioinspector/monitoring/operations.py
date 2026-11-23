@@ -35,7 +35,8 @@ class OperationalMonitoring:
         # Service-startup completion, never an assertion of hardware readiness.
         self.startup_recovery_complete=threading.Event();self.startup_recovery_error=None
         self._capacity_samples=deque(maxlen=60)
-        self._delivery_opener=urllib.request.build_opener(NoRedirect())
+        self._delivery_opener = None
+        self._delivery_opener_lock = threading.Lock()
         self._delivery_error=None
 
     def settings(self, identifier):
@@ -185,6 +186,11 @@ class OperationalMonitoring:
             'X-OpenRadioInspector-Signature':'sha256='+signature})
         error=None
         try:
+            # Building the HTTPS handler loads the system trust store. Do that
+            # once a delivery is due, outside the archive transaction.
+            with self._delivery_opener_lock:
+                if self._delivery_opener is None:
+                    self._delivery_opener = urllib.request.build_opener(NoRedirect())
             with self._delivery_opener.open(request,timeout=3) as response:
                 if not 200<=response.status<300:error='HTTP '+str(response.status)
         except urllib.error.HTTPError as exc:

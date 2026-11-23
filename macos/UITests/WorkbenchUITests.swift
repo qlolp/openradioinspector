@@ -2,6 +2,9 @@ import Foundation
 import XCTest
 
 final class WorkbenchUITests: XCTestCase {
+    private let fixtureAnalyzerPort = "/dev/cu.ui-fixture"
+    private let fixtureReceiverPort = "/dev/cu.ui-receiver"
+
     @MainActor private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
@@ -69,6 +72,31 @@ final class WorkbenchUITests: XCTestCase {
         XCTAssertTrue(open.waitForExistence(timeout: 10)); XCTAssertTrue(open.isEnabled)
         open.click()
         XCTAssertTrue(app.textFields["preparation.tinysa-port"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor private func enterPreparationPorts(in app: XCUIApplication) {
+        let tiny = app.textFields["preparation.tinysa-port"], receiver = app.textFields["preparation.receiver-port"]
+        replace(tiny, with: fixtureAnalyzerPort)
+        replace(receiver, with: fixtureAnalyzerPort)
+        XCTAssertEqual(tiny.value as? String, fixtureAnalyzerPort)
+        XCTAssertEqual(receiver.value as? String, fixtureAnalyzerPort)
+        XCTAssertFalse(app.buttons["preparation.create"].isEnabled)
+        replace(receiver, with: fixtureReceiverPort)
+    }
+
+    @MainActor private func actionableCreateButton(in app: XCUIApplication) throws -> XCUIElement {
+        let create = app.buttons["preparation.create"]
+        let fields = [(app.textFields["preparation.tinysa-port"], fixtureAnalyzerPort),
+                      (app.textFields["preparation.receiver-port"], fixtureReceiverPort)]
+        let committed = fields.map { field, port in
+            XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", port), object: field)
+        }
+        // The root workbench also polls status and alerts while the sheet is open.
+        let actionable = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"), object: create)
+        let result = XCTWaiter.wait(for: committed + [actionable], timeout: 10)
+        return try XCTUnwrap(result == .completed ? create : nil,
+            "The two distinct fixture ports must be committed and Create must be enabled and hittable")
     }
 
     @MainActor func testNavigationPreservesSessionAndCoreConnection() throws {
@@ -172,16 +200,11 @@ final class WorkbenchUITests: XCTestCase {
 
     @MainActor func testPreparationRejectsDuplicatePortsAndAmbiguousFrequency() throws {
         let app = try launch(test: #function); defer { app.terminate() }; preparation(in: app)
-        let tiny = app.textFields["preparation.tinysa-port"]
-        let receiver = app.textFields["preparation.receiver-port"]
-        replace(tiny, with: "/dev/cu.ui-fixture")
-        replace(receiver, with: "/dev/cu.ui-fixture")
-        XCTAssertFalse(app.buttons["preparation.create"].isEnabled)
-        replace(receiver, with: "/dev/cu.ui-receiver")
+        enterPreparationPorts(in: app)
         replace(app.textFields["preparation.start-mhz"], with: "88e6")
         XCTAssertFalse(app.buttons["preparation.create"].isEnabled)
         replace(app.textFields["preparation.start-mhz"], with: "88")
-        XCTAssertTrue(app.buttons["preparation.create"].isEnabled)
+        _ = try actionableCreateButton(in: app)
 
         app.buttons["Закрыть"].click()
         app.buttons["workbench.settings"].click()
@@ -214,13 +237,18 @@ final class WorkbenchUITests: XCTestCase {
 
     @MainActor func testReplayFixtureCannotBePresentedAsLiveHardwarePreparation() throws {
         let app = try launch(test: #function); defer { app.terminate() }; preparation(in: app)
-        replace(app.textFields["preparation.tinysa-port"], with: "/dev/cu.ui-fixture")
-        replace(app.textFields["preparation.receiver-port"], with: "/dev/cu.ui-receiver")
-        app.buttons["preparation.create"].click()
-        let error = app.staticTexts["preparation.error"]
-        XCTAssertTrue(error.waitForExistence(timeout: 10))
-        XCTAssertTrue(text(error).contains("live Rust-служба"))
-        XCTAssertFalse(app.buttons["preparation.arm"].exists)
+        enterPreparationPorts(in: app)
+        let errors = app.descendants(matching: .any).matching(identifier: "preparation.error")
+        let required = "live Rust-служба"
+        let refusal = errors.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", required, required)).firstMatch
+        XCTAssertFalse(refusal.exists)
+        let create = try actionableCreateButton(in: app)
+        create.click()
+        XCTAssertTrue(refusal.waitForExistence(timeout: 10),
+            "Expected the live-service refusal after Create. " +
+            "Wizard error: \(errors.firstMatch.exists ? text(errors.firstMatch) : "<missing>"). " +
+            "Create enabled: \(create.exists && create.isEnabled)")
+        XCTAssertFalse(element("preparation.arm", in: app).exists)
     }
 
     @MainActor func testArchiveOpensOriginalSpectrumAndMarksHistory() throws {
