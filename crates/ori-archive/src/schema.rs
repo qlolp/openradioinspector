@@ -251,6 +251,7 @@ pub(crate) fn writer(
     }
     crate::rf_explorer::install(&tx)?;
     tx.execute_batch(PRECISION_DDL)?;
+    crate::receiver_panorama::install(&tx)?;
     crate::candidate_precision::install(&tx)?;
     crate::export_indexes::install(&tx)?;
     crate::query_indexes::install(&tx)?;

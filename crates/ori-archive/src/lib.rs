@@ -15,6 +15,8 @@ mod outbox;
 mod panorama_events;
 mod queries;
 mod query_indexes;
+mod receiver_panorama;
+pub use receiver_panorama::verified_receiver_scan_context;
 mod rf_explorer;
 mod rows;
 mod schema;

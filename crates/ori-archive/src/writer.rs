@@ -143,7 +143,7 @@ fn observation(db: &Connection, value: &Value) -> Result<()> {
             params![id, &level.to_bits().to_le_bytes()[..]],
         )?;
     }
-    Ok(())
+    crate::receiver_panorama::insert(db, value)
 }
 fn candidate(db: &Connection, value: &Value) -> Result<()> {
     let id = string(value, "id");
