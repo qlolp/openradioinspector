@@ -238,7 +238,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
         locationConfirmed != (project["preparation"]["location_confirmed"].bool == true)
     }
     var canStartPreparation: Bool {
-        canEditPreparation && (preparationSimulation || (savedPreparationReady && !preparationDirty))
+        canEditPreparation && (preparationSimulation || (savedPreparationReady && !preparationDirty)) &&
+            preflightIsCurrent() && (preflight["preparation_ready"].bool ?? preflight["ready"].bool) == true
     }
     var canPlay: Bool { !pending && !selectedEvent.isEmpty && event["analysis"]["audio"] != .null }
     var audioEvidenceAvailable: Bool { capabilities["features"]["audio_evidence_export"].bool == true }

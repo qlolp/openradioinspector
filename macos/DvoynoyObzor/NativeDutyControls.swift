@@ -55,7 +55,15 @@ struct NativeDutyControls: View {
 
     private var status: String {
         if workspace.isArmed { return "Охрана активна" }
-        if workspace.dutyEnabled { return "Дежурство · " + workspace.duty["status"].text }
+        if workspace.dutyEnabled {
+            switch workspace.duty["status"].text {
+            case "stop_failed": return "Узел не подтвердил остановку пробного приёма перед сменой. Остановка будет проверена повторно."
+            case "waiting": return "Ожидание начала смены"
+            case "preflight_failed": return "Проверка перед началом смены не пройдена"
+            case "armed": return "Охрана активна"
+            default: return "Дежурство · " + workspace.duty["status"].text
+            }
+        }
         return workspace.duty == .null ? "Ожидание состояния задания" : "Дежурство выключено"
     }
 

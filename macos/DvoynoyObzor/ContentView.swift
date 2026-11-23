@@ -8,6 +8,7 @@ struct ContentView: View {
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @StateObject private var localService = NativeLocalService()
     @State private var showRCPreparation = false
+    @State private var trainingDutyDraft: NativeRCPreparationDraft?
     @State private var setupExpanded = false
     @State private var developmentCore = NativeDevelopmentCore()
     @State private var developmentConnectionTask: Task<Void, Never>?
@@ -167,7 +168,9 @@ struct ContentView: View {
         .sheet(item: $sourceSheet) { NativeGuardOriginalPane(sweep: $0) }
         .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { navigation.destination.page = .observation } }
         .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showFrequencyHistory }, set: { model.showFrequencyHistory = $0 })) { NativeFrequencyHistoryPane(model:model) }
-        .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
+        .sheet(isPresented: $showRCPreparation, onDismiss: { trainingDutyDraft = nil }) {
+            NativeRCPreparationPane(model: model, workspace: workspace, initialDraft: trainingDutyDraft)
+        }
         .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showSerialForm }, set: { model.showSerialForm = $0 })) { RemoteSerialSessionPane(model: model) }
         .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showTinySAControl }, set: { model.showTinySAControl = $0 })) {
             if let analyzer = model.tinySAAnalyzer {
@@ -202,7 +205,10 @@ struct ContentView: View {
             if evidence.profile.phase == "ui-test",
                let request = try? String(contentsOf: root.appendingPathComponent("training-window.request"), encoding: .utf8),
                request == evidence.profile.runID {
-                await NativeTrainingWindowCapture.run(profile: evidence.profile, model: model, workspace: workspace)
+                await NativeTrainingWindowCapture.run(profile: evidence.profile, model: model, workspace: workspace) { draft in
+                    trainingDutyDraft = draft
+                    presentPreparation()
+                }
                 NSApp.terminate(nil)
                 return
             }

@@ -120,6 +120,18 @@ class NativeUIRunnerTests(unittest.TestCase):
             report = collect_training_images(attachments, path)
             self.assertEqual(set(report), {'macos-monitoring.png', 'macos-event.png'})
             self.assertEqual(report['macos-event.png']['width'], 1200)
+            duty = 'macos-first-duty-ardv1.png'
+            (attachments / duty).write_bytes(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + struct.pack('>II', 790, 670))
+            document.append(dict(testIdentifier='WorkbenchUITests/testFirstDutyOffersThreeIndependentSources()',
+                                 attachments=[dict(exportedFileName=duty, suggestedHumanReadableName=duty,
+                                                   isAssociatedWithFailure=False)]))
+            (attachments / 'manifest.json').write_text(json.dumps(document))
+            self.assertEqual(collect_training_images(attachments, path)[duty]['width'], 790)
+            document[-1]['attachments'][0]['isAssociatedWithFailure'] = True
+            (attachments / 'manifest.json').write_text(json.dumps(document))
+            with self.assertRaisesRegex(ValueError, 'Missing'):
+                collect_training_images(attachments, path)
+            document.pop()
             records[0]['isAssociatedWithFailure'] = True
             (attachments / 'manifest.json').write_text(json.dumps(document))
             with self.assertRaises(ValueError):

@@ -300,7 +300,7 @@ extension PlatformClient {
         _ projectID: String, resource: String = "", body: [String: MonitoringValue]? = nil
     ) async throws -> MonitoringValue {
         guard !projectID.isEmpty,
-              ["", "preflight", "baselines", "analyze", "allowed", "events", "configure", "arm", "disarm", "status"].contains(resource) else {
+              ["", "preflight", "scan-plan", "baselines", "analyze", "allowed", "events", "configure", "arm", "disarm", "status"].contains(resource) else {
             throw PlatformError.invalidCommand("Нужны проект и известный ресурс наблюдения")
         }
         let path = "/monitoring-projects/" + Self.segment(projectID) + (resource.isEmpty ? "" : "/" + resource)

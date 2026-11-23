@@ -815,6 +815,21 @@ public struct PlatformSerialReceiveConfiguration: Equatable, Sendable {
         }
         self.startHz = startHz; self.stopHz = stopHz; self.points = points; self.rbwHz = rbwHz
     }
+
+    /// First physical window of a validated 10 kHz scan plan. Only the core
+    /// can select the extended receive path after checking the instrument.
+    public init(scanPlanStartHz start: Int, totalPoints: Int, rbwHz: Int) throws {
+        guard (100_000...1_300_000_000).contains(start), totalPoints >= 2,
+              totalPoints <= (1_300_000_000 - start) / 10_000 + 1,
+              [10_000, 30_000].contains(rbwHz) else {
+            throw PlatformError.invalidCommand("Сетка tinySA должна помещаться в 0,1–1300 МГц с шагом 10 кГц и RBW 10 или 30 кГц.")
+        }
+        let firstCount = totalPoints == 291 ? 289 : min(290, totalPoints)
+        self.startHz = start
+        self.stopHz = start + (firstCount - 1) * 10_000
+        self.points = firstCount
+        self.rbwHz = rbwHz
+    }
 }
 
 private func platformArchiveCount(_ response: URLResponse, name: String) throws -> Int {

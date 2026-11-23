@@ -6,7 +6,8 @@ import SpektrKomandy
 /// contains only windows available without requesting access to the desktop.
 @MainActor
 enum NativeTrainingWindowCapture {
-    static func run(profile: NativeAcceptanceTrace.Profile, model: RemoteDualModel, workspace: MonitoringWorkspaceModel) async {
+    static func run(profile: NativeAcceptanceTrace.Profile, model: RemoteDualModel, workspace: MonitoringWorkspaceModel,
+                    presentDuty: (NativeRCPreparationDraft) -> Void) async {
         let output = URL(fileURLWithPath: profile.outputDirectory, isDirectory: true)
         var receipt: [String: Any] = ["run_id": profile.runID, "successful": false, "session_id": profile.sessionID]
         do {
@@ -33,6 +34,19 @@ enum NativeTrainingWindowCapture {
                 return detail.id == event && detail.source?.sweepID.rawValue == "ui-one-sweep-1" && detail.receiverSimulated
             }
             try await capture(name: "macos-event", directory: output)
+            guard let parent = NSApp.mainWindow else { throw PlatformError.connection("Окно учебного сеанса закрыто") }
+            var draft = NativeRCPreparationDraft()
+            draft.source = .ardv1
+            draft.name = "Учебное дежурство AR-DV1"; draft.site = "Учебный объект"
+            draft.receiverPort = "/dev/cu.ui-fixture-receiver"
+            draft.startHz = "100000000"; draft.stopHz = "400000000"; draft.stepHz = "10000"
+            presentDuty(draft)
+            try await wait { parent.attachedSheet?.isVisible == true }
+            guard let sheet = parent.attachedSheet, sheet.sheetParent === parent else {
+                throw PlatformError.connection("Не открыта подготовка учебного дежурства")
+            }
+            try await capture(name: "macos-first-duty-ardv1", directory: output, sheet: sheet)
+            receipt["first_duty"] = "macos-first-duty-ardv1.png"
             receipt["event_id"] = event.rawValue
             receipt["sweep_id"] = "ui-one-sweep-1"
             receipt["successful"] = true
@@ -52,9 +66,9 @@ enum NativeTrainingWindowCapture {
     }
 
     @available(macOS 14.4, *)
-    private static func capture(name: String, directory: URL) async throws {
-        guard let window = NSApp.mainWindow, window.isVisible, !window.isMiniaturized, window.attachedSheet == nil,
-              window.frame.width >= 920, window.frame.height >= 580 else {
+    private static func capture(name: String, directory: URL, sheet: NSWindow? = nil) async throws {
+        guard let window = sheet ?? NSApp.mainWindow, window.isVisible, !window.isMiniaturized, window.attachedSheet == nil,
+              window.frame.width >= (sheet == nil ? 920 : 700), window.frame.height >= 580 else {
             throw PlatformError.connection("Окно учебного сеанса недоступно")
         }
         // Allow SwiftUI and the spectrum renderer to present the current selection.

@@ -80,21 +80,21 @@ final class WorkbenchUITests: XCTestCase {
         replace(receiver, with: fixtureAnalyzerPort)
         XCTAssertEqual(tiny.value as? String, fixtureAnalyzerPort)
         XCTAssertEqual(receiver.value as? String, fixtureAnalyzerPort)
-        XCTAssertFalse(app.buttons["preparation.create"].isEnabled)
+        let next = app.buttons["preparation.next"]
+        XCTAssertFalse(next.isEnabled)
         replace(receiver, with: fixtureReceiverPort)
+        XCTAssertEqual(receiver.value as? String, fixtureReceiverPort)
+        XCTAssertTrue(next.isEnabled)
+        next.click()
+        XCTAssertTrue(app.textFields["preparation.start-mhz"].waitForExistence(timeout: 10))
     }
 
     @MainActor private func actionableCreateButton(in app: XCUIApplication) throws -> XCUIElement {
         let create = app.buttons["preparation.create"]
-        let fields = [(app.textFields["preparation.tinysa-port"], fixtureAnalyzerPort),
-                      (app.textFields["preparation.receiver-port"], fixtureReceiverPort)]
-        let committed = fields.map { field, port in
-            XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", port), object: field)
-        }
         // The root workbench also polls status and alerts while the sheet is open.
         let actionable = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"), object: create)
-        let result = XCTWaiter.wait(for: committed + [actionable], timeout: 10)
+        let result = XCTWaiter.wait(for: [actionable], timeout: 10)
         return try XCTUnwrap(result == .completed ? create : nil,
             "The two distinct fixture ports must be committed and Create must be enabled and hittable")
     }
@@ -248,31 +248,45 @@ final class WorkbenchUITests: XCTestCase {
         let app = try launch(test: #function); defer { app.terminate() }
         preparation(in: app)
         let create = app.buttons["preparation.create"]
+        let next = app.buttons["preparation.next"], back = app.buttons["preparation.back"]
+        for index in 0..<5 { XCTAssertTrue(app.buttons["preparation.step.\(index)"].exists) }
+        XCTAssertFalse(next.isEnabled)
         replace(app.textFields["preparation.tinysa-port"], with: fixtureAnalyzerPort)
+        next.click()
+        XCTAssertEqual(element("duty.tiny-grid-count", in: app).value as? String, "2001")
         XCTAssertTrue(create.isEnabled)
+        for index in 2...4 { XCTAssertFalse(app.buttons["preparation.step.\(index)"].isEnabled) }
+        back.click()
         choose("AOR AR-DV1", in: app)
         let receiver = app.textFields["preparation.receiver-port"]
         replace(receiver, with: fixtureReceiverPort)
+        XCTAssertFalse(app.textFields["preparation.tinysa-port"].exists)
+        next.click()
         app.buttons["0,1–1300 МГц"].click()
         let count = element("duty.grid-count", in: app)
         expectation(for: NSPredicate(format: "value == %@", "129991"), evaluatedWith: count)
         waitForExpectations(timeout: 10)
         XCTAssertFalse(app.textFields["preparation.tinysa-port"].exists)
         XCTAssertTrue(create.isEnabled)
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "macos-first-duty-ardv1"
+        let surface = app.sheets.firstMatch.exists ? app.sheets.firstMatch : app.windows.firstMatch
+        let attachment = XCTAttachment(screenshot: surface.screenshot())
+        attachment.name = "macos-first-duty-ardv1.png"
         attachment.lifetime = .keepAlways
         add(attachment)
         app.buttons["100–400 МГц"].click()
         expectation(for: NSPredicate(format: "value == %@", "30001"), evaluatedWith: count)
         waitForExpectations(timeout: 10)
+        back.click()
         choose("RF Explorer 3G Combo", in: app)
         let explorer = app.textFields["duty.rf-explorer-port"]
         replace(explorer, with: fixtureAnalyzerPort)
         replace(receiver, with: "")
-        XCTAssertTrue(create.isEnabled)
+        XCTAssertTrue(next.isEnabled)
         replace(receiver, with: fixtureAnalyzerPort)
-        XCTAssertFalse(create.isEnabled)
+        XCTAssertFalse(next.isEnabled)
+        replace(receiver, with: "")
+        next.click()
+        XCTAssertTrue(create.isEnabled)
     }
 
     @MainActor func testReplayFixtureCannotBePresentedAsLiveHardwarePreparation() throws {

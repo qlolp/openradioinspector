@@ -36,6 +36,7 @@ struct NativeRCPreparationDraft {
     var tinySAPort = "", receiverPort = ""
     var startHz = "88000000", stopHz = "108000000", stepHz = "10000"
     var points = 201, rbwHz = 10_000
+    var tinyUsesGrid = true
     var explorer = NativeRFExplorerDraft()
 
     private func port(_ value: String) throws -> String {
@@ -57,17 +58,49 @@ struct NativeRCPreparationDraft {
         try PlatformARDV1ScopeConfiguration(startHz: hertz(startHz), stopHz: hertz(stopHz), stepHz: hertz(stepHz), cyclic: true)
     }
 
-    func validated() throws -> NativeDutyAcquisition {
+    func validatedPorts() throws -> (primary: String, secondary: String?) {
         for text in [name, site] {
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.unicodeScalars.count <= 200 else {
                 throw PlatformError.invalidCommand("Название и объект должны содержать 1…200 символов.")
             }
         }
-        if source == .ardv1 { return .ardv1(port: try port(receiverPort), grid: try receiverGrid()) }
+        if source == .ardv1 { return (try port(receiverPort), nil) }
         let primary = try port(source == .tinySA ? tinySAPort : explorer.port)
         let secondary = receiverPort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : try port(receiverPort)
-        guard !PlatformExactID.same(primary, secondary) else { throw PlatformError.invalidCommand("Выберите два разных порта узла.") }
+        func normalized(_ serial: String) -> String {
+            serial.uppercased().wholeMatch(of: /COM[0-9]+/) != nil ? serial.uppercased() : serial
+        }
+        guard !PlatformExactID.same(normalized(primary), secondary.map(normalized)) else { throw PlatformError.invalidCommand("Выберите два разных порта узла.") }
+        return (primary, secondary)
+    }
+
+    func tinyScanBand() throws -> ScanBandDraft {
+        _ = try hertz(startHz)
+        _ = try hertz(stopHz)
+        var band = ScanBandDraft()
+        band.id = "duty"; band.name = name
+        band.usesGrid = true; band.start = startHz; band.stop = stopHz
+        band.rbw = String(rbwHz); band.revisit = "3600"
+        guard band.payload != nil else {
+            throw PlatformError.invalidCommand("Выберите целое число шагов 10 кГц в пределах 0,1–1300 МГц и RBW 10 или 30 кГц.")
+        }
+        return band
+    }
+
+    func scanPlan() throws -> MonitoringValue? {
+        guard source == .tinySA, tinyUsesGrid else { return nil }
+        guard let band = try tinyScanBand().payload else { throw PlatformError.invalidCommand("Проверьте сетку tinySA.") }
+        return .object(["name": .string(name), "bands": .array([band])])
+    }
+
+    func validated() throws -> NativeDutyAcquisition {
+        let (primary, secondary) = try validatedPorts()
+        if source == .ardv1 { return .ardv1(port: primary, grid: try receiverGrid()) }
         if source == .rfExplorer { return .rfExplorer(try explorer.configuration(), secondary: secondary) }
+        if tinyUsesGrid, let count = try tinyScanBand().gridPoints {
+            let first = try PlatformSerialReceiveConfiguration(scanPlanStartHz: hertz(startHz), totalPoints: Int(count), rbwHz: rbwHz)
+            return .tinySA(port: primary, grid: first, secondary: secondary)
+        }
         let grid = try PlatformSerialReceiveConfiguration(startHz: hertz(startHz), stopHz: hertz(stopHz), points: points, rbwHz: rbwHz)
         return .tinySA(port: primary, grid: grid, secondary: secondary)
     }
@@ -76,6 +109,70 @@ struct NativeRCPreparationDraft {
               value["features"]["monitoring_backup_reserve"].bool == true else {
             throw PlatformError.invalidResponse("Мастеру нужна live Rust-служба с serial и проверкой резерва backup. Переключение на replay или Python не выполняется.")
         }
+    }
+}
+
+/// Bound to a concrete run: preparation/start clones both the session and its streams.
+struct NativeDutyRun: Equatable {
+    let projectID, session, stream: PlatformExactID
+    let source: NativeDutySource
+
+    init?(_ project: MonitoringValue) {
+        let kind: NativeDutySource
+        if let explicit = NativeDutySource(rawValue: project["primary_source_kind"].text) {
+            kind = explicit
+        } else if project["primary_source_kind"] == .null,
+                  project["profile"]["analyzer"]["settings"]["adapter"].text == "tinysa-serial" {
+            kind = .tinySA
+        } else { return nil }
+        let fallback = project[kind == .ardv1 ? "receiver_stream_id" : "analyzer_stream_id"].text
+        let primary = project["primary_stream_id"].text
+        let stream = primary.isEmpty ? fallback : primary
+        guard !project["id"].text.isEmpty, !project["active_session_id"].text.isEmpty, !stream.isEmpty else { return nil }
+        projectID = project.exactID; session = PlatformExactID(project["active_session_id"].text)
+        self.stream = PlatformExactID(stream); source = kind
+    }
+}
+
+struct NativeDutyOriginal {
+    let run: NativeDutyRun
+    let id, started, ended, unit, reading, readback, data: String
+
+    static func read(run: NativeDutyRun, client: PlatformClient) async throws -> Self? {
+        let session = run.session.rawValue, stream = run.stream.rawValue
+        if run.source == .ardv1 {
+            let panorama = try await client.receiverPanorama(sessionID: session, streamID: stream, pass: 1, columns: 2)
+            guard let bin = panorama.bins.first else { return nil }
+            let row = try await client.receiverOriginal(sessionID: session, streamID: stream, pass: panorama.pass,
+                frequencyHz: bin.frequencyHz, observationID: bin.observationId, fromEvent: true)
+            guard row["metadata"]["simulated"].bool == false, row["metadata"]["adapter"].text == "ardv1-serial",
+                  row["mode"].text.uppercased() == "FM" else {
+                throw PlatformError.invalidResponse("Исходное наблюдение не подтвердило физический FM-приём AR-DV1.")
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            return Self(run: run, id: row["id"].text, started: row["interval"]["started_at"].text,
+                ended: row["interval"]["ended_at"].text, unit: row["level_unit"].text,
+                reading: "\(row["frequency_hz"].scalar) Гц · \(row["level"].scalar) s_meter_count",
+                readback: "FM · проверка частоты RX · прошивка " + row["metadata"]["receiver_firmware"].text,
+                data: String(decoding: try encoder.encode(row), as: UTF8.self))
+        }
+        let page = try await client.archiveSweepPage(sessionID: session, streamID: stream)
+        guard let summary = page.items.first else { return nil }
+        let sweep = try await client.archiveOriginalSweep(sessionID: session, streamID: stream, sweepID: summary.id)
+        let expected = run.source == .tinySA ? "tinysa-serial" : "rf-explorer-3g-serial"
+        guard sweep.settings?["simulated"] == .boolean(false), sweep.settings?["adapter"] == .string(expected) else {
+            throw PlatformError.invalidResponse("Архивный свип не подтвердил физический адаптер основного прибора.")
+        }
+        var description = run.source.title
+        if let rfe = NativeRFExplorerReadback(sweep.settings) { description += " · " + rfe.label }
+        if case .string(let detector)? = sweep.settings?["detector"] { description += " · " + detector }
+        if case .object(let identity)? = sweep.settings?["device_identity"], case .string(let firmware)? = identity["firmware"] {
+            description += " · прошивка " + firmware
+        }
+        let data = zip(sweep.frequenciesHz, sweep.levels).map { "\($0) Гц · \($1) dBm" }.joined(separator: "\n")
+        return Self(run: run, id: sweep.id, started: sweep.interval.startedAt, ended: sweep.interval.endedAt, unit: sweep.levelUnit,
+            reading: "\(sweep.frequenciesHz.count) точек · \(sweep.levelUnit)", readback: description, data: data)
     }
 }
 

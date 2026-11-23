@@ -5,6 +5,7 @@ import SpektrKomandy
 final class NativeRCPreparationTests: XCTestCase {
     func testDraftRequiresTwoDistinctNativePortsAndAnIntegerReceiveGrid() throws {
         var draft = NativeRCPreparationDraft()
+        draft.tinyUsesGrid = false
         draft.tinySAPort = "/dev/cu.tiny"; draft.receiverPort = "/dev/cu.aor"
         guard case let .tinySA(_, grid, _) = try draft.validated() else { return XCTFail("Expected tinySA") }
         XCTAssertEqual(grid.points, 201)
