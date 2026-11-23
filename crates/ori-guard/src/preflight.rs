@@ -543,12 +543,9 @@ impl GuardService {
         );
         let receiver_primary = p["primary_source_kind"] == "ardv1";
         let sweeps = if receiver_primary {
-            let mut observations = self
-                .archive
+            self.archive
                 .list_observations(&typed.id, Some(s(&p, "receiver_stream_id")?), 128)
-                .await?;
-            observations.reverse();
-            observations
+                .await?
         } else {
             self.archive
                 .list_sweeps(&typed.id, Some(s(&p, "analyzer_stream_id")?), 128)
@@ -654,11 +651,11 @@ impl GuardService {
                 .await?;
             sample.count = observations.len() as i64;
             sample.first_started_at = observations
-                .last()
+                .first()
                 .and_then(|v| v["interval"]["started_at"].as_str())
                 .map(str::to_owned);
             sample.last_ended_at = observations
-                .first()
+                .last()
                 .and_then(|v| v["interval"]["ended_at"].as_str())
                 .map(str::to_owned);
             let mut bytes = 0;
