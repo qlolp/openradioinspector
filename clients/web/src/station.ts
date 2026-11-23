@@ -77,9 +77,12 @@ export function recoveryNotices(guard?: GuardStatus, storage?: StorageReport): R
     result.push({
       kind: 'pause',
       title: 'Broad coverage paused',
-      detail: guard.manual.some((lease) => lease.role === 'analyzer')
-        ? 'Return the analyzer in Research to restore broad coverage.'
-        : 'Check the active search and analyzer ownership in Research.',
+      detail:
+        guard.project.primary_source_kind === 'ardv1'
+          ? 'Return the receiver to the cyclic plan to restore broad coverage.'
+          : guard.manual.some((lease) => lease.role === 'analyzer')
+            ? 'Return the analyzer in Research to restore broad coverage.'
+            : 'Check the active search and analyzer ownership in Research.',
     });
   return result;
 }

@@ -2111,3 +2111,35 @@
     font-weight: 700;
   }
 }
+
+.receiver-panorama {
+  min-width: 0;
+}
+.receiver-trace,
+.receiver-waterfall {
+  display: block;
+  margin-top: 0.6rem;
+  width: 100%;
+  height: 190px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: crosshair;
+}
+.receiver-waterfall {
+  height: 104px;
+  background: #111c2a;
+}
+.receiver-panorama .chart-caption {
+  margin-bottom: 0.8rem;
+}
+.raw-observation {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 48vh;
+  overflow: auto;
+}
+.receiver-hold {
+  border-top: 1px solid var(--line);
+  padding-top: 0.8rem;
+  margin-top: 0.8rem;
+}

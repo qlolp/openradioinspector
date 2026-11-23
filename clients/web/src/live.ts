@@ -175,7 +175,7 @@ export class LiveStore {
     this.receiverSession = receiverSession;
     this.receiver = receiver;
     this.buffer.scope(session, stream);
-    if (session && stream) this.waitingForScope = false;
+    if ((session && stream) || (receiverSession && receiver)) this.waitingForScope = false;
     if (!this.waitingForScope && this.heldSource) {
       const apply = this.heldSource;
       this.heldSource = undefined;

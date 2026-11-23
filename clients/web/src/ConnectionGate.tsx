@@ -14,7 +14,9 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
   const [node, setNode] = useState(() =>
     transport.native ? remember('node', 'https://radio.local:8770') : location.origin,
   );
-  const [local, setLocal] = useState(false);
+  const [local, setLocal] = useState(false),
+    [localStarted, setLocalStarted] = useState(false),
+    [selectedArchive, setSelectedArchive] = useState('');
   const [logonNotice, setLogonNotice] = useState('');
   const localUrl = 'http://127.0.0.1:8770';
   const [phase, setPhase] = useState<Phase>(transport.native ? 'node' : 'checking'),
@@ -126,6 +128,7 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
         transport={readyTransport}
         readOnly={status?.access_scope === 'reader'}
         onConnectionSettings={() => setSettings(true)}
+        localWindows={local && !!transport.chooseLocalArchiveDirectory}
         connectionLabel={local ? t('Local Windows node') : connectedOrigin}
       />
     );
@@ -157,12 +160,38 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
                 'Use the instruments and archive on this PC. Monitoring continues when you close the window or lock Windows.',
               )}
             </p>
+            {!!transport.chooseLocalArchiveDirectory && !localStarted && transport.native && (
+              <>
+                <p>
+                  {t(
+                    'Choose a drive or parent folder. The Windows supervisor creates a private OpenRadioInspector Archive subfolder. Stop the local node before changing this location.',
+                  )}
+                </p>
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void execute(async () => {
+                      const directory = await transport.chooseLocalArchiveDirectory!();
+                      if (directory) setSelectedArchive(directory);
+                    })
+                  }
+                >
+                  {t('Choose local archive folder')}
+                </button>
+                {selectedArchive && (
+                  <p role="status">
+                    {t('Local archive folder')} · <code>{selectedArchive}</code>
+                  </p>
+                )}
+              </>
+            )}
             <button
               className="primary"
               disabled={busy}
               onClick={() =>
                 void execute(async () => {
                   await transport.localNode!('start');
+                  setLocalStarted(true);
                   await transport.connect(localUrl);
                   setLocal(true);
                   setConnectedOrigin(localUrl);
@@ -350,13 +379,14 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
             >
               {t('Disable sign-in startup')}
             </button>
-            {local && (
+            {localStarted && (
               <button
                 className="danger"
                 disabled={busy}
                 onClick={() =>
                   void execute(async () => {
                     await transport.localNode!('shutdown');
+                    setLocalStarted(false);
                     setLocal(false);
                     setStatus(undefined);
                     setPhase('node');

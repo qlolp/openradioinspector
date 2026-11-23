@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Api } from './api';
+import { useArchiveRead } from './RfExplorerOriginals';
 import { encodePathSegment, originalObservationJSON } from './wire';
 import { Panel, hz, titleCase, utc } from './components';
 import { t } from './i18n';
@@ -52,7 +53,8 @@ export function EventQueue({
                   {titleCase(item.kind)} · {titleCase(item.analysis?.state || 'pending')}
                 </span>
                 <small className="mono">
-                  {utc(item.last_seen)} · {formatQuantity(item.peak_level)} {t('dBm')}
+                  {utc(item.last_seen)} · {formatQuantity(item.peak_level)}{' '}
+                  {t(item.level_unit ?? 'dBm')}
                 </small>
               </div>
               <button
@@ -188,7 +190,11 @@ export function StationStatus({ desk, analyzer }: { desk: Desk; analyzer?: Worke
     <Panel title={t('Node & evidence')} className="station-status">
       <dl className="status-list">
         <div>
-          <dt>{t('Analyzer worker')}</dt>
+          <dt>
+            {t(
+              desk.project?.primary_source_kind === 'ardv1' ? 'Receiver worker' : 'Analyzer worker',
+            )}
+          </dt>
           <dd>
             {analyzer
               ? [titleCase(analyzer.state), analyzer.adapter].filter(Boolean).join(' · ')
@@ -196,8 +202,20 @@ export function StationStatus({ desk, analyzer }: { desk: Desk; analyzer?: Worke
           </dd>
         </div>
         <div>
-          <dt>{t('Committed sweep rate')}</dt>
-          <dd>{rate == null ? missing : formatQuantity(rate, 3) + ' ' + t('sweeps/s')}</dd>
+          <dt>
+            {t(
+              desk.project?.primary_source_kind === 'ardv1'
+                ? 'Committed observation rate'
+                : 'Committed sweep rate',
+            )}
+          </dt>
+          <dd>
+            {rate == null
+              ? missing
+              : formatQuantity(rate, 3) +
+                ' ' +
+                t(desk.project?.primary_source_kind === 'ardv1' ? 'observations/s' : 'sweeps/s')}
+          </dd>
         </div>
         <div>
           <dt>{t('Writer operations in flight')}</dt>
@@ -240,8 +258,18 @@ export function StationStatus({ desk, analyzer }: { desk: Desk; analyzer?: Worke
             </dd>
           </div>
           <div>
-            <dt>{t('Mean stored raw sweep')}</dt>
-            <dd>{formatBytes(storage?.mean_stored_sweep_bytes)}</dd>
+            <dt>
+              {t(
+                desk.project?.primary_source_kind === 'ardv1'
+                  ? 'Archived observations sampled'
+                  : 'Mean stored raw sweep',
+              )}
+            </dt>
+            <dd>
+              {desk.project?.primary_source_kind === 'ardv1'
+                ? (storage?.sampled_observations ?? missing)
+                : formatBytes(storage?.mean_stored_sweep_bytes)}
+            </dd>
           </div>
           <div>
             <dt>{t('Write-ahead log')}</dt>
@@ -444,5 +472,82 @@ export function BandOverview({
         </details>
       )}
     </div>
+  );
+}
+
+export function SignalHypotheses({
+  api,
+  projectId,
+  event,
+}: {
+  api: Api;
+  projectId: string;
+  event: MonitoringEvent;
+}) {
+  const path =
+    '/monitoring-projects/' +
+    encodePathSegment(projectId) +
+    '/events/' +
+    encodePathSegment(event.id) +
+    '/recognition';
+  type Band = {
+    label: string;
+    start_hz: number;
+    end_hz: number;
+    applicability?: string;
+    source_title?: string;
+  };
+  type Recognition = {
+    id: string;
+    recognition: {
+      state: string;
+      hypotheses?: { kind: string; label: string; reason: string }[];
+      known_matches?: { id: string; name: string; reason: string }[];
+      band_matches?: Band[];
+    };
+  };
+  const report = useArchiveRead<Recognition>(api, path);
+  const match = report?.value?.id === event.id ? report.value.recognition : undefined;
+  const region = useArchiveRead<{ profile: string; items: Band[] }>(
+    api,
+    match && !match.band_matches?.length
+      ? '/band-plan?' +
+          new URLSearchParams({
+            start_hz: String(event.center_frequency_hz),
+            end_hz: String(event.center_frequency_hz),
+          })
+      : undefined,
+  );
+  const bands = match?.band_matches?.length ? match.band_matches : region?.value?.items;
+  return (
+    <section aria-label={t('Signal hypotheses')}>
+      <h3>{t('Signal hypotheses')}</h3>
+      <p className="muted">
+        {t(
+          'The regional band plan suggests possible services. Record the operator’s authorization separately under Disposition.',
+        )}
+      </p>
+      {match?.hypotheses?.map((h) => (
+        <p key={h.kind || h.label}>
+          <strong>{h.label}</strong> · {h.reason}
+        </p>
+      ))}
+      {bands?.map((b) => (
+        <p key={b.start_hz + '-' + b.end_hz}>
+          <strong>{b.label}</strong> · {hz(b.start_hz)} – {hz(b.end_hz)}
+          <br />
+          {b.applicability} {b.source_title}
+        </p>
+      ))}
+      {match?.known_matches?.map((k) => (
+        <p key={k.id}>
+          {t('Known signal')} · {k.name} · {k.reason}
+        </p>
+      ))}
+      {bands && !bands.length && !match?.hypotheses?.length && <p>{t('No regional band match')}</p>}
+      {(report?.error || region?.error) && (
+        <p className="error-text">{t(report?.error || region!.error!)}</p>
+      )}
+    </section>
   );
 }
