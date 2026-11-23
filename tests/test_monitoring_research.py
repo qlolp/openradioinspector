@@ -3,13 +3,14 @@ import threading
 import time
 import http.client
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from unittest.mock import patch
 
 from tests import test_monitoring_guard as guard_tests
 from tests.test_monitoring_detector import sweep
 from tests.test_device_workers import simulated_session_payload, wait_until
-from radioinspector.device_workers import WorkerError, TinySASimulator
+from radioinspector.device_workers import DeviceWorker, WorkerError, TinySASimulator
 from radioinspector.contracts import TimeInterval, utc_now
 
 
@@ -77,7 +78,30 @@ class ResearchTests(unittest.TestCase):
         lease=self.service.manual_acquire(project['id'],{'role':'analyzer'})
         event=dict(id='search-event',project_id=project['id'],created_at='2026-01-01T00:00:00Z',center_frequency_hz=102000000)
         self.service.store.put('event',event)
-        self.service.search_start(project['id'],dict(token=lease['token'],event_id=event['id'],span_hz=1000000))
+        entered, release = threading.Event(), threading.Event()
+        start_worker = DeviceWorker.start
+
+        def held_start(worker):
+            entered.set()
+            release.wait()
+            start_worker(worker)
+
+        with ThreadPoolExecutor(max_workers=2) as threads, patch.object(DeviceWorker, 'start', held_start):
+            starting = threads.submit(self.service.search_start, project['id'],
+                                      dict(token=lease['token'], event_id=event['id'], span_hz=1000000))
+            try:
+                wait_until(entered.is_set, 'narrow worker admitted before its thread starts')
+                polling = threads.submit(self.service.search_status, project['id'])
+                wait_until(polling.done, 'status remains readable during narrow worker startup')
+                pending = polling.result()
+            finally:
+                release.set()
+            started = starting.result()
+        self.assertEqual(started['coverage'], 'narrow', started)
+        self.assertFalse(pending['active'])
+        self.assertEqual(pending['coverage'], 'paused')
+        self.assertEqual(pending['session_id'], started['session_id'])
+        self.assertIsNone(pending['error'])
         wait_until(lambda:len(self.service.search_status(project['id'])['series'])>0,'narrow sweep')
         result=self.service.search_status(project['id'])
         self.assertEqual(result['coverage'],'narrow');self.assertTrue(result['active'])
@@ -140,11 +164,78 @@ class ResearchTests(unittest.TestCase):
         project=self.prepare();lease=self.service.manual_acquire(project['id'],{'role':'analyzer'})
         self.service.store.put('event',dict(id='lost-narrow',project_id=project['id'],created_at='2026-01-01T00:00:00Z',center_frequency_hz=102000000))
         search=self.service.search_start(project['id'],dict(token=lease['token'],event_id='lost-narrow',span_hz=1000000))
+        self.assertTrue(search['active'])
         self.workers.stop_session(search['session_id'])
         wait_until(lambda:not self.service.search_status(project['id'])['active'],'narrow failure visible')
-        self.assertEqual(self.service.search_status(project['id'])['coverage'],'paused')
+        status = self.service.search_status(project['id'])
+        self.assertEqual(status['coverage'], 'paused')
+        self.assertTrue(status['error'])
         receiver=next(x for x in self.workers.list_workers(project['active_session_id']) if x['stream_id']==project['receiver_stream_id'])
         self.assertTrue(receiver['alive']);self.service.disarm(project['id'],{})
+
+    def test_failed_narrow_start_preserves_the_error_and_manual_return(self):
+        project = self.prepare()
+        identifier = project['id']
+        lease = self.service.manual_acquire(identifier, {'role': 'analyzer'})
+        event = dict(id='failed-start', project_id=identifier, created_at='2026-01-01T00:00:00Z',
+                     center_frequency_hz=102000000)
+        self.service.store.put('event', event)
+        with patch.object(DeviceWorker, 'start', side_effect=WorkerError('fixture startup failure')):
+            with self.assertRaises(WorkerError) as failure:
+                self.service.search_start(identifier, dict(token=lease['token'], event_id=event['id'], span_hz=1000000))
+        status = self.service.search_status(identifier)
+        self.assertEqual(status['coverage'], 'paused')
+        self.assertFalse(status['active'])
+        self.assertEqual(str(failure.exception), 'fixture startup failure')
+        self.assertEqual(status['error'], str(failure.exception))
+        self.assertEqual(self.service.project(identifier)['last_error'], status['error'])
+        self.assertFalse(self.workers.list_workers(status['session_id'])[0]['alive'])
+        receiver = next(row for row in self.workers.list_workers(project['active_session_id'])
+                        if row['stream_id'] == project['receiver_stream_id'])
+        self.assertTrue(receiver['alive'])
+        self.service.manual_return(identifier, {'token': lease['token']})
+        wait_until(lambda: self.service.search_status(identifier)['coverage'] == 'wide', 'wide coverage after failed start')
+        self.assertIsNone(self.service.search_status(identifier)['error'])
+        self.service.disarm(identifier, {})
+
+    def test_narrow_worker_lost_before_publication_keeps_start_and_cleanup_evidence(self):
+        project = self.prepare()
+        identifier = project['id']
+        lease = self.service.manual_acquire(identifier, {'role': 'analyzer'})
+        event = dict(id='lost-before-publish', project_id=identifier, created_at='2026-01-01T00:00:00Z',
+                     center_frequency_hz=102000000)
+        self.service.store.put('event', event)
+        start_session, stop_session = self.workers.start_session, self.workers.stop_session
+        write_record = self.service.store.put
+        coverage = []
+
+        def start_then_stop(session_id):
+            started = start_session(session_id)
+            self.assertTrue(started[0]['alive'])
+            stop_session(session_id)
+            return started
+
+        def record(kind, value):
+            if kind == 'project' and value['id'] == identifier:
+                coverage.append(value['coverage'])
+            return write_record(kind, value)
+
+        cleanup = WorkerError('fixture cleanup failure')
+        with patch.object(self.service.store, 'put', side_effect=record), \
+             patch.object(self.workers, 'start_session', side_effect=start_then_stop), \
+             patch.object(self.workers, 'stop_session', side_effect=cleanup):
+            with self.assertRaises(WorkerError) as failure:
+                self.service.search_start(identifier, dict(token=lease['token'], event_id=event['id'], span_hz=1000000))
+        status = self.service.search_status(identifier)
+        self.assertNotIn('narrow', coverage)
+        self.assertEqual(status['coverage'], 'paused')
+        self.assertFalse(status['active'])
+        self.assertIn('Не удалось запустить узкий обзор', status['error'])
+        self.assertIn(str(cleanup), status['error'])
+        self.assertEqual(str(failure.exception), status['error'])
+        self.assertEqual(self.service.project(identifier)['last_error'], status['error'])
+        self.assertIs(failure.exception.__cause__, cleanup)
+        self.service.disarm(identifier, {})
 
     def test_search_poll_during_return_never_loses_its_search_snapshot(self):
         project=self.prepare();lease=self.service.manual_acquire(project['id'],{'role':'analyzer'})
