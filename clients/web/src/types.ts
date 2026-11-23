@@ -68,8 +68,12 @@ export interface Project {
   site: string;
   state: string;
   active_session_id: string;
-  analyzer_stream_id: string;
-  receiver_stream_id: string;
+  primary_source_kind?: import('./api').DutySource;
+  primary_stream_id?: string;
+  duty?: { enabled: boolean; status: string; last_error?: string | null };
+  secondary_stream_id?: string | null;
+  analyzer_stream_id?: string | null;
+  receiver_stream_id?: string | null;
   baseline_id: string | null;
   coverage?: string;
   last_error?: string;
@@ -79,7 +83,7 @@ export interface Project {
     location_confirmed: boolean;
   };
   audio?: { name: string } | null;
-  profile?: { analyzer: Stream; receiver: Stream };
+  profile?: { analyzer?: Stream | null; receiver?: Stream | null };
 }
 export interface WorkerStatus {
   stream_id: string;
@@ -134,6 +138,7 @@ export interface StorageReport {
   estimated_retention_seconds?: number | null;
   required_retention_seconds?: number;
   mean_stored_sweep_bytes?: number | null;
+  sampled_observations?: number;
   projected_bytes_per_day?: number | null;
   wal_bytes?: number | null;
   backup_reserve_bytes?: number | null;
@@ -150,6 +155,7 @@ export interface GuardStatus {
 }
 export interface Preflight {
   ready: boolean;
+  preparation_ready?: boolean;
   storage?: StorageReport | null;
   checks: { name: string; ok: boolean; detail: string }[];
   baseline_ready: boolean;
@@ -170,9 +176,15 @@ export interface Preflight {
       ready: boolean;
       baseline_id: string | null;
     }[];
-    sweeps: number;
+    points?: number;
+    ready_points?: number;
+    windows?: number;
+    ready_windows?: number;
+    passes?: number;
+    minimum_passes?: number;
+    sweeps?: number;
     elapsed_seconds: number;
-    minimum_sweeps: number;
+    minimum_sweeps?: number;
     minimum_seconds: number;
     ready: boolean;
   };
@@ -203,7 +215,20 @@ export interface MonitoringEvent {
     observation_ids?: string[];
     audio?: { id: string };
   };
-  source_refs?: { sweep_id: string; session_id: string; stream_id: string }[];
+  level_unit?: string;
+  peak_source?: {
+    sweep_id?: string;
+    observation_id?: string;
+    session_id: string;
+    stream_id: string;
+    frequency_hz?: number;
+  };
+  source_refs?: {
+    sweep_id?: string;
+    observation_id?: string;
+    session_id: string;
+    stream_id: string;
+  }[];
 }
 export interface Allowed {
   id: string;

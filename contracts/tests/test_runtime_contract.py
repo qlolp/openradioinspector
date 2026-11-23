@@ -21,6 +21,23 @@ class RuntimeContractTests(unittest.TestCase):
     def documents(self):
         return json.loads(BASELINE.read_text()), json.loads(SOURCE.read_text())
 
+    def test_single_receiver_archive_reading_is_independent_of_live_usb(self):
+        baseline, extension = self.documents()
+        paths = self.composer().compose_runtime_document(baseline, extension)['paths']
+        prefix = '/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama'
+        for path in [prefix, prefix + '/point']:
+            self.assertTrue(path in paths, path)
+            op = paths[path]['get']
+            self.assertEqual(op['x-ori-feature-requirements'], ['ardv1_receiver_panorama'])
+            self.assertIn(op['operationId'], extension['reader_operations'])
+        original = paths['/api/v1/sessions/{id}/observations/{observation_id}']['get']
+        self.assertIn(original['operationId'], extension['reader_operations'])
+        self.assertEqual(original['x-ori-feature-requirements'], ['measurement_archive'])
+        self.assertIn('get', paths['/api/v1/archive/location'])
+        self.assertNotIn('post', paths['/api/v1/archive/location'])
+        self.assertIn('post', paths['/api/v1/monitoring-projects/{project_id}/duty'])
+        self.assertIn('post', paths['/api/v1/monitoring-projects/{project_id}/notifications/test'])
+
     def test_runtime_variant_generates_additive_artifacts_without_replacing_baseline(self):
         with tempfile.TemporaryDirectory() as folder:
             result = subprocess.run([sys.executable, str(ROOT/'tools/contracts/generate.py'),

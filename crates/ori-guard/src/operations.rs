@@ -27,6 +27,17 @@ impl GuardService {
         {
             return Err(invalid("Сначала снимите проект с охраны"));
         }
+        if (payload.get("receiver_mode").is_some()
+            || payload.get("audio").is_some_and(|a| !a.is_null()))
+            && p["profile"]["receiver"].is_null()
+        {
+            return Err(invalid("В проекте нет приёмника AR-DV1"));
+        }
+        if p["primary_source_kind"] == "ardv1"
+            && payload.get("receiver_mode").is_some_and(|m| m != "FM")
+        {
+            return Err(invalid("Для циклического обзора AR-DV1 требуется FM"));
+        }
         let scan_plan = payload
             .get("scan_plan")
             .map(|config| self.scan_plan_record(&p, config.clone()))
@@ -108,14 +119,22 @@ impl GuardService {
     pub async fn settings(&self, id: &str) -> Result<Value> {
         let p = self.project(id).await?;
         let hook = self.archive.webhook_config(id).await?;
-        Ok(
-            json!({"autostart":p.get("autostart").cloned().unwrap_or(json!(false)),"archive":p.get("archive").cloned().unwrap_or_else(archive_defaults),"detector":p["parameters"],"webhook":{"enabled":p.get("webhook_enabled").cloned().unwrap_or(json!(false)),"url":hook.as_ref().map(|h|h.url()).unwrap_or(""),"secret_configured":hook.as_ref().is_some_and(|h|!h.secret().is_empty())}}),
-        )
+        let mut result = json!({"autostart":p.get("autostart").cloned().unwrap_or(json!(false)),"archive":p.get("archive").cloned().unwrap_or_else(archive_defaults),"detector":p["parameters"],"webhook":{"enabled":p.get("webhook_enabled").cloned().unwrap_or(json!(false)),"url":hook.as_ref().map(|h|h.url()).unwrap_or(""),"secret_configured":hook.as_ref().is_some_and(|h|!h.secret().is_empty())}});
+        if self.control.outbound_channels_available() || p["notification_channels"].is_object() {
+            result["notifications"] = self.public_notification_settings(&p);
+        }
+        Ok(result)
     }
     pub async fn update_settings(&self, id: &str, payload: Value) -> Result<Value> {
         fields(
             &payload,
-            &["autostart", "archive", "webhook", "detector"],
+            &[
+                "autostart",
+                "archive",
+                "webhook",
+                "detector",
+                "notifications",
+            ],
             false,
         )?;
         let _life = self.lock_project(id).await?;
@@ -164,7 +183,18 @@ impl GuardService {
             }
             p["archive"] = merged;
         }
-        if let Some(patch) = payload.get("detector") {
+        if p["primary_source_kind"] == "ardv1"
+            && let Some(patch) = payload.get("detector")
+        {
+            if patch
+                .as_object()
+                .is_none_or(|m| m.iter().any(|(k, v)| p["parameters"].get(k) != Some(v)))
+            {
+                return Err(invalid(
+                    "Параметры детектора AR-DV1 заданы в сигмах и исходных отсчётах",
+                ));
+            }
+        } else if let Some(patch) = payload.get("detector") {
             if self.runtime_snapshot(id)?.is_some() {
                 return Err(invalid("Снимите охрану перед изменением детектора"));
             }
@@ -272,11 +302,32 @@ impl GuardService {
             reset_detectors(&mut current);
         }
         let mut mutations = vec![];
+        if let Some(patch) = payload.get("notifications") {
+            let updated = self
+                .control
+                .configure_notifications(id, patch.clone())
+                .await?;
+            for channel in ori_archive::DutyChannel::ALL {
+                if updated[channel.name()]["enabled"] != true
+                    || updated[channel.name()]["revision"]
+                        != current["notification_channels"][channel.name()]["revision"]
+                {
+                    mutations.push(Mutation::DisableDutyChannel {
+                        project_id: id.to_owned(),
+                        channel,
+                    });
+                }
+            }
+            current["notification_channels"] = updated;
+        }
+        let channels = current["notification_channels"].clone();
         if let Some(h) = hook_mutation {
             mutations.push(h);
         }
         mutations.push(Self::mutation("project", current));
         self.archive.apply(mutations).await?;
+        self.duty_runtime.channels(id, &channels)?;
+        self.wake.notify_waiters();
         drop(_tx);
         self.settings(id).await
     }

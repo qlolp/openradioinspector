@@ -18,7 +18,8 @@ from .source import audio_segment,encode,identifier,measurement_hash,observation
 from . import verify
 
 LATENCIES=('offered_to_ack_ms','request_ms','schedule_lag_ms','history_summary_ms',
-           'history_full_payload_ms','offered_to_render_ms')
+           'history_full_payload_ms','offered_to_render_ms','producer_queue_wait_ms',
+           'offered_to_request_ms','request_to_response_ms','ack_verification_ms')
 TARGET={'node':'Raspberry Pi 5 / 8 GiB / SSD','clients':3,'reference_duration_seconds':1800,
     'reference_sweep_rate':10,'reference_observation_rate':10,'reference_points':4096,
     'reference_audio_sample_rate':48000,'reference_history_sweeps':1000000,'reference_history_points':290,
@@ -97,6 +98,14 @@ def preflight(client,config):
     return capabilities,health,guard
 
 
+def record_request_stages(histograms, offered_ns, started_ns, response_ns, verified_ns):
+    histograms['offered_to_request_ms'].add((started_ns - offered_ns) / 1e6)
+    if response_ns is not None:
+        histograms['request_to_response_ms'].add((response_ns - started_ns) / 1e6)
+        if verified_ns is not None:
+            histograms['ack_verification_ms'].add((verified_ns - response_ns) / 1e6)
+
+
 def send(client,config,ledger,kind,index,histograms):
     key=identifier(config,kind,index)
     row=ledger.get(key)
@@ -110,9 +119,11 @@ def send(client,config,ledger,kind,index,histograms):
         payload={'items':[value]}
         if config.scenario=='fault' and config.fault_kind=='invalid-batch' and kind=='sweep' and index%config.fault_every==0:
             value=dict(value,frequencies_hz=[],levels=[]);payload={'items':[value]}
+    response_ns = verified_ns = None
     started=time.monotonic_ns()
     try:
         result=client.json(path,method='POST',payload=payload,status=201)
+        response_ns = time.monotonic_ns()
         if kind=='audio':
             valid=result.get('id')==key and result.get('sha256')==value['sha256']
         else:
@@ -120,6 +131,7 @@ def send(client,config,ledger,kind,index,histograms):
             valid=result.get('count')==1 and len(items)==1 and items[0].get('id')==key \
                 and measurement_hash(kind,items[0])==measurement_hash(kind,value)
         if not valid:raise BenchmarkError('invalid_ack','Invalid source acknowledgement')
+        verified_ns = time.monotonic_ns()
         ledger.status(key,'accepted',201)
         histograms['offered_to_ack_ms'].add((time.monotonic_ns()-row['offered_ns'])/1e6)
     except HTTPFailure as error:ledger.status(key,'rejected',error.status)
@@ -129,6 +141,7 @@ def send(client,config,ledger,kind,index,histograms):
     except (ValueError,TypeError,KeyError,OverflowError):ledger.status(key,'invalid_ack')
     finally:
         histograms['request_ms'].add((time.monotonic_ns()-started)/1e6)
+        record_request_stages(histograms, row['offered_ns'], started, response_ns, verified_ns)
         ledger.producer_connect(key, client.connect_attempts)
 
 
@@ -138,7 +151,9 @@ def run_load(config,ledger,histograms):
     def worker():
         client=Client(config, producer=True)
         while True:
-            try:kind,index=pending.get(timeout=.05)
+            try:
+                kind, index, enqueued_ns = pending.get(timeout=.05)
+                dequeued_ns = time.monotonic_ns()
             except queue.Empty:
                 if finished.is_set():return
                 continue
@@ -146,7 +161,9 @@ def run_load(config,ledger,histograms):
                 if cancelled.is_set():ledger.status(identifier(config,kind,index),'cancelled')
                 else:send(client,config,ledger,kind,index,histograms)
             except Exception:ledger.status(identifier(config,kind,index),'invalid_ack')
-            finally:pending.task_done()
+            finally:
+                histograms['producer_queue_wait_ms'].add((dequeued_ns - enqueued_ns) / 1e6)
+                pending.task_done()
     workers=[threading.Thread(target=worker,name=f'benchmark-producer-{i}',daemon=True) for i in range(config.workers)]
     for thread in workers:thread.start()
     anchor=time.monotonic_ns()
@@ -159,7 +176,7 @@ def run_load(config,ledger,histograms):
                 time.sleep(min(delay,.05))
             now=ledger.offer(config,kind,index,due)
             histograms['schedule_lag_ms'].add(max(0,(now-due)/1e6))
-            try:pending.put_nowait((kind,index))
+            try:pending.put_nowait((kind, index, time.monotonic_ns()))
             except queue.Full:ledger.status(identifier(config,kind,index),'queue_full')
         if config.workload_profile == 'macos-rc1':
             # Without a WAV closing exactly at the horizon, the final two
@@ -192,13 +209,19 @@ def run_history(config,client,capabilities,ledger,histograms):
         nonlocal items,indexes,size
         if not items:return
         offered=ledger.offer_many(config,'sweep',indexes)
+        request_started_ns = response_ns = verified_ns = None
         started=time.monotonic_ns()
         try:
-            result=client.json(client.session_path(config)+'/sweeps/batch',method='POST',payload={'items':items},status=201)
+            path = client.session_path(config) + '/sweeps/batch'
+            payload = {'items': items}
+            request_started_ns = time.monotonic_ns()
+            result=client.json(path,method='POST',payload=payload,status=201)
+            response_ns = time.monotonic_ns()
             returned=result.get('items',[])
             if result.get('count')!=len(items) or len(returned)!=len(items) or any(
                 measurement_hash('sweep',source)!=measurement_hash('sweep',actual) for source,actual in zip(items,returned)):
                 raise BenchmarkError('invalid_ack','Invalid batch acknowledgement')
+            verified_ns = time.monotonic_ns()
             for index in indexes:ledger.status(identifier(config,'sweep',index),'accepted',201)
             histograms['offered_to_ack_ms'].add((time.monotonic_ns()-offered)/1e6)
         except HTTPFailure as error:
@@ -209,7 +232,10 @@ def run_history(config,client,capabilities,ledger,histograms):
         except BenchmarkError as error:
             for index in indexes:ledger.status(identifier(config,'sweep',index),
                 'transport_unknown' if error.code=='transport_error' else 'invalid_ack')
-        finally:histograms['request_ms'].add((time.monotonic_ns()-started)/1e6)
+        finally:
+            histograms['request_ms'].add((time.monotonic_ns()-started)/1e6)
+            if request_started_ns is not None:
+                record_request_stages(histograms, offered, request_started_ns, response_ns, verified_ns)
         items=[];indexes=[];size=12
     started=time.monotonic()
     for index in range(config.sweeps):

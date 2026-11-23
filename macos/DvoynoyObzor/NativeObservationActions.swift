@@ -28,12 +28,11 @@ struct NativeObservationActions: View {
                     Button("Проверить состояние") { workspace.perform { await workspace.refreshStatus() } }
                         .disabled(workspace.pending)
                 }
-                Button(action == .events ? "Подготовка…" : "Подготовить наблюдение…", action: prepare)
-                    .disabled(!model.connected)
+                Button(workspace.selected.isEmpty ? "Первое дежурство…" : "Подготовить дежурство…", action: prepare)
                     .accessibilityIdentifier("preparation.open")
                     .help(model.connected ? "Проверка приборов, эталона и бюджета; охрана включается явно" : "Сначала подключите ядро в настройках")
-                if workspace.isArmed {
-                    Button("Снять с охраны") { workspace.perform { await workspace.command("disarm", success: "Охрана выключена. Приём управляется отдельно.") } }
+                if workspace.isArmed || workspace.dutyEnabled {
+                    Button(workspace.dutyEnabled && !workspace.isArmed ? "Отменить дежурство" : "Снять с охраны") { workspace.perform { await workspace.command("disarm", success: "Охрана выключена. Приём управляется отдельно.") } }
                         .disabled(!model.coreReachable || !workspace.projectStatusIsCurrent() || workspace.pending)
                         .accessibilityIdentifier("observation.disarm")
                 }
@@ -71,12 +70,12 @@ struct NativeConsoleSettingsPane<Connection: View>: View {
                 Button("Готово") { dismiss() }.keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("settings.close")
             }
-            if !model.isStandaloneRFExplorer {
+            if !model.isStandaloneRFExplorer || workspace.includesSession(model.selectedSessionID) {
                 Picker("Раздел настроек", selection: $section) {
                     ForEach(NativeConsoleSettings.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).labelsHidden()
             }
-            switch model.isStandaloneRFExplorer ? .connection : section {
+            switch model.isStandaloneRFExplorer && !workspace.includesSession(model.selectedSessionID) ? .connection : section {
             case .connection: connection()
             case .guardSettings:
                 Picker("Режим", selection: $workspaceMode) {

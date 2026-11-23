@@ -16,6 +16,7 @@ final class NativeLocalService: ObservableObject {
 
     @Published private(set) var phase: Phase = .inactive
     @Published private(set) var message = "Служба ещё не проверена. Подключение приборов и охрана включаются отдельно."
+    @Published private(set) var archiveLocationMessage = ""
     @Published private(set) var status: NativeServiceStatus?
     @Published private(set) var busy = false
     private var generation = 0
@@ -116,6 +117,36 @@ final class NativeLocalService: ObservableObject {
             } else { fail(error, token: token) }
         }
     }
+    func chooseArchiveDirectory(_ directory: URL) async {
+        guard Self.isPersonalRC, phase == .stopped, !busy else { return }
+        let node = NativeLocalServicePaths.dataDirectory()
+        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ori-supervisor")
+        busy = true
+        archiveLocationMessage = "Подготовка каталога и проверка копии архива…"
+        defer { busy = false }
+        do {
+            try await Task.detached(priority: .utility) {
+                _ = try NativeRCBundle.validateCurrentInstallation()
+                let process = Process(), pipe = Pipe()
+                process.executableURL = helper
+                process.arguments = ["archive-location", "--data-dir", node.path, "--directory", directory.path]
+                process.standardInput = FileHandle.nullDevice
+                process.standardOutput = pipe; process.standardError = pipe
+                try process.run()
+                let reply = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0,
+                      let result = try? JSONSerialization.jsonObject(with: reply) as? [String: String],
+                      result["storage_id"] == "node-archive", result["database"] == "sessions.sqlite3",
+                      result["directory"] == directory.path else {
+                    let cause = String(decoding: reply.prefix(1024), as: UTF8.self)
+                    throw NativeServiceError.unavailable("Выбор папки не подтверждён. " + cause)
+                }
+            }.value
+            archiveLocationMessage = "Архив выбран · " + directory.path + ". Теперь можно запустить службу."
+        } catch { archiveLocationMessage = error.localizedDescription }
+    }
+
     func start() async {
         guard !busy else { return }
         let token = begin()

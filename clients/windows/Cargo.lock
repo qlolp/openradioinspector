@@ -2294,6 +2294,7 @@ dependencies = [
  "tokio-util",
  "url",
  "webbrowser",
+ "windows",
  "windows-sys 0.61.2",
 ]
 

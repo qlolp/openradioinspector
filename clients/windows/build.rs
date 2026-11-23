@@ -19,6 +19,7 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "local_node",
+            "choose_local_archive_directory",
             "connect_node",
             "pair_node",
             "revoke_pairing",

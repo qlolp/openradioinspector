@@ -38,6 +38,7 @@ struct NativeMonitoringLifecycle: View {
                     await workspace.refreshStatus()
                     await workspace.pollSignalEvents()
                     await workspace.pollAlerts()
+                    await workspace.refreshDuty()
                     if workspace.search["active"].bool == true || workspace.coverage == "restoring" {
                         await workspace.refreshSearch()
                     }
@@ -48,7 +49,7 @@ struct NativeMonitoringLifecycle: View {
             }
             .onChange(of: PlatformExactID(workspace.project["active_session_id"].text)) { _, id in
                 if let next = sessionFollow.sessionToFollow(endpoint: endpoint, projectID: workspace.selected,
-                                                           activeSessionID: id.rawValue), !model.isStandaloneRFExplorer {
+                                                           activeSessionID: id.rawValue), (!model.isStandaloneRFExplorer || workspace.includesSession(model.selectedSessionID)) {
                     model.selectSession(next)
                     Task { await model.reloadSessions() }
                 }

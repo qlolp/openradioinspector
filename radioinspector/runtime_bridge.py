@@ -41,7 +41,8 @@ def _safe_path(path: Path) -> None:
             metadata = ancestor.lstat()
         except FileNotFoundError:
             continue
-        if stat.S_ISLNK(metadata.st_mode):
+        if (stat.S_ISLNK(metadata.st_mode)
+                or getattr(metadata, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
             raise RuntimeBridgeError(500, 'runtime_unsafe_path')
         if os.name != 'nt' and stat.S_ISDIR(metadata.st_mode):
             if metadata.st_mode & 0o022 and not metadata.st_mode & stat.S_ISVTX:
@@ -97,6 +98,73 @@ def _writer_lease(data_directory: Path):
         lease.close()
         raise
     return lease
+
+
+class _ArchiveLeases:
+    def __init__(self, node, storage):
+        self.node = node
+        self.storage = storage
+
+    @property
+    def closed(self):
+        return self.node.closed and self.storage.closed
+
+    def close(self):
+        self.storage.close()
+        self.node.close()
+
+
+def _local_selection(path, limit):
+    _safe_path(path)
+    _private(path.lstat())
+    with path.open('rb') as source:
+        raw = source.read(limit + 1)
+    if len(raw) > limit:
+        raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
+    try:
+        value = json.loads(raw)
+    except (ValueError, UnicodeError) as error:
+        raise RuntimeBridgeError(500, 'runtime_invalid_archive_location') from error
+    if not isinstance(value, dict) or type(value.get('version')) is not int or value['version'] != 1:
+        raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
+    return value
+
+
+def _open_archive_writer(directory, database):
+    """Follow the supervisor selection under the same two writer locks as Rust."""
+    lease = _writer_lease(directory)
+    try:
+        marker = directory / '.ori-runtime' / 'archive-location.json'
+        if database != directory / 'sessions.sqlite3':
+            return lease, database
+        try:
+            marker.lstat()
+        except FileNotFoundError:
+            return lease, database
+        selected = _local_selection(marker, 8192)
+        identifier = selected.get('id')
+        if (set(selected) != {'directory', 'id', 'version'} or not isinstance(identifier, str)
+                or len(identifier) != 64 or any(c not in '0123456789abcdef' for c in identifier)
+                or not isinstance(selected['directory'], str)):
+            raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
+        storage = Path(selected['directory'])
+        _safe_path(storage)
+        if storage == directory:
+            raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
+        _private((storage / '.ori-runtime').lstat(), directory=True)
+        owner = _local_selection(storage / '.ori-runtime' / 'archive-owner.json', 1024)
+        if owner != {'id': identifier, 'version': 1}:
+            raise RuntimeBridgeError(500, 'runtime_invalid_archive_location')
+        target = storage / 'sessions.sqlite3'
+        _safe_path(target)
+        before = target.lstat()
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise RuntimeBridgeError(500, 'runtime_unsafe_path')
+        storage_lease = _writer_lease(storage)
+        return _ArchiveLeases(lease, storage_lease), target
+    except BaseException:
+        lease.close()
+        raise
 
 
 def _shutdown_payload(value):
@@ -160,12 +228,15 @@ class RuntimeBridge:
             if database.exists() and database.stat().st_nlink != 1:
                 raise RuntimeBridgeError(500, 'runtime_unsafe_path')
         try:
-            lease = _writer_lease(directory)
+            lease, database = _open_archive_writer(directory, database)
         except OSError as error:
             raise RuntimeBridgeError(500, 'runtime_writer_unavailable') from error
-        return cls(token, instance, directory, lease)
+        result = cls(token, instance, directory, lease)
+        result.database_path = database
+        return result
 
     def __init__(self, token, instance, directory, lease):
+        self.database_path = None
         self._token, self._instance = token, instance
         self.data_directory = directory
         self._lease = lease

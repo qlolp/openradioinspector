@@ -295,6 +295,77 @@ if os.name == "posix" and sys.platform in ("linux", "darwin"):
                 if owner is not None and owner.directory.exists():
                     owner.stop(2)
 
+        if sys.platform.startswith("linux"):
+            def test_partial_wakeup_keeps_independent_recovery_record_responsive(self):
+                import array
+                import fcntl
+                import termios
+                import time
+
+                with tempfile.TemporaryDirectory(prefix="ori-owner-wake-") as temporary:
+                    root = Path(temporary)
+                    with (root / "anchor.log").open("w") as log:
+                        owner = release.process_ownership.OwnedCommand.start(
+                            [sys.executable, "-c", "import time; time.sleep(30)"],
+                            environment=release.child_environment(), registry=root, root=release.ROOT,
+                            log=log, shutdown_timeout=3,
+                        )
+                        try:
+                            ready_by = time.monotonic() + 5
+                            while owner.status() is None and time.monotonic() < ready_by:
+                                time.sleep(.01)
+                            self.assertEqual(owner.status()["phase"], "running")
+                            writer = owner.process.stdin
+                            writer.write(b"wa")
+                            writer.flush()
+                            pending = array.array("i", [2])
+                            while pending[0] and time.monotonic() < ready_by:
+                                fcntl.ioctl(writer.fileno(), termios.FIONREAD, pending, True)
+                                if pending[0]:
+                                    time.sleep(.01)
+                            self.assertEqual(pending[0], 0, "the anchor must have consumed the fragment")
+                            # An independent recoverer can publish a control record
+                            # even when it has no copy of the original parent's pipe.
+                            peer = release.process_ownership.OwnedCommand(owner.directory)
+                            peer.process = None
+                            deadline = time.monotonic() + 2
+                            serial = peer.request("cancel", deadline)
+                            while time.monotonic() < deadline:
+                                status = owner.status()
+                                if status["phase"] == "quiescent" and status["control_serial"] == serial:
+                                    break
+                                time.sleep(.01)
+                            else:
+                                self.fail("the partial wake blocked the private cancellation record")
+                        finally:
+                            owner.process.stdin.write(b"ke\n")
+                            owner.process.stdin.flush()
+                            owner.stop(5)
+
+            def test_verified_cli_anchor_exits_at_release_and_target_finalizers_complete(self):
+                with tempfile.TemporaryDirectory(prefix="ori-owner-exit-") as temporary:
+                    root = Path(temporary)
+                    loaded = root / "anchor-loaded"
+                    finalized = root / "anchor-finalized"
+                    (root / "sitecustomize.py").write_text(textwrap.dedent(f"""\
+                        import atexit, sys
+                        from pathlib import Path
+                        if "--_session-owner" in sys.argv:
+                            Path({str(loaded)!r}).touch()
+                            atexit.register(Path({str(finalized)!r}).touch)
+                        """), encoding="utf-8")
+                    environment = release.child_environment()
+                    environment["PYTHONPATH"] = str(root) + os.pathsep + environment["PYTHONPATH"]
+                    with redirect_stdout(io.StringIO()):
+                        output = release.run_command(
+                            [sys.executable, "-c", "import atexit; atexit.register(print, 'target finalized')"],
+                            name="verified-anchor-exit", environment=environment,
+                            directory=root, timeout=5, shutdown_timeout=2,
+                        )
+                    self.assertTrue(loaded.is_file(), "the real CLI anchor must load the fixture")
+                    self.assertIn("target finalized", output)
+                    self.assertFalse(finalized.exists(), "the released helper ran interpreter finalizers")
+
         def test_actual_child_keeps_stdin_eof_and_negative_signal_exit(self):
             with tempfile.TemporaryDirectory(prefix="ori-owner-contract-") as temporary:
                 registry = Path(temporary)

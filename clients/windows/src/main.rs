@@ -1,4 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+#[cfg(any(windows, test))]
+mod archive_folder;
 #[cfg(not(windows))]
 fn main() {
     eprintln!("The native wrapper is built on Windows. Portable bridge tests run on all hosts.");
@@ -23,7 +25,10 @@ mod desktop {
         epoch: u64,
     }
     #[derive(Default)]
-    struct State(Mutex<Runtime>);
+    struct State {
+        runtime: Mutex<Runtime>,
+        archive_picker: tokio::sync::Mutex<()>,
+    }
     struct Stream {
         id: String,
         cancel: CancellationToken,
@@ -40,6 +45,140 @@ mod desktop {
         }
     }
 
+    fn supervisor_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+        Ok(app
+            .path()
+            .resource_dir()
+            .map_err(|_| "Installed runtime unavailable")?
+            .join("runtime")
+            .join("ori-supervisor.exe"))
+    }
+
+    impl Runtime {
+        fn archive_access(&self, epoch: u64) -> Result<(), String> {
+            super::archive_folder::check_connection(
+                self.bridge.as_ref().map(Bridge::legacy_url),
+                epoch,
+                self.epoch,
+            )
+        }
+    }
+
+    // Native IPC receives neither a filesystem path nor a command line. The
+    // short lock binds process launch to the captured origin and generation.
+    async fn archive_helper(
+        app: &tauri::AppHandle,
+        epoch: u64,
+        args: Vec<std::ffi::OsString>,
+    ) -> Result<Vec<u8>, String> {
+        use std::{
+            os::windows::process::CommandExt,
+            process::{Command, Stdio},
+        };
+        let helper = supervisor_path(app)?;
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = app.state::<State>();
+            let child = {
+                let runtime = state
+                    .runtime
+                    .lock()
+                    .map_err(|_| "Native state unavailable")?;
+                runtime.archive_access(epoch)?;
+                Command::new(helper)
+                    .args(args)
+                    .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .map_err(|_| "Could not launch the installed Windows supervisor")?
+            };
+            let output = child
+                .wait_with_output()
+                .map_err(|_| "Windows supervisor request interrupted")?;
+            state
+                .runtime
+                .lock()
+                .map_err(|_| "Native state unavailable")?
+                .archive_access(epoch)?;
+            if !output.status.success() {
+                let reason = String::from_utf8_lossy(&output.stderr);
+                if reason.contains("resource is already owned") {
+                    return Err(
+                        "Stop the local Windows node before choosing its archive folder.".into(),
+                    );
+                }
+                return Err(reason.trim().chars().take(1024).collect());
+            }
+            Ok(output.stdout)
+        })
+        .await
+        .map_err(|_| "Windows supervisor request interrupted")?
+    }
+
+    #[tauri::command]
+    async fn choose_local_archive_directory(
+        app: tauri::AppHandle,
+        window: tauri::WebviewWindow,
+        state: tauri::State<'_, State>,
+    ) -> Result<Option<String>, String> {
+        use super::archive_folder;
+        let _selection = state
+            .archive_picker
+            .try_lock()
+            .map_err(|_| "Archive folder selection is already open.")?;
+        let epoch = {
+            let runtime = state
+                .runtime
+                .lock()
+                .map_err(|_| "Native state unavailable")?;
+            runtime.archive_access(runtime.epoch)?;
+            runtime.epoch
+        };
+        let target = archive_helper(
+            &app,
+            epoch,
+            vec!["windows-node".into(), "archive-target".into()],
+        )
+        .await?;
+        let node = archive_folder::archive_target(&target)?;
+        let (answer, selected) = tokio::sync::oneshot::channel();
+        let owner = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let result = (|| {
+                    let state = owner.state::<State>();
+                    state
+                        .runtime
+                        .lock()
+                        .map_err(|_| "Native state unavailable")?
+                        .archive_access(epoch)?;
+                    let hwnd = owner
+                        .hwnd()
+                        .map_err(|_| "Windows application window unavailable")?;
+                    archive_folder::choose(hwnd).map_err(|error| {
+                        format!("Windows could not open the folder chooser: {error}")
+                    })
+                })();
+                let _ = answer.send(result);
+            })
+            .map_err(|_| "Windows application window unavailable")?;
+        let Some(parent) = selected
+            .await
+            .map_err(|_| "Archive folder selection interrupted")??
+        else {
+            return Ok(None);
+        };
+        let directory = archive_folder::destination(&parent)?;
+        let args = archive_folder::relocation_arguments(&node, &directory)
+            .into_iter()
+            .map(std::ffi::OsStr::to_os_string)
+            .collect();
+        let receipt = archive_helper(&app, epoch, args).await?;
+        Ok(Some(archive_folder::confirm(&receipt, &directory)?))
+    }
+
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "snake_case")]
     enum LocalAction {
@@ -54,12 +193,7 @@ mod desktop {
             os::windows::process::CommandExt,
             process::{Command, Stdio},
         };
-        let helper = app
-            .path()
-            .resource_dir()
-            .map_err(|_| "Installed runtime unavailable")?
-            .join("runtime")
-            .join("ori-supervisor.exe");
+        let helper = supervisor_path(&app)?;
         let command = match action {
             LocalAction::Start => "start",
             LocalAction::Shutdown => "shutdown",
@@ -97,7 +231,7 @@ mod desktop {
         let bridge = Bridge::new(&node, &token)?;
         let mut runtime = state
             .inner()
-            .0
+            .runtime
             .lock()
             .map_err(|_| "Native state unavailable")?;
         runtime.stop();
@@ -114,7 +248,7 @@ mod desktop {
         let (bridge, epoch) = {
             let runtime = state
                 .inner()
-                .0
+                .runtime
                 .lock()
                 .map_err(|_| "Native state unavailable")?;
             (
@@ -126,7 +260,7 @@ mod desktop {
         let saved = {
             let mut runtime = state
                 .inner()
-                .0
+                .runtime
                 .lock()
                 .map_err(|_| "Native state unavailable")?;
             if runtime.epoch != epoch {
@@ -156,7 +290,7 @@ mod desktop {
         let bridge = {
             let mut runtime = state
                 .inner()
-                .0
+                .runtime
                 .lock()
                 .map_err(|_| "Native state unavailable")?;
             let bridge = runtime.bridge.clone().ok_or("Connect a core node first")?;
@@ -192,7 +326,7 @@ mod desktop {
         let (bridge, cancel, epoch) = {
             let mut runtime = state
                 .inner()
-                .0
+                .runtime
                 .lock()
                 .map_err(|_| "Native state unavailable")?;
             if runtime.requests.len() >= 16 || runtime.requests.contains_key(&request_id) {
@@ -204,7 +338,7 @@ mod desktop {
             (bridge, cancel, runtime.epoch)
         };
         let result = tokio::select! { _ = cancel.cancelled() => Err("Request cancelled".into()), result = bridge.request(&path, body, audio) => result };
-        if let Ok(mut runtime) = state.inner().0.lock()
+        if let Ok(mut runtime) = state.inner().runtime.lock()
             && runtime.epoch == epoch
         {
             runtime.requests.remove(&request_id);
@@ -218,7 +352,7 @@ mod desktop {
     ) -> Result<(), String> {
         let runtime = state
             .inner()
-            .0
+            .runtime
             .lock()
             .map_err(|_| "Native state unavailable")?;
         if let Some(cancel) = runtime.requests.get(&request_id) {
@@ -251,7 +385,7 @@ mod desktop {
         let (bridge, cancel) = {
             let mut runtime = state
                 .inner()
-                .0
+                .runtime
                 .lock()
                 .map_err(|_| "Native state unavailable")?;
             let bridge = runtime.bridge.clone().ok_or("Connect a core node first")?;
@@ -297,7 +431,7 @@ mod desktop {
     async fn stop_events(state: tauri::State<'_, State>, stream_id: String) -> Result<(), String> {
         let mut runtime = state
             .inner()
-            .0
+            .runtime
             .lock()
             .map_err(|_| "Native state unavailable")?;
         if runtime
@@ -317,7 +451,7 @@ mod desktop {
     ) -> Result<(), String> {
         let runtime = state
             .inner()
-            .0
+            .runtime
             .lock()
             .map_err(|_| "Native state unavailable")?;
         let stream = runtime
@@ -331,7 +465,7 @@ mod desktop {
     async fn open_legacy(state: tauri::State<'_, State>) -> Result<(), String> {
         let url = state
             .inner()
-            .0
+            .runtime
             .lock()
             .map_err(|_| "Native state unavailable")?
             .bridge
@@ -346,6 +480,7 @@ mod desktop {
             .manage(State::default())
             .invoke_handler(tauri::generate_handler![
                 local_node,
+                choose_local_archive_directory,
                 connect_node,
                 pair_node,
                 revoke_pairing,
@@ -377,9 +512,10 @@ mod desktop {
             })
             .on_window_event(|window, event| {
                 if matches!(event, tauri::WindowEvent::Destroyed)
-                    && let Ok(mut runtime) = window.state::<State>().inner().0.lock()
+                    && let Ok(mut runtime) = window.state::<State>().inner().runtime.lock()
                 {
                     runtime.stop();
+                    runtime.epoch += 1;
                 }
             })
             .run(tauri::generate_context!())

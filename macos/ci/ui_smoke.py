@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 CASES = {
     'testNavigationPreservesSessionAndCoreConnection',
     'testPreparationRejectsDuplicatePortsAndAmbiguousFrequency',
+    'testFirstDutyOffersThreeIndependentSources',
     'testReplayFixtureCannotBePresentedAsLiveHardwarePreparation',
     'testArchiveOpensOriginalSpectrumAndMarksHistory',
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
@@ -116,7 +117,8 @@ def publish_training_window(data, filename, destination):
     if data[:16] != b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR':
         raise ValueError('The training window attachment is not a PNG')
     width, height = struct.unpack('>II', data[16:24])
-    if width < 920 or height < 580:
+    minimum_width = 700 if filename == 'macos-first-duty-ardv1.png' else 920
+    if width < minimum_width or height < 580:
         raise ValueError('Training application window is too small')
     (destination / filename).write_bytes(data)
     return dict(width=width, height=height, sha256=hashlib.sha256(data).hexdigest())
@@ -125,19 +127,24 @@ def publish_training_window(data, filename, destination):
 def collect_training_images(directory, destination):
     sources = {}
     uuid_pattern = r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
-    suggested = re.compile(rf'(macos-monitoring|macos-event)(?:_[0-9]+_{uuid_pattern})?\.png')
+    names = {'testTrainingWindowCaptures': {'macos-monitoring', 'macos-event'},
+             'testFirstDutyOffersThreeIndependentSources': {'macos-first-duty-ardv1'}}
+    required = {label + '.png' for label in names['testTrainingWindowCaptures']}
+    suggested = re.compile(rf'([a-z0-9-]+)(?:_[0-9]+_{uuid_pattern})?\.png')
     export_id = re.compile(rf'{uuid_pattern}\.png')
     manifest = json.loads((directory / 'manifest.json').read_bytes())
     for test in manifest:
-        if not re.fullmatch(r'(?:DvoynoyObzorUITests[./])?WorkbenchUITests/testTrainingWindowCaptures(?:\(\))?',
-                            test['testIdentifier']):
+        case = re.fullmatch(r'(?:DvoynoyObzorUITests[./])?WorkbenchUITests/(test\w+)(?:\(\))?', test['testIdentifier'])
+        if not case or case[1] not in names:
             continue
+        expected = names[case[1]]
+        required.update(label + '.png' for label in expected)
         for item in test['attachments']:
             if item['isAssociatedWithFailure'] is not False:
                 continue
             name = item['suggestedHumanReadableName']
             match = suggested.fullmatch(name)
-            if match is None:
+            if match is None or match.group(1) not in expected:
                 continue
             filename = match.group(1) + '.png'
             exported = item['exportedFileName']
@@ -151,7 +158,7 @@ def collect_training_images(directory, destination):
             if filename in sources or path in sources.values():
                 raise ValueError('Duplicate training screenshot')
             sources[filename] = path
-    if set(sources) != {'macos-monitoring.png', 'macos-event.png'}:
+    if set(sources) != required:
         raise ValueError('Missing named training window screenshots')
     return {name: publish_training_window(path.read_bytes(), name, destination) for name, path in sources.items()}
 
@@ -223,7 +230,10 @@ def main(argv=None):
                 raise ValueError(receipt.get('error', 'Training window capture did not complete'))
             report['capture'] = 'ScreenCaptureKit.currentProcess'
             report['images'] = {}
-            for filename in ('macos-monitoring.png', 'macos-event.png'):
+            names = ['macos-monitoring.png', 'macos-event.png']
+            if receipt.get('first_duty') == 'macos-first-duty-ardv1.png':
+                names.append('macos-first-duty-ardv1.png')
+            for filename in names:
                 report['images'][filename] = publish_training_window((output / filename).read_bytes(), filename, root)
         else:
             runs = list((derived / 'Build/Products').glob('*.xctestrun'))

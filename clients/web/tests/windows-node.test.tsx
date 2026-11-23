@@ -63,11 +63,15 @@ it('starts the bundled node on explicit local selection and stops it only on ope
 });
 
 it('connects to a remote node and closes the UI without sending local controls', async () => {
-  const native = transport('lan_tls');
+  const pick = vi.fn();
+  const native = { ...transport('lan_tls'), chooseLocalArchiveDirectory: pick };
   await act(() => root.render(createElement(ConnectionGate, { transport: native })));
   await act(() => element.querySelector('form')!.requestSubmit());
   expect(native.connect).toHaveBeenCalledWith('https://radio.local:8770');
   expect(button('Settings')).toBeDefined();
+  await act(() => button('Settings').click());
+  expect(button('Choose local archive folder')).toBeUndefined();
+  expect(pick).not.toHaveBeenCalled();
   await act(() => root.render(null));
   expect(native.localNode).not.toHaveBeenCalled();
 });
@@ -78,4 +82,26 @@ it('keeps local monitoring active when its window unmounts', async () => {
   await act(() => button('Connect to the local node').click());
   await act(() => root.render(null));
   expect(native.localNode.mock.calls).toEqual([['start']]);
+});
+
+it('chooses a local archive before startup, preserves the selection on cancellation and requires explicit shutdown before moving it', async () => {
+  const pick = vi
+    .fn<() => Promise<string | null>>()
+    .mockResolvedValueOnce('D:/OpenRadioInspector Archive')
+    .mockResolvedValueOnce(null);
+  const native = { ...transport('legacy_loopback'), chooseLocalArchiveDirectory: pick };
+  await act(() => root.render(createElement(ConnectionGate, { transport: native })));
+  expect(button('Choose local archive folder')).toBeDefined();
+  await act(() => button('Choose local archive folder').click());
+  expect(element.textContent).toContain('D:/OpenRadioInspector Archive');
+  await act(() => button('Choose local archive folder').click());
+  expect(element.textContent).toContain('D:/OpenRadioInspector Archive');
+  expect(native.localNode).not.toHaveBeenCalled();
+  await act(() => button('Connect to the local node').click());
+  await act(() => element.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+  await act(() => button('Continue with legacy loopback core').click());
+  await act(() => button('Settings').click());
+  expect(button('Choose local archive folder')).toBeUndefined();
+  await act(() => button('Stop local node and monitoring').click());
+  expect(button('Choose local archive folder')).toBeDefined();
 });

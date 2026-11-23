@@ -1076,6 +1076,9 @@ def _compare_traces(reference,candidate):
     return results
 
 
+MAX_REVIEWED_SOURCE_SNAPSHOTS = 16
+
+
 def approved_source_snapshot(source_root, inventory):
     """Match one complete route/support map, never combine per-file revisions."""
     baseline=inventory["source_sha256"]
@@ -1090,7 +1093,7 @@ def approved_source_snapshot(source_root, inventory):
         raise ProtocolError("Invalid reviewed source path")
     snapshots=[{"revision":inventory["python_source_revision"],"source_sha256":original}]
     additional=inventory.get("approved_source_snapshots",[])
-    if not isinstance(additional,list) or len(additional)>10:
+    if not isinstance(additional,list) or len(additional)>MAX_REVIEWED_SOURCE_SNAPSHOTS:
         raise ProtocolError("Invalid reviewed source snapshots")
     snapshots += additional
     for snapshot in snapshots:

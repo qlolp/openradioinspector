@@ -1,7 +1,7 @@
 """Loopback producer socket regressions using the ordinary ingest and verification routes."""
 from __future__ import annotations
 
-from contextlib import contextmanager, ExitStack
+from contextlib import closing, contextmanager, ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import errno
@@ -38,6 +38,113 @@ def serving(handler):
 
 
 class ProducerConnectTests(unittest.TestCase):
+    def test_busy_worker_reports_queue_http_and_canonical_verification_separately(self):
+        from benchmarks.ori_bench import ledger as ledger_module, runner
+        from benchmarks.ori_bench.metrics import Histogram
+
+        first_in_http = threading.Event()
+        second_in_queue = threading.Event()
+        now_ns = 1_000_000_000
+
+        def advance(ms):
+            nonlocal now_ns
+            now_ns += ms * 1_000_000
+
+        clock = SimpleNamespace(monotonic_ns=lambda: now_ns, time_ns=time.time_ns,
+                                monotonic=time.monotonic, sleep=time.sleep)
+        def schedule(config):
+            yield 0, 'observation', 0
+            self.assertTrue(first_in_http.wait(3))
+            yield 0, 'observation', 1
+            second_in_queue.set()
+
+        http = Client.json
+        def response(client, path, **kwargs):
+            value = http(client, path, **kwargs)
+            if kwargs['payload']['items'][0]['metadata']['benchmark_index'] == 0:
+                first_in_http.set()
+                self.assertTrue(second_in_queue.wait(3))
+                advance(40)
+            else:
+                advance(7)
+            return value
+
+        def prepare(config, index):
+            advance(2)
+            return observation(config, index)
+
+        def checking(kind, value):
+            advance(3)
+            return original_hash(kind, value)
+
+        with tempfile.TemporaryDirectory() as folder, http_fixture(Path(folder) / 'peer') as (_, url), \
+                closing(ledger_module.Ledger(Path(folder) / 'offers.sqlite')) as ledger:
+            config = Config(url, Path(folder), workers=1, queue_capacity=2)
+            original_status = ledger.status
+            original_hash = runner.measurement_hash
+            def record_outcome(*args):
+                advance(11)
+                return original_status(*args)
+
+            histograms = {name: Histogram() for name in runner.LATENCIES}
+            with patch.object(runner, 'time', clock), patch.object(ledger_module, 'time', clock), \
+                    patch.object(runner, 'scheduled', schedule), patch.object(runner, 'observation', prepare), \
+                    patch.object(Client, 'json', response), patch.object(ledger, 'status', record_outcome), \
+                    patch.object(runner, 'measurement_hash', checking):
+                runner.run_load(config, ledger, histograms)
+            result = {key: item.report() for key, item in histograms.items()}
+        for key, minimum, maximum in (
+            ('producer_queue_wait_ms', 0, 57), ('offered_to_request_ms', 2, 59),
+            ('request_to_response_ms', 7, 40), ('ack_verification_ms', 6, 6),
+            ('request_ms', 24, 57), ('offered_to_ack_ms', 59, 83)):
+            with self.subTest(key=key):
+                self.assertIn(key, result)
+                self.assertEqual((result[key]['count'], result[key]['min_ms'], result[key]['max_ms']),
+                                 (2, minimum, maximum))
+
+    def test_cancelled_dequeue_and_full_queue_do_not_contribute_http_stages(self):
+        from benchmarks.ori_bench import runner
+        from benchmarks.ori_bench.ledger import Ledger
+        from benchmarks.ori_bench.metrics import Histogram
+
+        in_request = threading.Event()
+        joining_worker = threading.Event()
+        class Worker(threading.Thread):
+            def join(self, timeout=None):
+                # run_load joins after its drain deadline has cancelled the pending item.
+                joining_worker.set()
+                return super().join(timeout)
+
+        def schedule(config):
+            yield 0, 'observation', 0
+            self.assertTrue(in_request.wait(3))
+            yield 0, 'observation', 1
+            yield 0, 'observation', 2
+
+        http = Client.json
+        def withhold_response(client, *args, **kwargs):
+            result = http(client, *args, **kwargs)
+            in_request.set()
+            self.assertTrue(joining_worker.wait(3))
+            return result
+
+        with tempfile.TemporaryDirectory() as folder, http_fixture(Path(folder) / 'peer') as (_, url), \
+                closing(Ledger(Path(folder) / 'offers.sqlite')) as ledger:
+            config = Config(url, Path(folder), workers=1, queue_capacity=1, drain_seconds=.01)
+            histograms = {name: Histogram() for name in runner.LATENCIES}
+            with patch.object(runner, 'threading', SimpleNamespace(Thread=Worker, Event=threading.Event)), \
+                    patch.object(runner, 'scheduled', schedule), patch.object(Client, 'json', withhold_response):
+                runner.run_load(config, ledger, histograms)
+            counts = ledger.counts()['observation']
+        self.assertEqual((counts['offered'], counts['acknowledged'], counts['cancelled'], counts['queue_dropped']),
+                         (3, 1, 1, 1))
+        for name, count in (('producer_queue_wait_ms', 2), ('offered_to_request_ms', 1),
+                            ('request_to_response_ms', 1), ('ack_verification_ms', 1),
+                            ('offered_to_ack_ms', 1), ('request_ms', 1)):
+            with self.subTest(name=name):
+                self.assertIn(name, histograms)
+                self.assertEqual(histograms[name].count, count)
+
     def test_buffer_exhaustion_before_http_write_posts_original_observation_once(self):
         connect = socket.socket.connect
         sockets = []

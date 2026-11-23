@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 from tools.modernization.api_parity import (
-    HTTPResult, NodeSpec, OwnedNode, ProtocolError, approved_source_snapshot, compare_http, compare_value, execute_cases, load_json, probe_cli, run_parity,
+    MAX_REVIEWED_SOURCE_SNAPSHOTS, HTTPResult, NodeSpec, OwnedNode, ProtocolError, approved_source_snapshot, compare_http, compare_value, execute_cases, load_json, probe_cli, run_parity,
 )
 
 
@@ -20,12 +20,13 @@ class ExactWireTests(unittest.TestCase):
             root = Path(directory)
             (root / 'route.py').write_bytes(b'current reviewed route')
             digest = hashlib.sha256(b'current reviewed route').hexdigest()
+            limit = MAX_REVIEWED_SOURCE_SNAPSHOTS
             history = [{'revision': format(i, '040x'), 'source_sha256': {
-                'route.py': digest if i == 10 else format(i, '064x')}} for i in range(1, 11)]
+                'route.py': digest if i == limit else format(i, '064x')}} for i in range(1, limit + 1)]
             inventory = {'python_source_revision': 'a'*40, 'source_sha256': {'route.py': '0'*64},
                          'approved_source_snapshots': history}
             self.assertEqual(approved_source_snapshot(root, inventory),
-                             (format(10, '040x'), {'route.py': digest}))
+                             (format(limit, '040x'), {'route.py': digest}))
             inventory['approved_source_snapshots'] = history + [history[-1]]
             with self.assertRaises(ProtocolError):
                 approved_source_snapshot(root, inventory)

@@ -385,6 +385,39 @@ class WindowsReleaseFlowTests(unittest.TestCase):
         self.assertFalse(self.app._archive_export_dialog_open)
         self.assertEqual(self.executor.jobs, [])
 
+    def test_export_reports_failed_session_check_and_preserves_previous_file(self):
+        from tkinter import filedialog
+        from radioinspector.session_service import SessionNotFoundError
+        from tests.test_archive_export import HttpNode
+        from tests.test_persistence import sweep_payload
+        from tests.test_platform import session_payload
+
+        with tempfile.TemporaryDirectory() as temporary:
+            node = HttpNode(str(Path(temporary) / "archive.sqlite"))
+            try:
+                session = node.service.create_session(session_payload())
+                node.service.ingest_sweep(sweep_payload(session.id, session.streams[0].id))
+                self.app.client = PlatformClient(node.url)
+                self.app.session_id = session.id
+                self.app._render_controls()
+                destination = Path(temporary) / "archive.ndjson"
+                previous = b'{"previous":"snapshot"}\n'
+                destination.write_bytes(previous)
+
+                # The snapshot route succeeds. Only the subsequent metadata GET returns 404.
+                reason = "Synthetic session metadata unavailable"
+                with patch.object(node.service, "get_session", side_effect=SessionNotFoundError(reason)), \
+                        patch.object(filedialog, "asksaveasfilename", return_value=str(destination)):
+                    self.app.archive_export_button.invoke()
+                    self.finish_action()
+
+                self.assertEqual(destination.read_bytes(), previous)
+                self.assertIn(reason, self.app.archive_export_var.get())
+                self.assertIn("NDJSON не сохранён", self.app.archive_export_var.get())
+                self.assertFalse(self.app._action_running)
+            finally:
+                node.stop()
+
     def test_actual_form_and_export_with_synthetic_http_and_temporary_files(self):
         from tkinter import filedialog
         from radioinspector.session_service import SessionService
@@ -426,10 +459,11 @@ class WindowsReleaseFlowTests(unittest.TestCase):
                     self.app.archive_export_button.invoke()
                 self.assertEqual(len(self.executor.jobs), 1)
                 self.finish_action()
+                self.assertIn("NDJSON сохранён: 1 sweeps, 1 observations",
+                              self.app.archive_export_var.get(), self.app.action_var.get())
                 exported = destination.read_text(encoding="utf-8")
                 self.assertIn('"level_unit":"dBm"', exported)
                 self.assertIn('"level_unit":"s_meter_count"', exported)
-                self.assertIn("NDJSON сохранён: 1 sweeps, 1 observations", self.app.archive_export_var.get())
                 self.assertEqual(service.health(), before)
             finally:
                 server.automatic_detection.close()

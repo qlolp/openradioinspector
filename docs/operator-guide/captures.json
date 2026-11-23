@@ -322,6 +322,48 @@
           "scenario": "Offline synthetic field session with a four-point spectrum, receiver observation in s_meter_count, GPS, note and receiver gap."
         }
       ]
+    },
+    {
+      "client": "WebUI · standalone receiver duty",
+      "host": "Debian GNU/Linux 13, x86-64",
+      "browser": "Chromium 156.0.8078.79, Playwright 1.65.0",
+      "source": "clients/web/e2e/duty.spec.ts: synthetic receiver fixture, six stored passes",
+      "capture": "Playwright screenshot of running WebUI in Russian, no image editing",
+      "source_revision": "e49ea3a73b8a58165c78b68785816d1e28e19632",
+      "captures": [
+        {
+          "file": "images/three-source-duty-web.png",
+          "sha256": "a835ab116c48d77f72c3465f8b0e49661c768d4d1e0fe576f6b12d7b34f55d66",
+          "pixels": [
+            1440,
+            1000
+          ],
+          "device_scale_factor": 1,
+          "theme": "system",
+          "scenario": "Six synthetic receiver passes, seven measured of nine frequencies, two exact coverage gaps"
+        }
+      ]
+    },
+    {
+      "client": "OpenRadioInspector native SwiftUI · standalone receiver duty",
+      "host": "GitHub Actions macOS arm64, Xcode 27.2",
+      "source": "tests.ui_smoke_server; synthetic read-only training fixture",
+      "source_revision": "9ba6a14b83030a0e0cea8af8301ddd731dae16ed",
+      "native_sha256": "e750b8e8c8ba591c338920d10a20aef9a7640d6f7ff7963d7578bca96fa29b3d",
+      "capture": "WorkbenchUITests/testFirstDutyOffersThreeIndependentSources, window-only XCUITest attachment, verified against native-ui-diagnostics/report.json",
+      "workflow_job": "https://github.com/qlolp/openradioinspector/actions/runs/45166455887/job/137664549794",
+      "captures": [
+        {
+          "file": "images/macos-first-duty-ardv1.png",
+          "sha256": "3dcb372d7392e1b7df9c94bb20c31fbbc8d0da16677b63473c4d54a6aac10173",
+          "pixels": [
+            740,
+            605
+          ],
+          "theme": "light",
+          "scenario": "Russian first-duty wizard, AOR AR-DV1, full 0.1–1300 MHz grid, step 10 kHz, 129991 points before opening a receiver."
+        }
+      ]
     }
   ]
 }

@@ -122,3 +122,125 @@ describe('v1 client boundary', () => {
     ).toThrow(/port/i);
   });
 });
+
+const physical = {
+  name: 'Receive duty',
+  simulator: false,
+  analyzerPort: 'COM3',
+  receiverPort: 'COM4',
+  startHz: 100_000_000,
+  stopHz: 400_000_000,
+  stepHz: 10_000,
+  points: 201,
+  rbwHz: 10_000,
+};
+
+it('uses only the selected source, and adds an independent event receiver only on request', () => {
+  for (const primarySource of ['tinysa', 'rf_explorer', 'ardv1'] as const) {
+    const session = receiveSession({ ...physical, primarySource });
+    expect(session.streams).toHaveLength(1);
+    expect(session.streams[0].settings.adapter).toBe(
+      { tinysa: 'tinysa-serial', rf_explorer: 'rf-explorer-3g-serial', ardv1: 'ardv1-serial' }[
+        primarySource
+      ],
+    );
+    if (primarySource !== 'ardv1') {
+      const checked = receiveSession({ ...physical, primarySource, checkEvents: true });
+      expect(checked.streams.map((s) => s.port)).toEqual(['COM3', 'COM4']);
+      expect(checked.streams[1].settings).not.toHaveProperty('fast_scan');
+      expect(() =>
+        receiveSession({ ...physical, primarySource, checkEvents: true, receiverPort: 'COM3' }),
+      ).toThrow(/port/i);
+    }
+  }
+  expect(
+    receiveSession({ ...physical, primarySource: 'rf_explorer' }).streams[0].settings,
+  ).toMatchObject({
+    start_hz: 100_000_000,
+    stop_hz: 400_000_000,
+    survey_step_hz: 10_000,
+    baud: 500000,
+  });
+});
+
+it('requests a cyclic FM receiver plan without changing the final off-grid frequency', () => {
+  const source = receiveSession({
+    ...physical,
+    primarySource: 'ardv1',
+    startHz: 100_000,
+    stopHz: 1_299_999_990,
+  }).streams[0];
+  expect(source).toMatchObject({
+    role: 'receiver',
+    port: 'COM4',
+    level_unit: 's_meter_count',
+    settings: {
+      adapter: 'ardv1-serial',
+      receiver_profile: 'ardv1-monitor-v1',
+      frequency_hz: 100_000,
+      mode: 'FM',
+      period_s: 0,
+      fast_scan: {
+        start_hz: 100_000,
+        stop_hz: 1_299_999_990,
+        step_hz: 10_000,
+        settle_s: 0.015,
+        strategy: 'auto',
+        cyclic: true,
+      },
+    },
+  });
+  for (const override of [
+    { startHz: 99_990 },
+    { stopHz: 1_300_000_010 },
+    { stepHz: 10 },
+    { stepHz: 9_999 },
+    { stopHz: 400_000_001 },
+    { receiverPort: 'sim://unit' },
+    { checkEvents: true },
+  ]) {
+    expect(() => receiveSession({ ...physical, primarySource: 'ardv1', ...override })).toThrow();
+  }
+});
+
+it('counts the inclusive receiver edge at full range and on a partial final step', async () => {
+  const { receiverGridCount, tinyDutyPlan } = await import('../src/api');
+  expect(receiverGridCount(100_000, 1_300_000_000, 10_000)).toBe(129_991);
+  expect(receiverGridCount(100_000_000, 400_000_000, 10_000)).toBe(30_001);
+  expect(receiverGridCount(100_000_000, 100_015_010, 10_000)).toBe(3);
+  const grid = {
+    ...physical,
+    primarySource: 'tinysa' as const,
+    tinyGrid: true,
+    startHz: 100_000,
+    stopHz: 1_300_000_000,
+  };
+  expect(tinyDutyPlan(grid).bands[0]).toMatchObject({
+    start_hz: 100_000,
+    stop_hz: 1_300_000_000,
+    points: 129_991,
+  });
+  expect(receiveSession(grid).streams[0].settings).toMatchObject({
+    start_hz: 100_000,
+    stop_hz: 2_990_000,
+    points: 290,
+  });
+  expect(() => tinyDutyPlan({ ...grid, stopHz: 1_299_999_990 })).toThrow(/10 kHz/);
+});
+
+it('preserves a requested tinySA single-window step when every endpoint fits the RX profile', () => {
+  const f = {
+    ...physical,
+    primarySource: 'tinysa' as const,
+    startHz: 100000000,
+    stopHz: 101000000,
+    stepHz: 25000,
+  };
+  expect(receiveSession(f).streams[0].settings).toMatchObject({
+    points: 41,
+    start_hz: 100000000,
+    stop_hz: 101000000,
+  });
+  for (const invalid of [{ stopHz: 101001000 }, { stopHz: 111000000 }])
+    expect(() => receiveSession({ ...f, ...invalid })).toThrow();
+});

@@ -73,7 +73,18 @@ pub fn canonical_fingerprint_json(sweep: &Sweep) -> Result<String> {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
     );
-    let settings = stable(&settings)?;
+    let mut settings = stable(&settings)?;
+    if settings["adapter"] == "rf-explorer-3g-serial" {
+        if !crate::rfe::normal_sweep(sweep) {
+            return Err(MonitoringError::InvalidSweep(
+                "RF Explorer Normal readback required",
+            ));
+        }
+        if let Some(survey) = settings.get_mut("survey").and_then(Value::as_object_mut) {
+            survey.remove("pass");
+            survey.remove("pass_id");
+        }
+    }
     python_canonical_json(&json!({"grid":sweep.frequencies_hz,"settings":settings}))
 }
 pub fn fingerprint(sweep: &Sweep) -> Result<String> {

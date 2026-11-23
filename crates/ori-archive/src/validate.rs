@@ -18,6 +18,9 @@ pub(crate) const KINDS: &[&str] = &[
     "scan-window-detector",
     "known-signal",
     "receiver-check",
+    "duty-reference-block",
+    "duty-reference-build",
+    "receiver-point-detector",
     "audio-mark",
 ];
 pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
@@ -590,6 +593,14 @@ pub(crate) fn mutations(values: &mut [Mutation]) -> Result<()> {
                     return Err(invalid("error"));
                 }
             }
+            Mutation::DutyOccurrence(item)
+            | Mutation::TestDutyChannel {
+                occurrence: item, ..
+            } => item.validate()?,
+            Mutation::DisableDutyChannel { project_id, .. } if project_id.is_empty() => {
+                return Err(invalid("duty project"));
+            }
+            Mutation::DisableDutyChannel { .. } => {}
             Mutation::EnqueueNotification(value) => crate::outbox::validate_notification(value)?,
         }
         match mutation {

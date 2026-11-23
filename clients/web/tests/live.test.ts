@@ -480,3 +480,16 @@ it('retains the first and last of 449 physical windows beyond the waterfall ring
     store.dispose();
   }
 });
+
+it('releases an in-flight selection when the primary stream is a receiver', async () => {
+  const { store, deliver, parser } = fixture();
+  await store.start(10);
+  store.selectProject(true);
+  const first = deliver(event(11n, 'another-source'));
+  parser().complete();
+  store.scope('s', '', 'receiver', 's');
+  expect(store.lastApplied()).toBe(11);
+  await first;
+  expect(store.checkpoint()?.rows).toEqual([]);
+  store.dispose();
+});

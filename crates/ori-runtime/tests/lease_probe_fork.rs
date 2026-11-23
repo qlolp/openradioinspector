@@ -1,6 +1,8 @@
 #![cfg(unix)]
 // This deliberate pre-exec pause must have its own process: a peer test's
 // temporary listener reservation could otherwise also be inherited and held.
+#[path = "support/backend_ports.rs"]
+mod backend_ports;
 #[path = "support/backend_python.rs"]
 mod backend_python;
 #[path = "support/fork_before_exec.rs"]
@@ -15,7 +17,6 @@ use std::{
     collections::BTreeMap,
     fs,
     io::{self, Read},
-    net::TcpListener,
     os::unix::fs::PermissionsExt,
     path::Path,
     process::Command,
@@ -48,10 +49,11 @@ fn startup_diagnostics(data: &Path) -> StartupDiagnostics {
 #[tokio::test]
 async fn dropped_writer_probe_cannot_block_start_through_an_unrelated_fork() {
     let temp = tempfile::tempdir().unwrap();
-    let addr = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let addr = backend_ports::address();
+    assert!(
+        !backend_ports::client_ports().contains(&addr.port()),
+        "the fork fixture must keep its backend address outside the TCP client port range"
+    );
     let mut supervisor = Supervisor::new(temp.path()).unwrap();
     let probe = WriterLease::acquire(temp.path()).unwrap();
     let mut unrelated = fork_before_exec::ForkBeforeExec::spawn().unwrap();

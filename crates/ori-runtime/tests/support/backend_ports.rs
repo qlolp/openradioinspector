@@ -93,7 +93,7 @@ pub fn select_from(
     ))
 }
 
-fn client_ports() -> RangeInclusive<u16> {
+pub(super) fn client_ports() -> RangeInclusive<u16> {
     #[cfg(target_os = "linux")]
     let ports = std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range").unwrap();
     #[cfg(not(target_os = "linux"))]

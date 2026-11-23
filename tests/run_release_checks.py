@@ -1295,8 +1295,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         command = json.loads(args._supervise_command)
         if args._session_owner is not None:
-            return process_ownership.supervise_anchor(command, args._session_owner, args.shutdown_timeout,
+            result = process_ownership.supervise_anchor(command, args._session_owner, args.shutdown_timeout,
                 lambda registry, budget, exclude: _cleanup_registry(registry, budget, exclude_session=exclude))
+            if result == 0 and sys.platform.startswith("linux") and __name__ == "__main__":
+                # The separate Linux helper has already verified and published closure.
+                # Its interpreter teardown otherwise consumes the original owner's reap
+                # deadline after the target and all registered children have finished.
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(0)
+            return result
         if os.name == "posix":
             os.execvpe(command[0], command, os.environ)
         return _windows_supervisor_exit_status(subprocess.call(command))

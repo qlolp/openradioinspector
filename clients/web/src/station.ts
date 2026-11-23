@@ -1,5 +1,9 @@
 import { getLocale, t } from './i18n';
-import type { GuardStatus, StorageReport, WorkerStatus } from './types';
+import type { GuardStatus, Preflight, StorageReport, WorkerStatus } from './types';
+
+export function preparationReady(preflight?: Preflight): boolean {
+  return preflight?.preparation_ready ?? preflight?.ready ?? false;
+}
 
 export function formatQuantity(value: number, digits = 1): string {
   return value.toLocaleString(getLocale(), { maximumFractionDigits: digits });
@@ -77,9 +81,12 @@ export function recoveryNotices(guard?: GuardStatus, storage?: StorageReport): R
     result.push({
       kind: 'pause',
       title: 'Broad coverage paused',
-      detail: guard.manual.some((lease) => lease.role === 'analyzer')
-        ? 'Return the analyzer in Research to restore broad coverage.'
-        : 'Check the active search and analyzer ownership in Research.',
+      detail:
+        guard.project.primary_source_kind === 'ardv1'
+          ? 'Return the receiver to the cyclic plan to restore broad coverage.'
+          : guard.manual.some((lease) => lease.role === 'analyzer')
+            ? 'Return the analyzer in Research to restore broad coverage.'
+            : 'Check the active search and analyzer ownership in Research.',
     });
   return result;
 }

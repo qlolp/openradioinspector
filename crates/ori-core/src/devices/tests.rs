@@ -1,6 +1,8 @@
 //! Actual owned byte streams, archive commits and coordinated task races.
 #[path = "acquisition_tests.rs"]
 mod acquisition_health;
+#[path = "cyclic_scan_tests.rs"]
+mod cyclic;
 use super::*;
 use crate::{Core, CoreConfig};
 use std::{
@@ -20,6 +22,7 @@ struct RevocationPoint {
 }
 struct Factory {
     reject_firmware_once: AtomicBool,
+    receiver_id: Mutex<String>,
     reject_exit_once: AtomicBool,
     wrong_rx_at: AtomicUsize,
     opens: AtomicUsize,
@@ -28,6 +31,7 @@ struct Factory {
     pause_open: AtomicBool,
     open_release: Semaphore,
     pause_poll: Arc<AtomicBool>,
+    pause_command: Mutex<String>,
     poll_started: Arc<AtomicUsize>,
     poll_release: Arc<Semaphore>,
     shutdown_failure: bool,
@@ -37,6 +41,7 @@ impl Factory {
     fn new(shutdown_failure: bool) -> Arc<Self> {
         Arc::new(Self {
             reject_firmware_once: AtomicBool::new(false),
+            receiver_id: Mutex::new("SYNTHETIC".into()),
             reject_exit_once: AtomicBool::new(false),
             wrong_rx_at: AtomicUsize::new(0),
             opens: AtomicUsize::new(0),
@@ -45,6 +50,7 @@ impl Factory {
             pause_open: AtomicBool::new(false),
             open_release: Semaphore::new(0),
             pause_poll: Arc::default(),
+            pause_command: Mutex::new("LM".into()),
             poll_started: Arc::default(),
             poll_release: Arc::new(Semaphore::new(0)),
             shutdown_failure,
@@ -107,10 +113,12 @@ impl TransportFactory for Factory {
             let (host, mut device) = tokio::io::duplex(256);
             let commands = self.commands.clone();
             let pause = self.pause_poll.clone();
+            let pause_command = self.pause_command.lock().unwrap().clone();
             let started = self.poll_started.clone();
             let release = self.poll_release.clone();
             let analyzer = stream.role == DeviceRole::SpectrumAnalyzer;
             let wrong_rx_at = self.wrong_rx_at.load(Ordering::Acquire);
+            let receiver_id = self.receiver_id.lock().unwrap().clone();
             let reject_firmware =
                 !analyzer && self.reject_firmware_once.swap(false, Ordering::AcqRel);
             let reject_exit = !analyzer && self.reject_exit_once.swap(false, Ordering::AcqRel);
@@ -132,6 +140,14 @@ impl TransportFactory for Factory {
                     {
                         revoke.permission.store(false, Ordering::Release);
                     }
+                    if command == pause_command && pause.load(Ordering::Acquire) {
+                        started.fetch_add(1, Ordering::AcqRel);
+                        if let Ok(permit) = release.acquire().await {
+                            permit.forget();
+                        } else {
+                            break;
+                        }
+                    }
                     let reply = if analyzer {
                         let body = match command.as_str() {
                             "info" => "tinySA Ultra ZS405\r\n".to_owned(),
@@ -150,18 +166,8 @@ impl TransportFactory for Factory {
                             "VR" if reject_firmware => "60?\r\n".into(),
                             "EX" if reject_exit => "60?\r\n".into(),
                             "VR" => "20VR2504A\r\n".into(),
-                            "RN" => "20RNSYNTHETIC\r\n".into(),
-                            "LM" => {
-                                if pause.load(Ordering::Acquire) {
-                                    started.fetch_add(1, Ordering::AcqRel);
-                                    if let Ok(permit) = release.acquire().await {
-                                        permit.forget();
-                                    } else {
-                                        break;
-                                    }
-                                }
-                                "20LM1371\r\n".into()
-                            }
+                            "RN" => format!("20RN{receiver_id}\r\n"),
+                            "LM" => "20LM1371\r\n".into(),
                             "RX" => {
                                 rx_count += 1;
                                 let reported = if rx_count == wrong_rx_at {
@@ -1176,7 +1182,7 @@ async fn processed_or_zero_span_device_output_cannot_be_relabelled_as_a_raw_moni
         .await
         .unwrap();
     let result = worker
-        .poll(&mut Adapter::Native(Native::Analyzer(actor)), None)
+        .poll(&mut Adapter::Native(Native::Analyzer(actor)), None, None)
         .await;
     assert!(
         result.is_err(),

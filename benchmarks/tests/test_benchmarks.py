@@ -297,10 +297,30 @@ class BenchmarkTests(unittest.TestCase):
             report=json.loads((self.root/'results/report.json').read_text())
             self.assertEqual(report['counts']['sweep']['offered'],2)
             self.assertEqual(report['counts']['sweep']['rejected'],2)
+            latency = report['latency']
+            for name, count in (('producer_queue_wait_ms', 6), ('offered_to_request_ms', 6),
+                                ('request_to_response_ms', 4), ('ack_verification_ms', 4)):
+                with self.subTest(name=name):
+                    self.assertIn(name, latency)
+                    self.assertEqual(latency[name]['count'], count)
             self.assertEqual(report['counts']['sweep']['verified'],0)
             self.assertEqual(report['checks']['complete_delivery']['status'],'failed')
             self.assertEqual(report['checks']['offered_accounting']['status'],'passed')
             self.assertEqual(process.returncode,0,process.stderr)
+
+    def test_client_gap_has_a_dequeue_but_does_not_start_an_http_request(self):
+        with http_fixture(self.root/'peer.sqlite') as (_,url):
+            process = self.command(url, more=('--scenario', 'fault', '--fault-kind', 'client-gap', '--fault-every', '1'))
+        self.assertEqual(process.returncode, 0, process.stderr)
+        report = json.loads((self.root / 'results/report.json').read_text())
+        self.assertEqual(report['counts']['sweep']['offered'], 2)
+        latency = report['latency']
+        self.assertIn('producer_queue_wait_ms', latency)
+        self.assertEqual(latency['producer_queue_wait_ms']['count'], 6)
+        for name in ('offered_to_request_ms', 'request_to_response_ms', 'ack_verification_ms',
+                     'request_ms', 'offered_to_ack_ms'):
+            with self.subTest(name=name):
+                self.assertEqual(latency[name]['count'], 4)
 
     def test_corrupt_export_is_a_failed_run(self):
         with http_fixture(self.root/'peer.sqlite',corrupt=True) as (_,url):
@@ -344,6 +364,13 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(report['counts']['sweep']['offered'],11)
             self.assertEqual(report['counts']['sweep']['verified'],11)
             self.assertEqual(report['workload']['mode'],'history')
+            latency = report['latency']
+            for name, count in (('producer_queue_wait_ms', 0), ('offered_to_request_ms', 4),
+                                ('request_to_response_ms', 4), ('ack_verification_ms', 4),
+                                ('request_ms', 4), ('offered_to_ack_ms', 4)):
+                with self.subTest(name=name):
+                    self.assertIn(name, latency)
+                    self.assertEqual(latency[name]['count'], count)
 
     def test_histogram_is_bounded_and_reports_conservative_quantiles(self):
         from benchmarks.ori_bench.metrics import Histogram
@@ -670,6 +697,11 @@ class BenchmarkTests(unittest.TestCase):
             self.assertNotEqual(process.returncode,0)
             report=json.loads((self.root/'results/report.json').read_text())
             self.assertGreater(report['counts']['sweep']['invalid_ack'],0)
+            latency = report['latency']
+            accepted = sum(row['acknowledged'] for row in report['counts'].values())
+            self.assertIn('ack_verification_ms', latency)
+            self.assertEqual(latency['ack_verification_ms']['count'], accepted)
+            self.assertEqual(latency['request_to_response_ms']['count'], 6)
 
     def test_acknowledged_audio_loss_fails_even_an_explicit_fault_scenario(self):
         with http_fixture(self.root/'peer.sqlite',drop_audio=True) as (_,url):

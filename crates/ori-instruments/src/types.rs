@@ -29,6 +29,8 @@ pub enum InstrumentError {
     Closed,
     #[error("operation denied by current core control policy")]
     PolicyDenied,
+    #[error("duty window closed before command dispatch")]
+    AcquisitionWindowClosed,
     #[error("device command queue is full")]
     QueueFull,
     #[error("device actor stopped")]

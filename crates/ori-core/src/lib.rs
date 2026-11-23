@@ -30,6 +30,7 @@ mod manual_requests;
 mod media;
 mod private_worker;
 mod raw_export;
+mod receiver_panorama;
 mod recovery;
 mod rf_explorer_history;
 mod security;
@@ -236,7 +237,7 @@ impl Core {
         core_backup::run(self, destination, options).await
     }
 
-    pub async fn open(config: CoreConfig) -> Result<Arc<Self>> {
+    pub async fn open(mut config: CoreConfig) -> Result<Arc<Self>> {
         config.devices.validate()?;
         if config.acceptance.is_some()
             && (!config.mode.writes_archive()
@@ -288,6 +289,14 @@ impl Core {
                     "supervised candidate must use data_dir/sessions.sqlite3",
                 ));
             }
+            let mut node_lease = WriterLease::acquire(&config.data_directory)?;
+            if config.database == config.data_directory.join("sessions.sqlite3") {
+                let storage = ori_runtime::archive_location::directory(&config.data_directory)?;
+                if storage != config.data_directory {
+                    node_lease.reserve_storage(&storage)?;
+                    config.database = storage.join("sessions.sqlite3");
+                }
+            }
             match std::fs::symlink_metadata(&config.database) {
                 Ok(metadata) => {
                     if !metadata.is_file() {
@@ -306,7 +315,7 @@ impl Core {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
             }
-            let mut lease = StartingWriter(Some(WriterLease::acquire(&config.data_directory)?));
+            let mut lease = StartingWriter(Some(node_lease));
             let background = match background::Background::open(&config.data_directory) {
                 Ok(background) => background,
                 Err(error) => {
@@ -350,7 +359,12 @@ impl Core {
             .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(())));
         let (shutdown, _) = watch::channel(false);
         let devices = archive.as_ref().map(|archive| {
-            devices::DeviceManager::new(archive.clone(), config.devices.clone(), config.mode)
+            devices::DeviceManager::new(
+                archive.clone(),
+                config.devices.clone(),
+                config.mode,
+                config.data_directory.clone(),
+            )
         });
         let audio = if archive.is_some() {
             audio::Audio::open(&config.audio)?

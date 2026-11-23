@@ -20,6 +20,36 @@ release tooling, tests, and CI. Implementation types remain internal; only the
 application type, its initializer, and scene body are public. Xcode still owns
 app identity, signing, Info.plist generation, and app bundle packaging.
 
+## First duty on a reception node
+
+From **Наблюдение**, choose **Первое дежурство…** or **Подготовить дежурство…**.
+Connect to the receiving node and choose the primary instrument. An analyzer
+can run alone or use a separate AR-DV1 for event checks. A primary AR-DV1
+uses its own serial port for a cyclic FM plan. Enter its spacing in kHz. The default
+10 kHz is stored as 10,000 Hz. A value of `0,01` or `0.01` sets a 10 Hz step.
+The RF Explorer baseline requires a confirmed Normal sweep from its active board
+and input.
+
+The archive panel shows the receiving node’s database and free space. To
+change the local Mac archive, stop the service in **Подключение**, choose
+**Папка архива…**, then start the service again. For a remote node, select
+the directory on that node. Confirm the antenna and location, start the
+sample acquisition and review the archive record. The baseline page reports
+compatible sweeps or per-point/per-window coverage and elapsed time. Confirm
+the baseline, check the storage budget, configure or test a notification
+channel, then start continuous, time-limited or weekly duty. The node retains
+the schedule, restart choice and delivery results. **Снять с дежурства**
+cancels an active or scheduled duty.
+
+The receiver view shows successive measured passes in original S-meter
+counts. Lower counts mean stronger reception. At 10 kHz spacing the
+0.1–1300 MHz plan has 129,991 points and 100–400 MHz has 30,001. Check
+the reported pass duration and sample age before choosing a wide plan.
+Select a panorama mark, waterfall cell or event source to open its archived
+RX reading. A single receiver keeps scanning after an event. An explicit
+frequency hold pauses broad coverage until the receiver returns to the plan.
+The separate one-pass instrument action still uses its 1,000-point limit.
+
 ## RF Explorer 3G Combo
 
 With the bundled Rust development core, first open **Подключение → Локальное

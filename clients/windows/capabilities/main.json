@@ -6,6 +6,7 @@
   "local": true,
   "permissions": [
     "allow-local-node",
+    "allow-choose-local-archive-directory",
     "allow-connect-node",
     "allow-pair-node",
     "allow-revoke-pairing",

@@ -16,13 +16,49 @@ use tokio::sync::oneshot;
 #[cfg(test)]
 mod owner_tests;
 #[cfg(test)]
+mod recycle_tests;
+#[cfg(test)]
 #[path = "vfs_tests.rs"]
 mod tests;
 mod vfs;
 
 const AUTO_FRAMES: i32 = 1000;
 const RETRY: Duration = Duration::from_secs(1);
+const MAX_CATCH_UP_PASSES: u8 = 6;
 type Request = oneshot::Sender<Result<Value>>;
+
+#[derive(Clone, Copy)]
+struct CatchUp {
+    backfilled: i64,
+    tail: i64,
+    remaining: u8,
+}
+
+impl CatchUp {
+    const START: Self = Self {
+        backfilled: 0,
+        tail: AUTO_FRAMES as i64 + 1,
+        remaining: MAX_CATCH_UP_PASSES,
+    };
+
+    fn next(self, backfilled: i64, head: i32, overlapping_commits: u64) -> Option<Self> {
+        let tail = i64::from(head) - backfilled;
+        if self.remaining == 0
+            || backfilled <= self.backfilled
+            || overlapping_commits == 0
+            || !(1..=i64::from(AUTO_FRAMES)).contains(&tail)
+            // One transaction can dirty a different number of B-tree pages each time.
+            || (tail >= self.tail && overlapping_commits > 1)
+        {
+            return None;
+        }
+        Some(Self {
+            backfilled,
+            tail,
+            remaining: self.remaining - 1,
+        })
+    }
+}
 
 /// Admission is attempted once per owned PASSIVE checkpoint. `None` defers
 /// maintenance while the embedding's background policy is busy or pressured.
@@ -133,7 +169,7 @@ impl Owner {
             .spawn(move || {
                 let _ = owned.thread.set(thread::current());
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    run(&owned, &requests, &path, budget)
+                    run(&owned, &requests, &path, budget, RETRY)
                 }));
                 if outcome.is_err() {
                     owned.failed.store(true, Ordering::Release);
@@ -186,9 +222,11 @@ fn run(
     requests: &mpsc::Receiver<Request>,
     path: &Path,
     budget: Arc<dyn CheckpointBudget>,
+    retry: Duration,
 ) {
     let mut next = Instant::now();
     let mut completed = None;
+    let mut catch_up = None;
     while !control.stopping.load(Ordering::Acquire) {
         let reply = requests.try_recv().ok();
         let generation = control.commits.load(Ordering::Acquire);
@@ -199,9 +237,10 @@ fn run(
                 || completed == Some(generation)
                 || Instant::now() < next)
         {
+            catch_up = None;
             let delay = if control.failed() || frames < AUTO_FRAMES || completed == Some(generation)
             {
-                RETRY
+                retry
             } else {
                 next.saturating_duration_since(Instant::now())
             };
@@ -237,11 +276,13 @@ fn run(
                 if let Some(reply) = reply {
                     let _ = reply.send(Err(ArchiveError::QueryBudget));
                 }
-                next = Instant::now() + RETRY;
+                catch_up = None;
+                next = Instant::now() + retry;
                 continue;
             }
             Err(error) => Err(error),
         };
+        let mut follow_up = None;
         match &result {
             Ok(value)
                 if value["busy"] == 0 && value["wal_frames"] == value["checkpointed_frames"] =>
@@ -250,6 +291,19 @@ fn run(
                 // observed commit generation instead of clearing that count,
                 // so completion cannot erase a newer hook notification.
                 completed = Some(generation);
+                // PASSIVE backfilled its starting snapshot. If the writer advanced
+                // meanwhile, waiting a second can keep the WAL perpetually one
+                // batch behind. The hook estimates the tail. Each admitted
+                // PASSIVE checks the current SQLite state and accounts actual I/O.
+                // A complete current head permits reuse on the next commit.
+                if let Some(copied) = value["checkpointed_frames"].as_i64() {
+                    let commits = control.commits.load(Ordering::Acquire);
+                    follow_up = catch_up.unwrap_or(CatchUp::START).next(
+                        copied,
+                        control.frames.load(Ordering::Acquire),
+                        commits.saturating_sub(generation),
+                    );
+                }
             }
             Err(ArchiveError::Closed) => {} // pressure/owned close: retryable
             Err(ArchiveError::Sql(rusqlite::Error::SqliteFailure(error, _)))
@@ -262,7 +316,12 @@ fn run(
             }
             _ => {} // a pinned reader legitimately leaves work for later
         }
-        next = Instant::now() + RETRY;
+        catch_up = follow_up;
+        next = if catch_up.is_some() {
+            Instant::now()
+        } else {
+            Instant::now() + retry
+        };
         if let Some(reply) = reply {
             let _ = reply.send(result);
         }

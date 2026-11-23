@@ -73,7 +73,15 @@ impl AuthContext {
                             | "frequency-bookmarks"
                     ]
                 )
-                | ("GET", ["sessions", _, "streams" | "sweeps", _])
+                | (
+                    "GET",
+                    ["sessions", _, "streams" | "sweeps" | "observations", _]
+                )
+                | ("GET", ["sessions", _, "streams", _, "receiver-panorama"])
+                | (
+                    "GET",
+                    ["sessions", _, "streams", _, "receiver-panorama", "point"]
+                )
                 | (
                     "GET",
                     ["sessions", _, "streams", _, "rf-explorer", "passes"]

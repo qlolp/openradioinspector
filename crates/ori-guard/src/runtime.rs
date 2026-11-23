@@ -11,6 +11,12 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
+#[derive(Clone, Copy)]
+pub(crate) enum StopMode {
+    Immediate,
+    DutyWindowEnd,
+}
+
 pub(crate) const MAX_ACTIVE_PROJECTS: usize = 64;
 #[derive(Clone)]
 pub(crate) struct ManualLease {
@@ -56,6 +62,59 @@ pub(crate) struct ProjectRuntime {
     pub storage_checked: Option<Duration>,
     pub startup_storage_basis: Option<StartupStorageBasis>,
 }
+impl ProjectRuntime {
+    pub(crate) fn primary(&self) -> &str {
+        if self.analyzer.is_empty() {
+            &self.receiver
+        } else {
+            &self.analyzer
+        }
+    }
+
+    pub(crate) fn paired(&self) -> bool {
+        !self.analyzer.is_empty() && !self.receiver.is_empty()
+    }
+}
+
+fn check_started_workers(
+    session: &Value,
+    workers: &[WorkerStatus],
+    unavailable: &'static str,
+) -> Result<()> {
+    let missing_worker = || GuardError::Conflict(unavailable.into());
+    let streams = session["streams"].as_array().ok_or_else(missing_worker)?;
+    if workers.len() != streams.len() {
+        return Err(missing_worker());
+    }
+    let mut detector_check = Ok(());
+    for stream in streams {
+        let worker = workers
+            .iter()
+            .find(|worker| {
+                worker.session_id == session["id"]
+                    && worker.stream_id == stream["id"]
+                    && worker.alive
+                    && worker.state != "error"
+            })
+            .ok_or_else(missing_worker)?;
+        if stream["settings"]["adapter"] == "rf-explorer-3g-serial" {
+            let current = json!(worker.current);
+            let verified = current["profile_verified"] == true;
+            if verified && ori_monitoring::rfe::normal_readback(&current) {
+                continue;
+            }
+            detector_check = Err(
+                if verified && ori_monitoring::rfe::max_hold_readback(&current) {
+                    GuardError::RfExplorerMaxHold
+                } else {
+                    GuardError::RfExplorerDetectorUnconfirmed
+                },
+            );
+        }
+    }
+    detector_check
+}
+
 pub(crate) struct RuntimeState {
     pub projects: HashMap<String, ProjectRuntime>,
     pub preparing: HashMap<String, Preparation>,
@@ -65,6 +124,8 @@ pub(crate) enum JobKind {
     Receiver,
     Restore,
     Supervisor,
+    Telegram,
+    Webhook,
 }
 pub(crate) type Jobs =
     BTreeMap<(String, JobKind), std::sync::Arc<tokio::sync::Mutex<Option<JoinHandle<Result<()>>>>>>;
@@ -282,6 +343,9 @@ impl GuardService {
             vec!["analyzer", "receiver"]
         } {
             let mut stream = p["profile"][role].clone();
+            if stream.is_null() && search.is_none() {
+                continue;
+            }
             if !stream.is_object() {
                 return Err(invalid("monitoring receive profile"));
             }
@@ -291,7 +355,7 @@ impl GuardService {
             if !stream["settings"].is_object() {
                 stream["settings"] = json!({});
             }
-            if role == "receiver" {
+            if role == "receiver" && p["primary_source_kind"] != "ardv1" {
                 // Guard clones use a retunable receiver for event investigations.
                 // An ordinary session may have used that port for a finite segment.
                 stream["settings"]
@@ -381,11 +445,32 @@ impl GuardService {
     pub(crate) fn select_project_session(p: &mut Value, session: &Value) -> Result<()> {
         let streams = session["streams"]
             .as_array()
-            .filter(|a| a.len() == 2)
+            .filter(|a| (1..=2).contains(&a.len()))
             .ok_or_else(|| invalid("monitoring session streams"))?;
         p["active_session_id"] = session["id"].clone();
-        p["analyzer_stream_id"] = streams[0]["id"].clone();
-        p["receiver_stream_id"] = streams[1]["id"].clone();
+        for (key, role) in [
+            ("analyzer_stream_id", "spectrum_analyzer"),
+            ("receiver_stream_id", "receiver"),
+        ] {
+            p[key] = streams
+                .iter()
+                .find(|s| s["role"] == role)
+                .map_or(Value::Null, |s| s["id"].clone());
+        }
+        if p["primary_source_kind"].is_string() {
+            let receiver_primary = p["primary_source_kind"] == "ardv1";
+            p["primary_stream_id"] = p[if receiver_primary {
+                "receiver_stream_id"
+            } else {
+                "analyzer_stream_id"
+            }]
+            .clone();
+            p["secondary_stream_id"] = if receiver_primary {
+                Value::Null
+            } else {
+                p["receiver_stream_id"].clone()
+            };
+        }
         let mut ids = p["session_ids"]
             .as_array()
             .cloned()
@@ -416,6 +501,11 @@ impl GuardService {
         let _life = self.lock_project(id).await?;
         self.ensure_open()?;
         let original = self.project(id).await?;
+        if original["duty"]["enabled"] == true {
+            return Err(GuardError::Conflict(
+                "Сначала снимите дежурство, чтобы начать новый сбор эталона".into(),
+            ));
+        }
         let already_preparing = {
             let all = self
                 .runtime
@@ -500,22 +590,21 @@ impl GuardService {
             event_dispatch: None,
             idle_dispatch: None,
         };
+        let unavailable = "Не удалось начать приём; проверьте исполнителей";
         let result = self
             .control
             .start_session(&decode::<Session>(&session)?, permit)
-            .await;
+            .await
+            .map_err(|_| GuardError::Conflict(unavailable.into()))
+            .and_then(|statuses| {
+                check_started_workers(&session, &statuses, unavailable)?;
+                Ok(statuses)
+            });
         let statuses = match result {
-            Ok(statuses)
-                if statuses.len() == 2
-                    && statuses.iter().all(|s| s.state != "error" && s.alive) =>
-            {
-                statuses
-            }
-            _ => {
+            Ok(statuses) => statuses,
+            Err(error) => {
                 self.stop_preparation_locked(id).await?;
-                return Err(GuardError::Conflict(
-                    "Не удалось начать приём; проверьте исполнителей".into(),
-                ));
+                return Err(error);
             }
         };
         self.ensure_open()?;
@@ -563,7 +652,15 @@ impl GuardService {
             .get(id)
             .cloned();
         if let Some(prep) = &prep {
-            self.control.stop_session(&prep.sid).await?;
+            let workers = self.control.stop_session(&prep.sid).await?;
+            if workers
+                .iter()
+                .any(|worker| worker.session_id == prep.sid && worker.alive)
+            {
+                return Err(GuardError::Conflict(
+                    "Исполнитель подготовительного приёма ещё работает".into(),
+                ));
+            }
             self.stop_archived_session(&prep.sid).await?;
         }
         let _tx = self.coordinator.lock().await;
@@ -603,11 +700,25 @@ impl GuardService {
     }
     pub async fn arm(&self, id: &str, payload: Value) -> Result<Value> {
         fields(&payload, &[], true)?;
+        self.arm_project(id, false).await
+    }
+    pub(crate) async fn arm_project(&self, id: &str, resume_receiver: bool) -> Result<Value> {
         let _life = self.lock_project(id).await?;
         self.ensure_open()?;
         let mut original = self.project(id).await?;
-        if self.runtime_snapshot(id)?.is_some() {
+        if let Some(active) = self.runtime_snapshot(id)? {
+            if active.stopped {
+                return Err(GuardError::Conflict(
+                    "Исполнитель остановлен: требуется снять охрану и проверить прибор".into(),
+                ));
+            }
             return Ok(original);
+        }
+        if original["manual_primary_hold"] == true {
+            return Err(GuardError::Conflict(
+                "Основной прибор был передан оператору: требуется явный возврат или снятие охраны"
+                    .into(),
+            ));
         }
         let plan = crate::scan_plan::configured_plan(&original)?;
         if let Some(plan) = &plan {
@@ -623,36 +734,76 @@ impl GuardService {
                 "Требуются подтверждённый эталон и успешная подготовка",
             ));
         }
+        self.require_duty_window(&original)?;
         let context = self.guard_acquisition_context(&original).await?;
         let old = s(&original, "active_session_id")?.to_owned();
         self.ensure_session_unclaimed(id, &old, true)?;
+        let recovery = if resume_receiver && original["primary_source_kind"] == "ardv1" {
+            Some(self.receiver_duty_run(&original).await?)
+        } else {
+            None
+        };
         self.control.stop_session(&old).await?;
         self.stop_archived_session(&old).await?;
-        let mut created = self.clone_session(&original, false, None)?;
-        if plan
-            .as_ref()
-            .is_some_and(|p| p.bands.iter().any(|band| band.step_hz.is_some()))
-        {
-            created["metadata"]["scan_baselines"] = json!({"plan_id":original["scan_plan"]["id"],
+        let (session, mut mutations) = if let Some(run) = &recovery {
+            run.reopen(self.clock.now().as_str())?
+        } else {
+            let mut created = self.clone_session(&original, false, None)?;
+            if plan
+                .as_ref()
+                .is_some_and(|p| p.bands.iter().any(|band| band.step_hz.is_some()))
+            {
+                created["metadata"]["scan_baselines"] = json!({"plan_id":original["scan_plan"]["id"],
                 "revision":original["scan_plan"]["revision"],"windows":original["band_baselines"]});
-        }
-        if let Some(context) = context {
-            created["streams"][0]["settings"]["monitoring_instrument_context"] = json!(context);
-        }
-        let (session, mut mutations) = self.running_mutations(created)?;
+            }
+            if let Some(context) = context {
+                created["streams"][0]["settings"]["monitoring_instrument_context"] = json!(context);
+            }
+            self.running_mutations(created)?
+        };
         let mut p = original;
-        Self::select_project_session(&mut p, &session)?;
+        if recovery.is_none() {
+            Self::select_project_session(&mut p, &session)?;
+        }
         p["state"] = json!("armed");
         reset_detectors(&mut p);
         p["detector_cursor"] = Value::Null;
         p["detector_rowid"] = json!(0);
         p["last_error"] = Value::Null;
         p["coverage"] = json!("wide");
+        if p["primary_source_kind"] == "ardv1" {
+            if p["duty"]["enabled"] == true {
+                p["duty"]["receiver_run_id"] = session["id"].clone();
+            }
+            if let Some(run) = &recovery {
+                p["coverage"] = json!("restoring");
+                p["detector_rowid"] = json!(run.boundary);
+                p["detector_cursor"] = json!(run.last.as_ref().map(|o| &o["id"]));
+                p["receiver_detector_generation"] = json!(self.ids.next_id(IdKind::Owner));
+            } else {
+                p["receiver_detector_generation"] = session["id"].clone();
+            }
+        }
+        if crate::rfe::survey(&p) {
+            p["survey_generation"] = session["id"].clone();
+        }
         p["armed_at"] = json!(self.clock.now().as_str());
         let token = self.ids.next_id(IdKind::Owner);
         let sid = s(&session, "id")?.to_owned();
-        let analyzer = s(&p, "analyzer_stream_id")?.to_owned();
-        let receiver = s(&p, "receiver_stream_id")?.to_owned();
+        let analyzer = p["analyzer_stream_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let receiver = p["receiver_stream_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let claims = session["streams"]
+            .as_array()
+            .ok_or_else(|| invalid("streams"))?
+            .iter()
+            .map(|stream| Ok((sid.clone(), s(stream, "id")?.to_owned())))
+            .collect::<Result<BTreeSet<_>>>()?;
         // The accepted preflight measured the compatible preparation session.
         // Keep that conservative basis while its fresh clone obtains two sweeps;
         // never manufacture a rate for a genuinely unmeasured project.
@@ -684,7 +835,7 @@ impl GuardService {
             analyzer_epoch: 0,
             stopped: false,
             manual: BTreeMap::new(),
-            claims: [(sid.clone(), analyzer), (sid, receiver)].into(),
+            claims,
             receiver_work: None,
             receiver_checks_done: BTreeSet::new(),
             receiver_checks_resume_after: None,
@@ -712,16 +863,30 @@ impl GuardService {
             all.projects.insert(id.into(), runtime.clone());
             self.sync_ownership(id, &runtime)?;
         }
+        if let Err(expired) = self.require_duty_window(&p) {
+            drop(_life);
+            self.disarm_runtime(id, StopMode::Immediate).await?;
+            return Err(expired);
+        }
         match self
             .control
             .start_session(&decode::<Session>(&session)?, self.permit(id, &runtime))
             .await
         {
-            Ok(statuses)
-                if statuses.len() == 2
-                    && statuses.iter().all(|s| s.state != "error" && s.alive) =>
-            {
+            Ok(statuses) => {
+                if let Err(error) = check_started_workers(
+                    &session,
+                    &statuses,
+                    "Не удалось запустить приборы; проверьте журнал исполнителей",
+                ) {
+                    self.fail_runtime(id, &error.to_string()).await?;
+                    return Err(error);
+                }
                 self.ensure_open()?;
+                if let Err(error) = self.check_rfe_start(&p, &statuses).await {
+                    self.fail_runtime(id, &error.to_string()).await?;
+                    return Err(error);
+                }
                 if self
                     .runtime_snapshot(id)?
                     .is_none_or(|r| r.stopped || r.token != runtime.token)
@@ -739,17 +904,32 @@ impl GuardService {
                 self.fail_runtime(id, &e.to_string()).await?;
                 Err(e.into())
             }
-            _ => {
-                let message = "Не удалось запустить оба прибора; проверьте журнал исполнителей";
-                self.fail_runtime(id, message).await?;
-                Err(GuardError::Conflict(message.into()))
-            }
         }
     }
     pub async fn disarm(&self, id: &str, payload: Value) -> Result<Value> {
         fields(&payload, &[], true)?;
+        self.fence_stopping_runtime(id)?;
+        let _stop = self.duty_runtime.stopping(id)?;
+        let _operation = self.lock_project(&format!("duty/{id}")).await?;
+        let cancelled = self.cancel_duty(id).await;
+        let stopped = self.disarm_runtime(id, StopMode::Immediate).await;
+        cancelled?;
+        let stopped = stopped?;
+        if stopped["manual_primary_hold"] == true {
+            let _life = self.lock_project(id).await?;
+            let _tx = self.coordinator.lock().await;
+            let mut p = self.project(id).await?;
+            p.as_object_mut()
+                .expect("project")
+                .remove("manual_primary_hold");
+            self.archive.put_monitoring("project", p.clone()).await?;
+            return Ok(p);
+        }
+        Ok(stopped)
+    }
+    fn fence_stopping_runtime(&self, id: &str) -> Result<()> {
         self.ensure_open()?;
-        if self.runtime_snapshot(id)?.is_some() {
+        if self.runtime_snapshot(id)?.is_some_and(|r| !r.stopped) {
             self.update_runtime(id, |r| {
                 r.stopped = true;
                 r.epoch = r
@@ -764,23 +944,44 @@ impl GuardService {
             })?;
         }
         self.wake.notify_waiters();
-        {
+        Ok(())
+    }
+    pub(crate) async fn disarm_runtime(&self, id: &str, mode: StopMode) -> Result<Value> {
+        self.fence_stopping_runtime(id)?;
+        let persisted = async {
             let _life = self.lock_project(id).await?;
             let _tx = self.coordinator.lock().await;
             self.ensure_open()?;
             let mut p = self.project(id).await?;
             p["resume_requested"] = json!(false);
             self.archive.put_monitoring("project", p).await?;
+            Ok::<(), GuardError>(())
         }
+        .await;
         self.wake.notify_waiters();
-        self.cleanup_project(id, false).await
+        let cleaned = self.cleanup_project(id, false, mode).await;
+        persisted?;
+        cleaned
     }
-    pub(crate) async fn cleanup_project(&self, id: &str, preserve_intent: bool) -> Result<Value> {
+    pub(crate) async fn cleanup_project(
+        &self,
+        id: &str,
+        preserve_intent: bool,
+        mode: StopMode,
+    ) -> Result<Value> {
         let r = self.runtime_snapshot(id)?;
         let mut failure = None;
         if let Some(r) = &r {
             for sid in r.claims.iter().map(|(sid, _)| sid).collect::<BTreeSet<_>>() {
-                let stopped = match self.control.stop_session(sid).await {
+                let receipt = match mode {
+                    StopMode::DutyWindowEnd
+                        if r.cached_project["primary_source_kind"] == "ardv1" =>
+                    {
+                        self.control.finish_duty_session(sid).await
+                    }
+                    _ => self.control.stop_session(sid).await,
+                };
+                let stopped = match receipt {
                     Ok(_) => self.stop_archived_session(sid).await,
                     Err(error) => Err(GuardError::Control(error)),
                 };
@@ -802,7 +1003,13 @@ impl GuardService {
         let _life = self.lock_project(id).await?;
         let _tx = self.coordinator.lock().await;
         let mut p = self.project(id).await?;
-        p["state"] = json!("ready");
+        p["state"] = json!(if p["primary_source_kind"].is_string()
+            && !crate::scan_plan::all_baselines_ready(&p)?
+        {
+            "draft"
+        } else {
+            "ready"
+        });
         p["coverage"] = json!("stopped");
         if !preserve_intent {
             p["resume_requested"] = json!(false);

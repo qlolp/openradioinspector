@@ -86,6 +86,9 @@ export function Research({
     },
     [],
   );
+  useEffect(() => {
+    if (desk.project?.id) setRole(desk.project.receiver_stream_id ? 'receiver' : 'analyzer');
+  }, [desk.project?.id, desk.project?.receiver_stream_id]);
   const lease = leases.current.get(desk.projectId)?.get(role);
   const expired = lease && now >= lease.expires;
   const remote = desk.guard?.manual.find((x) => x.role === role);
@@ -377,8 +380,18 @@ export function Research({
           <label>
             {t('Instrument role')}
             <select value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
-              <option value="receiver">{t('AR-DV1 receiver')}</option>
-              <option value="analyzer">{t('tinySA analyzer')}</option>
+              {desk.project?.receiver_stream_id && (
+                <option value="receiver">{t('AR-DV1 receiver')}</option>
+              )}
+              {desk.project?.analyzer_stream_id && (
+                <option value="analyzer">
+                  {t(
+                    desk.project.primary_source_kind === 'rf_explorer'
+                      ? 'RF Explorer 3G Combo'
+                      : 'tinySA analyzer',
+                  )}
+                </option>
+              )}
             </select>
           </label>
           <p className="lease-state">
@@ -512,32 +525,35 @@ export function Research({
             </>
           )}
         </Panel>
-        {active && desk.capabilities?.features.paired_event_rechecks === true && (
-          <Panel title={t('Compare paired visits')}>
-            <label>
-              {t('Event to recheck')}
-              <select
-                value={pairedEvent}
-                onChange={(event) => setPairedEvent?.(event.target.value)}
-              >
-                <option value="">{t('Choose an event')}</option>
-                {desk.events.map((event) => (
-                  <option key={event.id} value={event.id}>
-                    {hz(event.center_frequency_hz)} · {utc(event.last_seen)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {desk.events.some((event) => event.id === pairedEvent) && (
-              <PairedRechecks
-                key={JSON.stringify([desk.connectionVersion, desk.projectId, pairedEvent])}
-                desk={desk}
-                eventId={pairedEvent}
-                editable
-              />
-            )}
-          </Panel>
-        )}
+        {active &&
+          !!desk.project?.receiver_stream_id &&
+          !!desk.project.analyzer_stream_id &&
+          desk.capabilities?.features.paired_event_rechecks === true && (
+            <Panel title={t('Compare paired visits')}>
+              <label>
+                {t('Event to recheck')}
+                <select
+                  value={pairedEvent}
+                  onChange={(event) => setPairedEvent?.(event.target.value)}
+                >
+                  <option value="">{t('Choose an event')}</option>
+                  {desk.events.map((event) => (
+                    <option key={event.id} value={event.id}>
+                      {hz(event.center_frequency_hz)} · {utc(event.last_seen)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {desk.events.some((event) => event.id === pairedEvent) && (
+                <PairedRechecks
+                  key={JSON.stringify([desk.connectionVersion, desk.projectId, pairedEvent])}
+                  desk={desk}
+                  eventId={pairedEvent}
+                  editable
+                />
+              )}
+            </Panel>
+          )}
         {desk.capabilities?.features.ardv1_sampled_scope === true && (
           <ReceiverSegment desk={desk} />
         )}

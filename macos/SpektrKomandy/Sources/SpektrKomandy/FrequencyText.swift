@@ -6,6 +6,14 @@ public enum FrequencyText {
     public static let arMaximumUnits: Int64 = 130_000_000
 
     public static func parseMHz(_ text: String) -> Int64? {
+        parseUnsignedDecimal(text, fractionalDigits: 5)
+    }
+
+    public static func hertz(fromKHz text: String) -> Int64? {
+        parseUnsignedDecimal(text, fractionalDigits: 3)
+    }
+
+    private static func parseUnsignedDecimal(_ text: String, fractionalDigits: Int) -> Int64? {
         let trimmed = text
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ",", with: ".")
@@ -16,11 +24,11 @@ public enum FrequencyText {
         var fraction: Int64 = 0
         if parts.count == 2 {
             let digits = parts[1]
-            if digits.isEmpty || digits.count > 5 { return nil }
+            if digits.isEmpty || digits.count > fractionalDigits { return nil }
             guard let raw = parseDigits(digits) else { return nil }
-            fraction = raw * powerOfTen(5 - digits.count)
+            fraction = raw * powerOfTen(fractionalDigits - digits.count)
         }
-        let scaled = whole.multipliedReportingOverflow(by: tenHertzPerMegahertz)
+        let scaled = whole.multipliedReportingOverflow(by: powerOfTen(fractionalDigits))
         guard !scaled.overflow else { return nil }
         let units = scaled.partialValue.addingReportingOverflow(fraction)
         guard !units.overflow else { return nil }

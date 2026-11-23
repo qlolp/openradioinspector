@@ -14,6 +14,9 @@ use tokio::{
     sync::Notify,
 };
 
+/// A duty check applies only until the first command byte is accepted by the transport.
+pub type AcquisitionWindow = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
+
 /// The original Core-owned receipt. The callback must be quick, synchronous and
 /// nonblocking; it must validate the same authority rather than issue a new one.
 pub type ExecutionCheck = Arc<dyn Fn() -> Result<()> + Send + Sync + 'static>;
@@ -326,23 +329,41 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
         .await
     }
     async fn send(&mut self, command: &str) -> Result<()> {
-        self.send_with_startup(command, false).await?;
+        self.send_with_startup(command, false, None).await?;
         Ok(())
     }
     async fn send_with_startup(
         &mut self,
         command: &str,
         fresh_identity_query: bool,
+        window: Option<&AcquisitionWindow>,
     ) -> Result<bool> {
         let discarded = self.clean_input(fresh_identity_query).await?;
         let data = format!("{command}\r");
         tokio::time::timeout(self.limits.write_timeout, async {
-            self.io.write_all(data.as_bytes()).await?;
-            self.io.flush().await
+            let mut bytes = data.as_bytes();
+            if let Some(open) = window {
+                // A pending write has not dispatched anything. Check again on writable readiness.
+                let started = poll_fn(|cx| {
+                    if !open() {
+                        return Poll::Ready(Err(InstrumentError::AcquisitionWindowClosed));
+                    }
+                    Pin::new(&mut self.io)
+                        .poll_write(cx, bytes)
+                        .map_err(instrument_io)
+                })
+                .await?;
+                if started == 0 {
+                    return Err(InstrumentError::Io(std::io::ErrorKind::WriteZero.into()));
+                }
+                bytes = &bytes[started..];
+            }
+            // Once dispatched, finish the bounded command and retain its terminal reply.
+            self.io.write_all(bytes).await.map_err(instrument_io)?;
+            self.io.flush().await.map_err(instrument_io)
         })
         .await
-        .map_err(|_| InstrumentError::Timeout)?
-        .map_err(instrument_io)?;
+        .map_err(|_| InstrumentError::Timeout)??;
         Ok(discarded)
     }
     async fn chunk(&mut self, maximum: usize) -> Result<()> {
@@ -400,7 +421,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
                 // An interrupted scan may finish transmitting on a freshly
                 // opened port. Only the first, read-only query can discard
                 // preceding frames, and it must see its own echo.
-                let discarded = self.send_with_startup(command, identifying).await?;
+                let discarded = self.send_with_startup(command, identifying, None).await?;
                 let mut need_echo = identifying;
                 let mut allow_prefix = leading_prompt && !identifying;
                 let mut awaiting_first_byte = identifying && !discarded;
@@ -440,14 +461,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
         }
         result
     }
-    pub async fn line(&mut self, command: &str) -> Result<String> {
+    pub async fn line(
+        &mut self,
+        command: &str,
+        window: Option<&AcquisitionWindow>,
+    ) -> Result<String> {
         validate_command(command)?;
         let guard = self.begin()?;
         let cancel = self.cancellation_handle();
         let result = tokio::select! { biased;
             _=cancel.cancelled()=>Err(InstrumentError::Cancelled),
             result=tokio::time::timeout(self.limits.receiver_timeout,async {
-                self.send(command).await?;
+                self.send_with_startup(command, false, window).await?;
                 loop {
                     if let Some(newline)=self.stash.iter().position(|&c|c==b'\n') {
                         let raw:Vec<u8>=self.stash.drain(..=newline).collect();
@@ -464,7 +489,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
             self.flags.authorize()?;
             Ok(value)
         });
-        if result.is_ok() {
+        if result.is_ok() || matches!(result, Err(InstrumentError::AcquisitionWindowClosed)) {
             guard.complete();
         }
         result
@@ -568,4 +593,61 @@ fn parse_text(raw: &[u8], command: &str, leading_prompt: bool) -> Result<String>
         lines.remove(0);
     }
     Ok(lines.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cutoff_while_first_write_is_pending_sends_no_command_bytes() {
+        let (mut writer, mut device) = tokio::io::duplex(1);
+        writer.write_all(b"!").await.unwrap();
+        let mut connection = Connection::new(writer, IoLimits::default()).unwrap();
+        let open = Arc::new(AtomicBool::new(true));
+        let window: AcquisitionWindow = {
+            let open = open.clone();
+            Arc::new(move || open.load(Ordering::Acquire))
+        };
+        {
+            let exchange = connection.line("RX", Some(&window));
+            tokio::pin!(exchange);
+            // Poll once while the first byte cannot fit.
+            tokio::select! { biased;
+                result = &mut exchange => panic!("full fixture accepted RX: {result:?}"),
+                () = std::future::ready(()) => {}
+            }
+            open.store(false, Ordering::Release);
+            assert_eq!(device.read_u8().await.unwrap(), b'!');
+            assert!(matches!(
+                exchange.await,
+                Err(InstrumentError::AcquisitionWindowClosed)
+            ));
+        }
+        assert!(!connection.tainted());
+        connection.close().await.unwrap();
+        assert_eq!(device.read(&mut [0u8; 8]).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn cutoff_after_first_byte_finishes_the_command_and_reads_its_reply() {
+        let (writer, mut device) = tokio::io::duplex(1);
+        let mut connection = Connection::new(writer, IoLimits::default()).unwrap();
+        let open = Arc::new(AtomicBool::new(true));
+        let window: AcquisitionWindow = {
+            let open = open.clone();
+            Arc::new(move || open.load(Ordering::Acquire))
+        };
+        let instrument = async {
+            assert_eq!(device.read_u8().await.unwrap(), b'R');
+            open.store(false, Ordering::Release);
+            let mut rest = [0; 2];
+            device.read_exact(&mut rest).await.unwrap();
+            assert_eq!(&rest, b"X\r");
+            device.write_all(b"20 RX\r\n").await.unwrap();
+        };
+        let (response, ()) = tokio::join!(connection.line("RX", Some(&window)), instrument);
+        assert_eq!(response.unwrap(), "20 RX");
+        assert!(!connection.tainted());
+    }
 }

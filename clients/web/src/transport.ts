@@ -14,6 +14,7 @@ export interface Connection extends Transport {
   native: boolean;
   ready?: boolean;
   connect(node: string): Promise<void>;
+  chooseLocalArchiveDirectory?(): Promise<string | null>;
   localNode?(action: 'start' | 'shutdown' | 'register' | 'unregister'): Promise<void>;
   pair(code: string, label: string): Promise<void>;
   revokePairing(): Promise<void>;
@@ -144,6 +145,9 @@ export async function connection(): Promise<Connection> {
     },
     async openLegacy() {
       await invoke('open_legacy');
+    },
+    async chooseLocalArchiveDirectory() {
+      return invoke<string | null>('choose_local_archive_directory');
     },
     async localNode(action) {
       await invoke('local_node', { action });

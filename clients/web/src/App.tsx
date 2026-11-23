@@ -5,6 +5,15 @@ import { Spectrum, Waterfall } from './charts';
 import { originalJSON, encodePathSegment } from './wire';
 import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
+import { preparationReady } from './station';
+import { BaselineCounts, sourceNames } from './DutySetup';
+import {
+  OriginalObservation,
+  readObservation,
+  ReceiverHold,
+  ReceiverPanorama,
+} from './ReceiverPanorama';
+import { RfExplorerPass, type LocalHold } from './RfExplorerPass';
 import { RfExplorer, RfExplorerSettings } from './RfExplorer';
 import { RfExplorerResearch } from './RfExplorerResearch';
 import { rfExplorerAvailable, rfExplorerReadback } from './rf-explorer';
@@ -19,13 +28,14 @@ import {
   CoverageRow,
   EventQueue,
   EventReceiver,
+  SignalHypotheses,
   Qualification,
   Recovery,
   StationStatus,
 } from './StationPanels';
 import { remember, save, useDesk, type Desk } from './useDesk';
 import type { Connection } from './transport';
-import type { MonitoringEvent, Page, Sweep } from './types';
+import type { MonitoringEvent, Observation, Page, Sweep } from './types';
 
 function PreparationPanel({ desk }: { desk: Desk }) {
   const [name, setName] = useState(() => t('Ordinary environment')),
@@ -55,7 +65,9 @@ function PreparationPanel({ desk }: { desk: Desk }) {
           {desk.preflight
             ? desk.preflight.ready
               ? t('Preflight passed')
-              : t('Preparation needs attention')
+              : preparationReady(desk.preflight)
+                ? t('Collection available · duty checks need attention')
+                : t('Preparation needs attention')
             : t('Checking core readiness')}
         </strong>
         <button
@@ -92,7 +104,9 @@ function PreparationPanel({ desk }: { desk: Desk }) {
             : t('Baseline not confirmed')}
         </strong>
         <span className="mono">
-          {progress?.bands ? (
+          {progress?.points != null || progress?.windows != null ? (
+            <BaselineCounts progress={progress} />
+          ) : progress?.bands ? (
             t('Confirm the band baselines in the scan plan')
           ) : (
             <>
@@ -105,15 +119,27 @@ function PreparationPanel({ desk }: { desk: Desk }) {
         </span>
       </div>
       <p className="muted">
-        {t('Collect at least') + ' '}
-        {progress?.minimum_sweeps || 20}
-        {' ' + t('complete sweeps over')} {progress?.minimum_seconds || 60}
-        {' ' + t('seconds in the ordinary environment.')}
+        {progress?.points != null || progress?.windows != null ? (
+          t(
+            'Collect at least 20 independent visits over 60 seconds in the ordinary environment before confirming the background.',
+          )
+        ) : (
+          <>
+            {t('Collect at least') + ' '}
+            {progress?.minimum_sweeps || 20}
+            {' ' + t('complete sweeps over')} {progress?.minimum_seconds || 60}
+            {' ' + t('seconds in the ordinary environment.')}
+          </>
+        )}
       </p>
       <div className="actions">
         <button
           disabled={
-            desk.busy || !desk.project || desk.guard?.active || collecting || !desk.preflight?.ready
+            desk.busy ||
+            !desk.project ||
+            desk.guard?.active ||
+            collecting ||
+            !preparationReady(desk.preflight)
           }
           onClick={() => void desk.command('preparation/start')}
         >
@@ -174,74 +200,76 @@ function PreparationPanel({ desk }: { desk: Desk }) {
           {t('Confirm baseline')}
         </button>
       </form>
-      <details>
-        <summary>{t('AR-DV1 analog audio input')}</summary>
-        <p className="muted">
-          {t(
-            'Choose the node’s analog input explicitly. Captured audio is stored by the core; hardware validation has not run.',
-          )}
-        </p>
-        <p>
-          {t('Current input:') + ' '}
-          {desk.project?.audio?.name || t('Not configured')}
-        </p>
-        <button
-          disabled={desk.busy || desk.guard?.active}
-          onClick={() =>
-            void desk.run(
-              'List node audio inputs',
-              async () => {
-                const result = await desk.api.get<{ devices: { index: number; name: string }[] }>(
-                  '/monitoring-projects/audio-inputs',
-                );
-                setAudioInputs(result.devices);
-              },
-              [],
-            )
-          }
-        >
-          {t('List node audio inputs')}
-        </button>
-        <label>
-          {t('Analog input')}
-          <select value={audioIndex} onChange={(e) => setAudioIndex(e.target.value)}>
-            <option value="">{t('Choose input')}</option>
-            {audioInputs.map((input) => (
-              <option key={input.index} value={input.index}>
-                {input.index}: {input.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={audioConfirmed}
-            onChange={(e) => setAudioConfirmed(e.target.checked)}
-          />
-          {t('This is the AR-DV1 analog output')}
-        </label>
-        <div className="actions">
+      {(!desk.project || !!desk.project.receiver_stream_id) && (
+        <details>
+          <summary>{t('AR-DV1 analog audio input')}</summary>
+          <p className="muted">
+            {t(
+              'Choose the node’s analog input explicitly. Captured audio is stored by the core; hardware validation has not run.',
+            )}
+          </p>
+          <p>
+            {t('Current input:') + ' '}
+            {desk.project?.audio?.name || t('Not configured')}
+          </p>
           <button
-            disabled={desk.busy || desk.guard?.active || !audioIndex || !audioConfirmed}
-            onClick={() => {
-              const device = audioInputs.find((input) => String(input.index) === audioIndex);
-              if (device)
-                void desk.command('configure', {
-                  audio: { device: device.index, name: device.name, confirm: true },
-                });
-            }}
+            disabled={desk.busy || desk.guard?.active}
+            onClick={() =>
+              void desk.run(
+                'List node audio inputs',
+                async () => {
+                  const result = await desk.api.get<{ devices: { index: number; name: string }[] }>(
+                    '/monitoring-projects/audio-inputs',
+                  );
+                  setAudioInputs(result.devices);
+                },
+                [],
+              )
+            }
           >
-            {t('Save analog input')}
+            {t('List node audio inputs')}
           </button>
-          <button
-            disabled={desk.busy || desk.guard?.active || !desk.project?.audio}
-            onClick={() => void desk.command('configure', { audio: null })}
-          >
-            {t('Disable audio capture')}
-          </button>
-        </div>
-      </details>
+          <label>
+            {t('Analog input')}
+            <select value={audioIndex} onChange={(e) => setAudioIndex(e.target.value)}>
+              <option value="">{t('Choose input')}</option>
+              {audioInputs.map((input) => (
+                <option key={input.index} value={input.index}>
+                  {input.index}: {input.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={audioConfirmed}
+              onChange={(e) => setAudioConfirmed(e.target.checked)}
+            />
+            {t('This is the AR-DV1 analog output')}
+          </label>
+          <div className="actions">
+            <button
+              disabled={desk.busy || desk.guard?.active || !audioIndex || !audioConfirmed}
+              onClick={() => {
+                const device = audioInputs.find((input) => String(input.index) === audioIndex);
+                if (device)
+                  void desk.command('configure', {
+                    audio: { device: device.index, name: device.name, confirm: true },
+                  });
+              }}
+            >
+              {t('Save analog input')}
+            </button>
+            <button
+              disabled={desk.busy || desk.guard?.active || !desk.project?.audio}
+              onClick={() => void desk.command('configure', { audio: null })}
+            >
+              {t('Disable audio capture')}
+            </button>
+          </div>
+        </details>
+      )}
     </Panel>
   );
 }
@@ -330,12 +358,14 @@ function AllowedPanel({ desk }: { desk: Desk }) {
 export function App({
   transport,
   onConnectionSettings,
+  localWindows = false,
   connectionLabel,
   readOnly = false,
 }: {
   transport: Connection;
   readOnly?: boolean;
   onConnectionSettings?: () => void;
+  localWindows?: boolean;
   connectionLabel?: string;
 }) {
   useLocale();
@@ -352,7 +382,9 @@ export function App({
   const [theme, setTheme] = useState(() => remember('theme', 'system'));
   const [scanBand, setScanBand] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<string>();
-  const [wizard, setWizard] = useState(false),
+  const [wizard, setWizard] = useState<'new' | 'resume' | undefined>(),
+    [sourceObservation, setSourceObservation] = useState<Observation>(),
+    [rfHold, setRfHold] = useState<LocalHold>({ since: '', visible: false }),
     [event, setEvent] = useState<MonitoringEvent>(),
     [original, setOriginal] = useState<Sweep>();
   const [originalPoint, setOriginalPoint] = useState<{ id: string; index: number }>();
@@ -365,6 +397,8 @@ export function App({
     dialogGeneration = useRef(0),
     dialogAbort = useRef(new AbortController());
   const p = desk.project;
+  const receiverOnly = p?.primary_source_kind === 'ardv1',
+    rfPrimary = p?.primary_source_kind === 'rf_explorer';
   const scanBands = scanChoices(desk.live.rows, p);
   const selectedBand = scanBands.some((b) => b.key === scanBand)
     ? scanBand
@@ -419,8 +453,10 @@ export function App({
   const actualFrequency = receiverSettings?.observed_frequency_hz;
   const requestedFrequency = receiverSettings?.requested_frequency_hz;
   const coverageBand = coverageBands(analyzerWorker).find((band) => band.id === planBand?.id);
+  const survey = rfPrimary ? latest?.rf_explorer?.survey : undefined;
+  const fullWaterfallRange = survey ? { low: survey.start_hz, high: survey.stop_hz } : bandRange;
   const waterfallRange =
-    bandRange ??
+    fullWaterfallRange ??
     (latest && {
       low: latest.frequencies_hz[0],
       high: latest.frequencies_hz.at(-1)!,
@@ -435,7 +471,7 @@ export function App({
           </span>
         )}
       </div>
-      <Waterfall key={selectedBand} rows={displayRows} band={bandRange} />
+      <Waterfall key={selectedBand} rows={displayRows} band={fullWaterfallRange} />
     </>
   );
   const setScreen = (value: string) => {
@@ -456,6 +492,8 @@ export function App({
   useEffect(() => {
     setEvent(undefined);
     setSelectedEvent(undefined);
+    setSourceObservation(undefined);
+    setRfHold({ since: '', visible: false });
     setOriginal(undefined);
     setAudioUrl('');
     dialogGeneration.current++;
@@ -538,8 +576,32 @@ export function App({
   async function eventOriginal() {
     if (!event) return;
     const source = event.source_refs?.at(-1);
-    if (source) {
-      await openOriginal(source.sweep_id);
+    const obs = event.peak_source?.observation_id ? event.peak_source : source;
+    if (obs?.observation_id) {
+      const id = obs.observation_id,
+        generation = dialogGeneration.current,
+        signal = dialogAbort.current.signal;
+      await desk.run(
+        'Original observation',
+        async () => {
+          const original = await readObservation(
+            desk.api,
+            obs.session_id,
+            obs.stream_id,
+            id,
+            signal,
+          );
+          if (!signal.aborted && generation === dialogGeneration.current)
+            setSourceObservation(original);
+        },
+        [],
+        signal,
+      );
+      return;
+    }
+    const sweepId = event.peak_source?.sweep_id || source?.sweep_id;
+    if (sweepId) {
+      await openOriginal(sweepId);
       return;
     }
     const generation = dialogGeneration.current,
@@ -629,7 +691,7 @@ export function App({
           value={original.settings?.measurement_qualification}
         />
       </p>
-      {desk.rfActive && (
+      {(desk.rfActive || rfPrimary) && (
         <RfExplorerSettings
           readback={rfExplorerReadback(original.settings)}
           frequencies={original.frequencies_hz}
@@ -644,7 +706,7 @@ export function App({
       ) : (
         <p className="muted">{t('Source frequency outside supported display range')}</p>
       )}
-      {desk.rfActive && !readOnly && (
+      {(desk.rfActive || rfPrimary) && !readOnly && (
         <RfExplorerResearch
           key={original.id}
           api={desk.api}
@@ -717,6 +779,16 @@ export function App({
     </div>
   );
   const coverage = p?.coverage || 'stopped';
+  const dutyStatus = p?.duty?.status;
+  const waitingDuty = p?.duty?.enabled && dutyStatus === 'waiting';
+  const guardLabel = waitingDuty
+    ? t('Waiting for scheduled window')
+    : dutyStatus === 'preflight_failed'
+      ? t('Duty preflight failed')
+      : dutyStatus &&
+          ['stop_failed', 'coverage_lost', 'sleep', 'sleep_gap', 'manual_hold'].includes(dutyStatus)
+        ? t(dutyStatus)
+        : titleCase(p?.state || t('unavailable'));
   const header = (
     <>
       <a className="skip-link" href="#main">
@@ -854,7 +926,7 @@ export function App({
             </div>
             <button
               className="primary"
-              onClick={() => setWizard(true)}
+              onClick={() => setWizard('new')}
               disabled={desk.busy || !desk.connected}
             >
               {t('＋ Prepare project')}
@@ -916,7 +988,7 @@ export function App({
             </span>
             <div>
               <small>{t('GLOBAL GUARD')}</small>
-              <strong data-testid="guard-state">{titleCase(p?.state || t('unavailable'))}</strong>
+              <strong data-testid="guard-state">{guardLabel}</strong>
             </div>
           </div>
           <div className="coverage">
@@ -928,11 +1000,18 @@ export function App({
                   : t('Coverage: {state}', { state: titleCase(coverage) })}
             </strong>
             <small>
-              {desk.guard?.error ||
+              {p?.duty?.last_error ||
+                desk.guard?.error ||
                 p?.last_error ||
-                (desk.guard?.active
-                  ? t('Core owns the receive pair')
-                  : t('Guard is stopped · viewing does not arm instruments'))}
+                (waitingDuty
+                  ? t('The node will run preflight when the scheduled window opens.')
+                  : desk.guard?.active
+                    ? t(
+                        p?.primary_source_kind
+                          ? 'The core owns the selected instruments'
+                          : 'Core owns the receive pair',
+                      )
+                    : t('Guard is stopped · viewing does not arm instruments'))}
             </small>
           </div>
           <div className="actions">
@@ -943,12 +1022,18 @@ export function App({
             >
               {t('Preparation checks')}
             </a>
+            {p && desk.capabilities?.features.single_source_duty === true && (
+              <button disabled={desk.busy} onClick={() => setWizard('resume')}>
+                {t('Duty setup')}
+              </button>
+            )}
             <button
               className="primary"
               disabled={
                 desk.busy ||
                 !p ||
                 desk.guard?.active ||
+                p.duty?.enabled ||
                 !desk.preflight?.ready ||
                 !desk.preflight?.baseline_ready
               }
@@ -958,160 +1043,215 @@ export function App({
             </button>
             <button
               className="danger"
-              disabled={desk.busy || !desk.guard?.active}
+              disabled={desk.busy || (!desk.guard?.active && !p?.duty?.enabled)}
               onClick={() => void desk.command('disarm')}
             >
-              {t('Disarm guard')}
+              {t(p?.duty?.enabled && !desk.guard?.active ? 'Stop duty' : 'Disarm guard')}
             </button>
           </div>
         </div>
         {actionStatus}
         <Recovery desk={desk} />
-        <section hidden={workspace !== 'research'} aria-label={t('Research workspace')}>
-          <Research
-            active={workspace === 'research'}
-            pairedEvent={selectedEvent || ''}
-            setPairedEvent={setSelectedEvent}
-            desk={desk}
-            openOriginal={(id) => {
-              void openOriginal(id);
-            }}
-          />
-        </section>
+        {!receiverOnly && (
+          <section hidden={workspace !== 'research'} aria-label={t('Research workspace')}>
+            <Research
+              active={workspace === 'research'}
+              pairedEvent={selectedEvent || ''}
+              setPairedEvent={setSelectedEvent}
+              desk={desk}
+              openOriginal={(id) => {
+                void openOriginal(id);
+              }}
+            />
+          </section>
+        )}
         <div className="live-grid">
-          <Panel
-            title={t('Live spectrum')}
-            eyebrow={t('tinySA Ultra')}
-            className="spectrum-panel"
-            aside={
-              <span className="live-badge" data-testid="live-state">
-                <span className={'dot ' + (desk.live.state.startsWith('Live') ? 'ok' : 'warn')} />
-                {t(desk.live.state)}
-              </span>
-            }
-          >
-            <p className="muted">{t('Latest saved measurement')}</p>
-            <div
-              className="spectrum-metrics"
-              role="group"
-              aria-label={t('Latest saved measurement')}
+          {receiverOnly ? (
+            <ReceiverPanorama
+              key={JSON.stringify([
+                desk.connectionVersion,
+                p?.active_session_id,
+                p?.primary_stream_id,
+              ])}
+              desk={desk}
+            />
+          ) : (
+            <Panel
+              title={t('Live spectrum')}
+              eyebrow={
+                p?.primary_source_kind ? sourceNames[p.primary_source_kind] : t('tinySA Ultra')
+              }
+              className="spectrum-panel"
+              aside={
+                <span className="live-badge" data-testid="live-state">
+                  <span className={'dot ' + (desk.live.state.startsWith('Live') ? 'ok' : 'warn')} />
+                  {t(desk.live.state)}
+                </span>
+              }
             >
-              <div>
-                <small>{t('PEAK FREQUENCY')}</small>
-                <strong className="mono">{hz(latest?.peak.frequency_hz)}</strong>
-              </div>
-              <div>
-                <small>{t('PEAK LEVEL')}</small>
-                <strong className="mono">
-                  {latest
-                    ? latest.peak.level.toFixed(1) + ' ' + latest.level_unit
-                    : unavailable
-                      ? t('Not plotted')
-                      : t('— dBm')}
-                </strong>
-              </div>
-              <div>
-                <small>{t('COMMITTED EVENT')}</small>
-                <strong className="mono">#{desk.live.sequence}</strong>
-              </div>
-            </div>
-            {unavailable ? (
-              <div className="plot-unavailable" role="status" data-testid="unsupported-source">
-                <strong>{t('Source frequency outside supported display range')}</strong>
-                <p>{t('Original measurements remain available without numeric conversion.')}</p>
-                <p className="mono">{hz(unavailable.frequency_hz)}</p>
-                <button type="button" onClick={() => void openOriginal(unavailable.id)}>
-                  {t('Original sweep')}
-                </button>
-              </div>
-            ) : (
-              <>
-                {scanBands.length > 0 && (
-                  <label className="displayed-band">
-                    {t('Displayed band')}
-                    <select
-                      value={selectedBand}
-                      onChange={(event) => setScanBand(event.target.value)}
-                    >
-                      {scanBands.map((band) => (
-                        <option key={band.key} value={band.key}>
-                          {band.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+              {rfPrimary &&
+                p?.primary_stream_id &&
+                desk.capabilities?.features.rf_explorer_survey_panorama === true &&
+                p.profile?.analyzer?.settings.survey_step_hz === 10000 && (
+                  <RfExplorerPass
+                    key={JSON.stringify([
+                      desk.connectionVersion,
+                      p.active_session_id,
+                      p.primary_stream_id,
+                    ])}
+                    api={desk.api}
+                    session={p.active_session_id}
+                    stream={p.primary_stream_id}
+                    running={!!desk.guard?.active || p.state === 'collecting'}
+                    paused={false}
+                    bookmarks={desk.capabilities.features.frequency_bookmarks === true}
+                    readOnly={readOnly}
+                    hold={rfHold}
+                    setHold={setRfHold}
+                    openOriginal={(s, i) => {
+                      setOriginal(s);
+                      setOriginalOffset(i == null ? 0 : Math.floor(i / 100) * 100);
+                      setOriginalPoint(i == null ? undefined : { id: s.id, index: i });
+                    }}
+                  />
                 )}
-                {bandRange && (
-                  <>
-                    <BandOverview
-                      key={selectedBand}
-                      band={
-                        desk.live.panorama?.id === p?.scan_plan?.id &&
-                        desk.live.panorama?.revision === p?.scan_plan?.revision &&
-                        planBand
-                          ? desk.live.panorama?.bands.get(planBand.id)
-                          : undefined
-                      }
-                      range={bandRange}
-                      openOriginal={(id) => void openOriginal(id)}
-                      busy={desk.busy}
-                    />
-                    {waterfall}
-                    {coverageBand ? (
-                      <CoverageRow band={coverageBand} />
-                    ) : (
-                      <Qualification label="Band qualification" />
-                    )}
-                    <h3>{t('Latest hardware window')}</h3>
-                    {latest && (
-                      <p className="muted">
-                        {latest.scan_context?.window_index == null
-                          ? '—'
-                          : latest.scan_context.window_index + 1}{' '}
-                        / {latest.scan_context?.window_count ?? '—'} ·{' '}
-                        {hz(latest.frequencies_hz[0])} – {hz(latest.frequencies_hz.at(-1))}
-                      </p>
-                    )}
-                  </>
-                )}
-                <Spectrum
-                  sweep={latest}
-                  liveSources={{ rows: displayRows, presentation }}
-                  belowPlot={!bandRange && waterfall}
+              {rfPrimary && latest?.rf_explorer && (
+                <RfExplorerSettings
+                  readback={latest.rf_explorer}
+                  frequencies={latest.frequencies_hz}
                 />
-              </>
-            )}
-            <div className="chart-caption" role="group" aria-label={t('Latest saved measurement')}>
-              <span>{t('Frequency · MHz')}</span>
-              <span>
-                {unavailable?.point_count ?? latest?.original_point_count ?? 0}
-                {' ' + t('original points · display only')}
-              </span>
-            </div>
-            {unavailable && waterfall}
-            {!bandRange &&
-              planBand &&
-              (coverageBand ? (
-                <CoverageRow band={coverageBand} />
+              )}
+              <p className="muted">{t('Latest saved measurement')}</p>
+              <div
+                className="spectrum-metrics"
+                role="group"
+                aria-label={t('Latest saved measurement')}
+              >
+                <div>
+                  <small>{t('PEAK FREQUENCY')}</small>
+                  <strong className="mono">{hz(latest?.peak.frequency_hz)}</strong>
+                </div>
+                <div>
+                  <small>{t('PEAK LEVEL')}</small>
+                  <strong className="mono">
+                    {latest
+                      ? latest.peak.level.toFixed(1) + ' ' + latest.level_unit
+                      : unavailable
+                        ? t('Not plotted')
+                        : t('— dBm')}
+                  </strong>
+                </div>
+                <div>
+                  <small>{t('COMMITTED EVENT')}</small>
+                  <strong className="mono">#{desk.live.sequence}</strong>
+                </div>
+              </div>
+              {unavailable ? (
+                <div className="plot-unavailable" role="status" data-testid="unsupported-source">
+                  <strong>{t('Source frequency outside supported display range')}</strong>
+                  <p>{t('Original measurements remain available without numeric conversion.')}</p>
+                  <p className="mono">{hz(unavailable.frequency_hz)}</p>
+                  <button type="button" onClick={() => void openOriginal(unavailable.id)}>
+                    {t('Original sweep')}
+                  </button>
+                </div>
               ) : (
-                <Qualification label="Band qualification" />
-              ))}
-            <div className="source-footer" role="group" aria-label={t('Latest saved measurement')}>
-              <span data-testid="source-id">
-                {unavailable?.id || latest?.id || t('Waiting for a committed sweep')}
-              </span>
-              <span>{utc(unavailable?.interval.ended_at ?? latest?.interval.ended_at)}</span>
-            </div>
-            {desk.live.gaps > 0 && (
-              <p className="callout">
-                {desk.live.gaps}
-                {' ' +
-                  t(
-                    'client sequence/backlog gap(s). Replaying the archive from the last applied event; the render buffer is bounded.',
+                <>
+                  {scanBands.length > 0 && (
+                    <label className="displayed-band">
+                      {t('Displayed band')}
+                      <select
+                        value={selectedBand}
+                        onChange={(event) => setScanBand(event.target.value)}
+                      >
+                        {scanBands.map((band) => (
+                          <option key={band.key} value={band.key}>
+                            {band.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   )}
-              </p>
-            )}
-          </Panel>
+                  {bandRange && (
+                    <>
+                      <BandOverview
+                        key={selectedBand}
+                        band={
+                          desk.live.panorama?.id === p?.scan_plan?.id &&
+                          desk.live.panorama?.revision === p?.scan_plan?.revision &&
+                          planBand
+                            ? desk.live.panorama?.bands.get(planBand.id)
+                            : undefined
+                        }
+                        range={bandRange}
+                        openOriginal={(id) => void openOriginal(id)}
+                        busy={desk.busy}
+                      />
+                      {waterfall}
+                      {coverageBand ? (
+                        <CoverageRow band={coverageBand} />
+                      ) : (
+                        <Qualification label="Band qualification" />
+                      )}
+                      <h3>{t('Latest hardware window')}</h3>
+                      {latest && (
+                        <p className="muted">
+                          {latest.scan_context?.window_index == null
+                            ? '—'
+                            : latest.scan_context.window_index + 1}{' '}
+                          / {latest.scan_context?.window_count ?? '—'} ·{' '}
+                          {hz(latest.frequencies_hz[0])} – {hz(latest.frequencies_hz.at(-1))}
+                        </p>
+                      )}
+                    </>
+                  )}
+                  <Spectrum
+                    sweep={latest}
+                    liveSources={{ rows: displayRows, presentation }}
+                    belowPlot={!bandRange && waterfall}
+                  />
+                </>
+              )}
+              <div
+                className="chart-caption"
+                role="group"
+                aria-label={t('Latest saved measurement')}
+              >
+                <span>{t('Frequency · MHz')}</span>
+                <span>
+                  {unavailable?.point_count ?? latest?.original_point_count ?? 0}
+                  {' ' + t('original points · display only')}
+                </span>
+              </div>
+              {unavailable && waterfall}
+              {!bandRange &&
+                planBand &&
+                (coverageBand ? (
+                  <CoverageRow band={coverageBand} />
+                ) : (
+                  <Qualification label="Band qualification" />
+                ))}
+              <div
+                className="source-footer"
+                role="group"
+                aria-label={t('Latest saved measurement')}
+              >
+                <span data-testid="source-id">
+                  {unavailable?.id || latest?.id || t('Waiting for a committed sweep')}
+                </span>
+                <span>{utc(unavailable?.interval.ended_at ?? latest?.interval.ended_at)}</span>
+              </div>
+              {desk.live.gaps > 0 && (
+                <p className="callout">
+                  {desk.live.gaps}
+                  {' ' +
+                    t(
+                      'client sequence/backlog gap(s). Replaying the archive from the last applied event; the render buffer is bounded.',
+                    )}
+                </p>
+              )}
+            </Panel>
+          )}
           <div className="side-stack">
             {workspace === 'monitoring' && (
               <EventQueue
@@ -1120,97 +1260,105 @@ export function App({
                 open={(item) => void openEvent(item)}
               />
             )}
-            <Panel
-              title={t('AR-DV1')}
-              eyebrow={t('INDEPENDENT RECEIVER')}
-              aside={
-                <span className={'badge ' + (receiverWorker?.alive ? 'good' : '')}>
-                  {receiverWorker?.alive
-                    ? t('Receiving')
-                    : titleCase(receiverWorker?.state || 'unavailable')}
-                </span>
-              }
-            >
-              <small>{t('Last saved receiver frequency')}</small>
-              <div className="receiver-frequency mono">{hz(receiver?.frequency_hz)}</div>
-              {receiverSettings &&
-              (requestedFrequency != null || receiverSettings.frequency_source) ? (
-                <dl className="status-list receiver-readback">
+            {(!p || !!p.receiver_stream_id) && (
+              <Panel
+                title={t('AR-DV1')}
+                eyebrow={t(receiverOnly ? 'PRIMARY INSTRUMENT' : 'INDEPENDENT RECEIVER')}
+                aside={
+                  <span className={'badge ' + (receiverWorker?.alive ? 'good' : '')}>
+                    {receiverWorker?.alive
+                      ? t('Receiving')
+                      : titleCase(receiverWorker?.state || 'unavailable')}
+                  </span>
+                }
+              >
+                <small>{t('Last saved receiver frequency')}</small>
+                <div className="receiver-frequency mono">{hz(receiver?.frequency_hz)}</div>
+                {receiverSettings &&
+                (requestedFrequency != null || receiverSettings.frequency_source) ? (
+                  <dl className="status-list receiver-readback">
+                    <div>
+                      <dt>{t('Requested target')}</dt>
+                      <dd>
+                        {hz(
+                          typeof requestedFrequency === 'number' ||
+                            typeof requestedFrequency === 'bigint'
+                            ? requestedFrequency
+                            : undefined,
+                        )}{' '}
+                        · {String(receiverSettings.requested_mode ?? '—')}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('Receiver readback')}</dt>
+                      <dd>
+                        {receiverSettings.frequency_readback === true &&
+                        (typeof actualFrequency === 'number' || typeof actualFrequency === 'bigint')
+                          ? hz(actualFrequency) + ' · ' + (receiverSettings.observed_mode ?? '—')
+                          : t('Unavailable')}
+                      </dd>
+                    </div>
+                  </dl>
+                ) : null}
+                <div className="receiver-stats">
                   <div>
-                    <dt>{t('Requested target')}</dt>
-                    <dd>
-                      {hz(
-                        typeof requestedFrequency === 'number' ||
-                          typeof requestedFrequency === 'bigint'
-                          ? requestedFrequency
-                          : undefined,
-                      )}{' '}
-                      · {String(receiverSettings.requested_mode ?? '—')}
-                    </dd>
+                    <small>{t('MODE')}</small>
+                    <strong>{receiver?.mode || '—'}</strong>
                   </div>
                   <div>
-                    <dt>{t('Receiver readback')}</dt>
-                    <dd>
-                      {receiverSettings.frequency_readback === true &&
-                      (typeof actualFrequency === 'number' || typeof actualFrequency === 'bigint')
-                        ? hz(actualFrequency) + ' · ' + (receiverSettings.observed_mode ?? '—')
+                    <small>{t('RAW LEVEL')}</small>
+                    <strong className="mono">
+                      {receiver?.level ?? '—'}{' '}
+                      <small>{receiver?.level_unit ? t(receiver.level_unit) : ''}</small>
+                    </strong>
+                  </div>
+                  <div>
+                    <small>{t('SQUELCH')}</small>
+                    <strong>
+                      {receiver?.squelch_open == null
+                        ? t('Unknown')
+                        : receiver.squelch_open
+                          ? t('Open')
+                          : t('Closed')}
+                    </strong>
+                  </div>
+                  <div>
+                    <small>{t('INVESTIGATION')}</small>
+                    <strong>
+                      {desk.guard
+                        ? t(desk.guard.receiver_busy ? 'In progress' : 'Idle')
                         : t('Unavailable')}
-                    </dd>
+                    </strong>
                   </div>
-                </dl>
-              ) : null}
-              <div className="receiver-stats">
-                <div>
-                  <small>{t('MODE')}</small>
-                  <strong>{receiver?.mode || '—'}</strong>
                 </div>
-                <div>
-                  <small>{t('RAW LEVEL')}</small>
-                  <strong className="mono">
-                    {receiver?.level ?? '—'}{' '}
-                    <small>{receiver?.level_unit ? t(receiver.level_unit) : ''}</small>
-                  </strong>
+                <p className="muted">
+                  {t('S-meter counts retain their original unit. No dBm conversion is applied.')}
+                </p>
+                <div className="device-footer">
+                  <span className="mono">
+                    {receiverWorker?.measurements ?? '—'}
+                    {' ' + t('observations')}
+                  </span>
+                  <span>{receiverWorker?.adapter || t('No active worker')}</span>
                 </div>
-                <div>
-                  <small>{t('SQUELCH')}</small>
-                  <strong>
-                    {receiver?.squelch_open == null
-                      ? t('Unknown')
-                      : receiver.squelch_open
-                        ? t('Open')
-                        : t('Closed')}
-                  </strong>
-                </div>
-                <div>
-                  <small>{t('INVESTIGATION')}</small>
-                  <strong>
-                    {desk.guard
-                      ? t(desk.guard.receiver_busy ? 'In progress' : 'Idle')
-                      : t('Unavailable')}
-                  </strong>
-                </div>
-              </div>
-              <p className="muted">
-                {t('S-meter counts retain their original unit. No dBm conversion is applied.')}
-              </p>
-              <div className="device-footer">
-                <span className="mono">
-                  {receiverWorker?.measurements ?? '—'}
-                  {' ' + t('observations')}
-                </span>
-                <span>{receiverWorker?.adapter || t('No active worker')}</span>
-              </div>
-              {receiverWorker?.last_error && (
-                <p className="error-text">{receiverWorker.last_error}</p>
-              )}
-            </Panel>
-            <StationStatus desk={desk} analyzer={analyzerWorker} />
+                {receiverWorker?.last_error && (
+                  <p className="error-text">{receiverWorker.last_error}</p>
+                )}
+                {receiverOnly && (
+                  <ReceiverHold
+                    key={JSON.stringify([desk.connectionVersion, p.id, p.active_session_id])}
+                    desk={desk}
+                  />
+                )}
+              </Panel>
+            )}
+            <StationStatus desk={desk} analyzer={receiverOnly ? receiverWorker : analyzerWorker} />
           </div>
         </div>
         <section hidden={workspace !== 'monitoring'} aria-label={t('Monitoring workspace')}>
           <div className="preparation-grid" id="receive-preparation" tabIndex={-1}>
             <PreparationPanel desk={desk} />
-            <ScanPlan desk={desk} />
+            {!receiverOnly && !rfPrimary && <ScanPlan desk={desk} />}
             <AllowedPanel desk={desk} />
           </div>
         </section>
@@ -1219,16 +1367,24 @@ export function App({
           <span>{t('UTC timestamps · integer Hz · original units')}</span>
         </footer>
       </main>
-      {wizard && <Prepare desk={desk} close={() => setWizard(false)} />}
+      {wizard && (
+        <Prepare
+          desk={desk}
+          onLocalArchiveSettings={localWindows ? onConnectionSettings : undefined}
+          resume={wizard === 'resume' ? p : undefined}
+          close={() => setWizard(undefined)}
+        />
+      )}
       {event && (
         <Modal label={t('Event details')} close={closeEvent}>
           <h2>{t('Event details')}</h2>
           <div className="event-frequency mono">{hz(event.center_frequency_hz)}</div>
           <p>
             {titleCase(event.kind)} · {event.peak_level}
-            {' ' + t('dBm ·') + ' '}
+            {' ' + t(event.level_unit ?? 'dBm') + ' · '}
             {event.source_count}
-            {' ' + t('source sweeps')}
+            {' ' +
+              t(event.level_unit === 's_meter_count' ? 'source observations' : 'source sweeps')}
           </p>
           <dl className="status-list">
             <div>
@@ -1249,21 +1405,35 @@ export function App({
             </div>
           </dl>
           <div className="actions">
-            <button className="primary" disabled={desk.busy} onClick={() => void eventOriginal()}>
-              {t('Original sweep')}
+            <button
+              className="primary"
+              disabled={
+                desk.busy ||
+                (event.level_unit === 's_meter_count' &&
+                  !event.peak_source?.observation_id &&
+                  !event.source_refs?.some((s) => s.observation_id))
+              }
+              onClick={() => void eventOriginal()}
+            >
+              {t(event.level_unit === 's_meter_count' ? 'Original observation' : 'Original sweep')}
             </button>
             <button disabled={desk.busy || !event.analysis?.audio} onClick={() => void playAudio()}>
               {t('Play audio')}
             </button>
           </div>
           <EventReceiver event={event} api={desk.api} />
-          {desk.capabilities?.features.paired_event_rechecks === true && (
-            <PairedRechecks
-              key={JSON.stringify([desk.connectionVersion, desk.projectId, event.id])}
-              desk={desk}
-              eventId={event.id}
-            />
+          {desk.capabilities?.features.monitoring_signal_catalog === true && (
+            <SignalHypotheses api={desk.api} projectId={desk.projectId} event={event} />
           )}
+          {!!p?.analyzer_stream_id &&
+            !!p.receiver_stream_id &&
+            desk.capabilities?.features.paired_event_rechecks === true && (
+              <PairedRechecks
+                key={JSON.stringify([desk.connectionVersion, desk.projectId, event.id])}
+                desk={desk}
+                eventId={event.id}
+              />
+            )}
           <audio
             ref={audio}
             controls
@@ -1328,6 +1498,12 @@ export function App({
             </div>
           </form>
         </Modal>
+      )}
+      {sourceObservation && (
+        <OriginalObservation
+          source={sourceObservation}
+          close={() => setSourceObservation(undefined)}
+        />
       )}
       {originalDialog}
     </div>

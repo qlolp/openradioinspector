@@ -586,6 +586,28 @@ async fn get(
                     .await?
             )
         }
+        ["api", "v1", "archive", "location"] => {
+            core.archive()?;
+            if !query.is_empty() {
+                return Err(ApiError::invalid("Archive location accepts no parameters"));
+            }
+            let database = core.config.database.clone();
+            let label = if database.parent() == Some(core.config.data_directory.as_path()) {
+                "Архив узла"
+            } else {
+                "Выбранная папка архива узла"
+            };
+            let available = tokio::task::spawn_blocking(move || {
+                database
+                    .parent()
+                    .and_then(|dir| fs2::available_space(dir).ok())
+            })
+            .await
+            .map_err(|_| ApiError::unavailable("archive_storage_unavailable"))?;
+            json!({"storage_id":"node-archive", "label":label,
+                "database":core.config.database.file_name().and_then(|n| n.to_str()),
+                "available_bytes":available, "relocation":"local-supervisor"})
+        }
         ["api", "v1", "sessions"] => {
             let page = core
                 .archive()?
@@ -620,6 +642,16 @@ async fn get(
             let payload = crate::analysis::get_payload(method, &query)?;
             return crate::analysis::response(&core, id, method, payload).await;
         }
+        [
+            "api",
+            "v1",
+            "sessions",
+            id,
+            "streams",
+            stream,
+            "receiver-panorama",
+            tail @ ..,
+        ] => crate::receiver_panorama::read(&core, id, stream, tail, &query).await?,
         [
             "api",
             "v1",
@@ -875,6 +907,12 @@ fn capabilities(core: &Core) -> Value {
         value["features"][name] = Value::Bool(archived);
     }
     let serial = archived && core.config.devices.transport.is_some();
+    value["features"]["single_source_duty"] = Value::Bool(domains);
+    value["features"]["ardv1_cyclic_panorama"] = Value::Bool(serial);
+    value["features"]["ardv1_receiver_panorama"] = Value::Bool(archived);
+    value["features"]["monitoring_duty_schedule"] = Value::Bool(domains);
+    value["features"]["monitoring_notification_channels"] = Value::Bool(domains);
+    value["features"]["archive_location"] = Value::Bool(archived);
     value["features"]["frequency_bookmarks"] = Value::Bool(domains);
     value["features"]["rf_explorer_survey_panorama"] = Value::Bool(archived);
     let rf_explorer = core
@@ -1081,6 +1119,11 @@ async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<R
         return crate::analysis::response(core, id, method, payload).await;
     }
     match route.as_slice() {
+        ["api", "v1", "archive", "location"] => Err(ApiError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "archive_location_read_only",
+            "Папку архива выбирают на узле после остановки службы.",
+        )),
         [
             "api",
             "v1",

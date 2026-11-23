@@ -198,7 +198,29 @@ pub struct DeliveryReceipt {
     pub status: Option<u16>,
 }
 
+pub struct DutyDeliveryReceipt {
+    pub delivered: bool,
+    pub status: Option<u16>,
+    pub retry_after_seconds: Option<u64>,
+}
 pub trait InstrumentControl: Send + Sync + 'static {
+    fn outbound_channels_available(&self) -> bool {
+        false
+    }
+    fn configure_notifications<'a>(
+        &'a self,
+        _project: &'a str,
+        _patch: serde_json::Value,
+    ) -> ControlFuture<'a, serde_json::Value> {
+        Box::pin(async { Err(ControlError::Unavailable("notification_settings")) })
+    }
+    fn deliver_duty<'a>(
+        &'a self,
+        _channel: ori_archive::DutyChannel,
+        _claim: &'a ori_archive::ClaimedDutyDelivery,
+    ) -> ControlFuture<'a, DutyDeliveryReceipt> {
+        Box::pin(async { Err(ControlError::Unavailable("notification_delivery")) })
+    }
     /// Validate supported profiles and known cached capabilities without opening
     /// devices. Configuration compatibility is not physical RF readback.
     fn preflight<'a>(&'a self, session: &'a Session) -> ControlFuture<'a, InstrumentPreflight>;
@@ -210,6 +232,13 @@ pub trait InstrumentControl: Send + Sync + 'static {
     ) -> ControlFuture<'a, Vec<WorkerStatus>>;
     /// Trusted domain/core cleanup; must wait for actual stop or return failure.
     fn stop_session<'a>(&'a self, session_id: &'a str) -> ControlFuture<'a, Vec<WorkerStatus>>;
+    /// Scheduled closing lets an already dispatched original finish before joining the worker.
+    fn finish_duty_session<'a>(
+        &'a self,
+        session_id: &'a str,
+    ) -> ControlFuture<'a, Vec<WorkerStatus>> {
+        self.stop_session(session_id)
+    }
     fn start_stream<'a>(
         &'a self,
         session: &'a Session,
@@ -217,6 +246,15 @@ pub trait InstrumentControl: Send + Sync + 'static {
         permit: ControlPermit,
     ) -> ControlFuture<'a, WorkerStatus>;
     fn stop_stream<'a>(&'a self, target: &'a ControlTarget) -> ControlFuture<'a, WorkerStatus>;
+    /// Switch the live cyclic receiver at an acknowledged acquisition boundary.
+    fn receiver_scan_hold<'a>(
+        &'a self,
+        _target: &'a ControlTarget,
+        _hold: bool,
+        _permit: ControlPermit,
+    ) -> ControlFuture<'a, WorkerStatus> {
+        Box::pin(async { Err(ControlError::Unavailable("cyclic_receiver_hold")) })
+    }
     fn tune<'a>(&'a self, request: TuneRequest) -> ControlFuture<'a, TuneReply>;
     /// Cache-only post-effect gate. Recheck the same worker instance, applied
     /// revision, frequency/mode and known acknowledged state under the shared

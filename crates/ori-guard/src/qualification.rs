@@ -71,6 +71,21 @@ pub(crate) fn source_qualification(project: &Value, sweep: &Sweep) -> Result<Qua
     else {
         return Err(invalid("Пустая частотная сетка исходного свипа"));
     };
+    if analyzer_adapter(project) == Some("rf-explorer-3g-serial") {
+        let settings = &project["profile"]["analyzer"]["settings"];
+        let survey = crate::rfe::survey(project);
+        let meta = json!(sweep.settings);
+        let scope = if survey { &meta["survey"] } else { &meta };
+        let matched = survey == meta["survey"].is_object()
+            && ["start_hz", "stop_hz"]
+                .iter()
+                .all(|&k| settings.get(k).is_none_or(|v| *v == scope[k]));
+        return Ok(if matched && ori_monitoring::rfe::normal_sweep(sweep) {
+            Qualification::Supported
+        } else {
+            Qualification::Unverified
+        });
+    }
     Ok(Qualification::for_range(
         source_adapter(project, sweep),
         first,
@@ -99,6 +114,9 @@ pub(crate) fn event_eligible(project: &Value, event: &Value) -> Result<bool> {
     };
     let start = event["start_frequency_hz"].as_u64().unwrap_or(center);
     let end = event["end_frequency_hz"].as_u64().unwrap_or(center);
+    if adapter == Some("rf-explorer-3g-serial") {
+        return Ok(true);
+    }
     if !Qualification::for_range(adapter, start.min(center), end.max(center)).eligible() {
         return Ok(false);
     }
@@ -144,7 +162,14 @@ impl GuardService {
         event: &Value,
         ranges: &mut ReferenceRanges,
     ) -> Result<bool> {
-        if analyzer_adapter(project) != Some("tinysa-serial") {
+        if project["primary_source_kind"] == "ardv1" {
+            return Ok(event["level_unit"] == "s_meter_count"
+                && event["peak_source"]["observation_id"].is_string());
+        }
+        if !matches!(
+            analyzer_adapter(project),
+            Some("tinysa-serial" | "rf-explorer-3g-serial")
+        ) {
             return Ok(analyzer_adapter(project) == Some("tinysa-sim"));
         }
         let Some(id) = event["baseline_id"].as_str() else {
@@ -174,7 +199,12 @@ impl GuardService {
         project: &Value,
         id: &str,
     ) -> Result<Option<(u64, u64)>> {
-        let Some(baseline) = self.archive.monitoring("baseline", id).await? else {
+        let kind = if crate::rfe::survey(project) {
+            crate::aor::BLOCK
+        } else {
+            "baseline"
+        };
+        let Some(baseline) = self.archive.monitoring(kind, id).await? else {
             return Ok(None);
         };
         if baseline["project_id"] != project["id"] || baseline["confirmed"] != true {

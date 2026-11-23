@@ -11,7 +11,7 @@ from pathlib import Path
 import stat
 import threading
 
-from .runtime_bridge import RuntimeBridgeError, _safe_path, _writer_lease
+from .runtime_bridge import RuntimeBridgeError, _safe_path, _open_archive_writer
 
 
 _RETAINED: dict[int, ArchiveWriterOwner] = {}
@@ -107,7 +107,7 @@ def archive_writer_owner(session_database: str | os.PathLike[str] | None):
         # The shared helper checks private state/lock permissions and uses flock
         # on Unix or the byte range overlapping fs2 LockFileEx on Windows.
         _archive_file(database.parent / '.ori-runtime' / 'writer.lock')
-        lease = _writer_lease(database.parent)
+        lease, database = _open_archive_writer(database.parent, database)
     except RuntimeBridgeError:
         raise
     except (OSError, ValueError, TypeError, RuntimeError) as error:

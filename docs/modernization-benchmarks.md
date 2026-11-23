@@ -241,6 +241,25 @@ completed experiment, unsupported core, and failed run. No report claims Pi or
 physical acceptance. Latency p95 is a conservative histogram bucket upper bound
 with at most 2% bucket width; it is not an exact stored-sample percentile.
 
+The producer records the following monotonic elapsed times in milliseconds under
+`report.json` → `latency`. Each histogram has its own `count`. A scheduled POST
+handles one sweep, observation or closed WAV. The sequential History preload
+counts each submitted batch once, including a partially filled final batch.
+
+| Histogram | Timing boundaries | Samples counted |
+| --- | --- | --- |
+| `producer_queue_wait_ms` | Immediately before the scheduler attempts to enqueue the item through the worker returning from dequeue | Every dequeued item, including a subsequently cancelled item or injected client gap. A full queue contributes no sample. Sequential History uses no FIFO and has count zero. |
+| `offered_to_request_ms` | Ledger offer timestamp through entry into the ingest HTTP call | Every POST started, including failed requests. Scheduled input includes ledger insertion, queue wait and source preparation. History assembles the batch before offering it. |
+| `request_to_response_ms` | Start of the ingest HTTP call through receipt and decoding of the complete expected 201 JSON envelope | Every call that returns its response data, including a response whose canonical acknowledgement later fails. This includes request encoding and response body reading. |
+| `ack_verification_ms` | Return of the decoded response through successful validation, before the outcome is written to the producer ledger | Every response passing the source identity and content checks. The WAV check uses its ID and SHA256. A batch must pass for every member. |
+| `request_ms` | Start of the request operation through its final timing check. Outcomes handled inside the operation include the ledger update. | Every attempted request, including HTTP errors, failed transports and invalid acknowledgements. |
+| `offered_to_ack_ms` | Ledger offer timestamp through successful acknowledgement validation and ledger update | Every accepted scheduled input or accepted History batch. |
+
+The four diagnostic stages use fixed-size histograms. They retain only elapsed
+time aggregates. An empty histogram reports count zero and null percentiles.
+The UI comparison still uses `offered_to_render_ms` from the original offer
+and the corresponding after-draw observation on each client.
+
 `--pid label=PID` may be repeated for core/research/supervisor roots. Linux
 sampling discovers descendants and reports observed root RSS and summed tree
 RSS. Shared pages are counted more than once, short-lived peaks can be missed,

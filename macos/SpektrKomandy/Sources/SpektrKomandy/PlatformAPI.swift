@@ -407,17 +407,21 @@ public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
     private struct Settings: Decodable, Equatable, Sendable {
         let adapter: String?
         let surveyStepHz: Int?
-        private enum Keys: CodingKey { case adapter, surveyStepHz }
-        init(adapter: String) { self.adapter = adapter; surveyStepHz = nil }
+        struct FastScan: Decodable, Equatable, Sendable { let cyclic: Bool? }
+        let fastScan: FastScan?
+        private enum Keys: CodingKey { case adapter, surveyStepHz, fastScan }
+        init(adapter: String) { self.adapter = adapter; surveyStepHz = nil; fastScan = nil }
         init(from decoder: Decoder) throws {
             // Other adapters can store their own JSON. Keep those sessions browsable.
             guard let fields = try? decoder.container(keyedBy: Keys.self) else {
                 adapter = ""
                 surveyStepHz = nil
+                fastScan = nil
                 return
             }
             adapter = fields.contains(.adapter) ? (try? fields.decode(String.self, forKey: .adapter)) ?? "" : nil
             surveyStepHz = try? fields.decode(Int.self, forKey: .surveyStepHz)
+            fastScan = try? fields.decode(FastScan.self, forKey: .fastScan)
         }
     }
     private let settings: Settings?
@@ -443,6 +447,9 @@ public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
     }
 
     public var isReceiver: Bool { role == "receiver" }
+    public var isCyclicARDV1: Bool {
+        isReceiver && levelUnit == "s_meter_count" && settings?.fastScan?.cyclic == true
+    }
     public var isDbmAnalyzer: Bool {
         role == "spectrum_analyzer" && levelUnit == "dBm"
     }
@@ -808,6 +815,21 @@ public struct PlatformSerialReceiveConfiguration: Equatable, Sendable {
         }
         self.startHz = startHz; self.stopHz = stopHz; self.points = points; self.rbwHz = rbwHz
     }
+
+    /// First physical window of a validated 10 kHz scan plan. Only the core
+    /// can select the extended receive path after checking the instrument.
+    public init(scanPlanStartHz start: Int, totalPoints: Int, rbwHz: Int) throws {
+        guard (100_000...1_300_000_000).contains(start), totalPoints >= 2,
+              totalPoints <= (1_300_000_000 - start) / 10_000 + 1,
+              [10_000, 30_000].contains(rbwHz) else {
+            throw PlatformError.invalidCommand("Сетка tinySA должна помещаться в 0,1–1300 МГц с шагом 10 кГц и RBW 10 или 30 кГц.")
+        }
+        let firstCount = totalPoints == 291 ? 289 : min(290, totalPoints)
+        self.startHz = start
+        self.stopHz = start + (firstCount - 1) * 10_000
+        self.points = firstCount
+        self.rbwHz = rbwHz
+    }
 }
 
 private func platformArchiveCount(_ response: URLResponse, name: String) throws -> Int {
@@ -1026,7 +1048,8 @@ public final class PlatformClient: Sendable {
 
     public func createSerialSession(
         name: String, tinySAPort: String, ardv1Port: String = "",
-        receive: PlatformSerialReceiveConfiguration = .init(), monitorReceiverProfile: Bool = false
+        receive: PlatformSerialReceiveConfiguration = .init(), monitorReceiverProfile: Bool = false,
+        beforePosting: (@Sendable () async throws -> Void)? = nil
     ) async throws -> PlatformSession {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let spectrumPort = tinySAPort.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1066,26 +1089,36 @@ public final class PlatformClient: Sendable {
         )
         var streams = [analyzer]
         if !targetPort.isEmpty {
-            var settings: [String: PlatformSettingValue] = [
-                "adapter": .string("ardv1-serial"), "frequency_hz": .integer(145_500_000),
-                "mode": .string("FM"), "squelch": .integer(10), "period_s": .floating(0.25)
-            ]
-            if monitorReceiverProfile { settings["receiver_profile"] = .string("ardv1-monitor-v1") }
-            let receiver = StreamDraft(
-                device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
-                port: targetPort, capabilities: ["tune", "audio"],
-                settings: settings
-            )
-            streams.append(receiver)
+            streams.append(Self.secondaryReceiver(port: targetPort, monitorProfile: monitorReceiverProfile))
         }
+        try await beforePosting?()
         return try await post("/sessions", body: SessionDraft(name: trimmed, streams: streams))
+    }
+
+    private static func secondaryReceiver(port: String, monitorProfile: Bool) -> StreamDraft {
+        var settings: [String: PlatformSettingValue] = [
+            "adapter": .string("ardv1-serial"), "frequency_hz": .integer(145_500_000),
+            "mode": .string("FM"), "squelch": .integer(10), "period_s": .floating(0.25)
+        ]
+        if monitorProfile { settings["receiver_profile"] = .string("ardv1-monitor-v1") }
+        return StreamDraft(device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
+            port: port, capabilities: ["tune", "audio"], settings: settings)
     }
 
     public func supportsRFExplorer3G() async throws -> Bool {
         try await workbenchFeatures().contains(PlatformRFExplorerConfiguration.spectrumFeature)
     }
 
-    public func createRFExplorerSession(_ configuration: PlatformRFExplorerConfiguration) async throws -> PlatformSession {
+    public func createRFExplorerSession(_ configuration: PlatformRFExplorerConfiguration,
+                                        name: String = PlatformRFExplorerConfiguration.device,
+                                        receiverPort: String? = nil,
+                                        beforePosting: (@Sendable () async throws -> Void)? = nil) async throws -> PlatformSession {
+        if let receiverPort {
+            guard !receiverPort.isEmpty, !receiverPort.contains("://"), !receiverPort.contains("\0"),
+                  !PlatformExactID.same(receiverPort, configuration.port) else {
+                throw PlatformError.invalidCommand("Для дополнительного AR-DV1 нужен отдельный порт узла.")
+            }
+        }
         if let issue = PlatformRFExplorerConfiguration.supportIssue(in: try await workbenchFeatures(),
                                                                    survey: configuration.surveyStepHz != nil) {
             throw PlatformError.invalidCommand(issue)
@@ -1102,8 +1135,12 @@ public final class PlatformClient: Sendable {
         let device = PlatformRFExplorerConfiguration.device
         let analyzer = StreamDraft(device: device, role: "spectrum_analyzer", levelUnit: "dBm",
             port: configuration.port, capabilities: ["sweep", "waterfall"], settings: settings)
-        let created: PlatformSession = try await post("/sessions", body: SessionDraft(name: device, streams: [analyzer]))
-        guard !created.id.isEmpty, created.streams.count == 1, let stream = created.streams.first,
+        let streams = [analyzer] + (receiverPort.map { [Self.secondaryReceiver(port: $0, monitorProfile: true)] } ?? [])
+        try await beforePosting?()
+        let created: PlatformSession = try await post("/sessions", body: SessionDraft(name: name, streams: streams))
+        guard !created.id.isEmpty, created.streams.count == streams.count,
+              receiverPort == nil || created.streams.contains(where: { $0.isReceiver && PlatformExactID.same($0.port, receiverPort) }),
+              let stream = created.streams.first(where: { $0.isDbmAnalyzer }),
               !stream.id.isEmpty, stream.isDbmAnalyzer, stream.adapter == PlatformRFExplorerConfiguration.adapter,
               stream.rfExplorerSurveyStepHz == configuration.surveyStepHz,
               PlatformExactID.same(stream.port, configuration.port) else {
@@ -1117,35 +1154,39 @@ public final class PlatformClient: Sendable {
     }
 
     public func createARDV1Scope(
-        port: String, configuration: PlatformARDV1ScopeConfiguration
+        port: String, configuration: PlatformARDV1ScopeConfiguration, name: String = "Обзор диапазона AR-DV1",
+        beforePosting: (@Sendable () async throws -> Void)? = nil
     ) async throws -> PlatformSession {
         let selectedPort = port.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedPort.isEmpty, !selectedPort.lowercased().hasPrefix("sim://") else {
             throw PlatformError.invalidCommand("Выберите физический порт AR-DV1.")
         }
-        guard try await supportsARDV1Scope() else {
+        let capability = configuration.cyclic ? "ardv1_cyclic_panorama" : "ardv1_sampled_scope"
+        if configuration.cyclic {
+            guard try await workbenchFeatures().contains(capability) else {
+                throw PlatformError.invalidResponse("Подключённое ядро не поддерживает циклический обзор AR-DV1.")
+            }
+        } else if try await !supportsARDV1Scope() {
             throw PlatformError.invalidResponse("Подключённое ядро не поддерживает обзор диапазона AR-DV1.")
         }
-        let receiver = StreamDraft(
-            device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
-            port: selectedPort, capabilities: ["receiver", "ardv1_sampled_scope"], settings: [
-                "adapter": .string("ardv1-serial"),
-                "receiver_profile": .string("ardv1-monitor-v1"),
-                "mode": .string("FM"), "period_s": .integer(0),
-                "fast_scan": .object([
-                    "start_hz": .integer(configuration.startHz),
-                    "stop_hz": .integer(configuration.stopHz),
-                    "step_hz": .integer(configuration.stepHz),
-                    "settle_s": .floating(0.015),
-                ]),
-            ]
-        )
-        let session: PlatformSession = try await post(
-            "/sessions", body: SessionDraft(name: "Обзор диапазона AR-DV1", streams: [receiver])
-        )
+        var scan: [String: PlatformSettingValue] = [
+            "start_hz": .integer(configuration.startHz), "stop_hz": .integer(configuration.stopHz),
+            "step_hz": .integer(configuration.stepHz), "settle_s": .floating(0.015)
+        ]
+        if configuration.cyclic {
+            scan["cyclic"] = .boolean(true)
+            scan["strategy"] = .string("auto")
+        }
+        let receiver = StreamDraft(device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
+            port: selectedPort, capabilities: ["receiver", capability], settings: [
+                "adapter": .string("ardv1-serial"), "receiver_profile": .string("ardv1-monitor-v1"),
+                "mode": .string("FM"), "period_s": .integer(0), "fast_scan": .object(scan)
+            ])
+        try await beforePosting?()
+        let session: PlatformSession = try await post("/sessions", body: SessionDraft(name: name, streams: [receiver]))
         guard !session.id.isEmpty, session.streams.count == 1,
               let stream = session.streams.first, !stream.id.isEmpty, stream.isReceiver,
-              stream.capabilities.contains("ardv1_sampled_scope"),
+              stream.capabilities.contains(capability), stream.isCyclicARDV1 == configuration.cyclic,
               stream.levelUnit == "s_meter_count", PlatformExactID.same(stream.port, selectedPort) else {
             throw PlatformError.invalidResponse("Ядро вернуло неожиданный поток для обзора диапазона.")
         }

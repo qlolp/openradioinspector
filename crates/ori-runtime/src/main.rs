@@ -13,9 +13,20 @@ async fn main() {
 async fn execute() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let usage = || {
-        Error::Unsafe("usage: ori-supervisor run CONFIG.json | status DATA_DIR | shutdown DATA_DIR | cutover DATA_DIR CANDIDATE.json [--acknowledge-coverage-gap]".into())
+        Error::Unsafe("usage: ori-supervisor run CONFIG.json | archive-location --data-dir NODE --directory NEW_DIRECTORY | status DATA_DIR | shutdown DATA_DIR | cutover DATA_DIR CANDIDATE.json [--acknowledge-coverage-gap]".into())
     };
     match args.as_slice() {
+        [op, data_flag, data, dir_flag, directory]
+            if op == "archive-location"
+                && data_flag == "--data-dir"
+                && dir_flag == "--directory" =>
+        {
+            let result =
+                ori_runtime::archive_location::select(Path::new(data), Path::new(directory))
+                    .await?;
+            println!("{}", serde_json::to_string(&result)?);
+            Ok(())
+        }
         [operation] if operation == "--build-info" => {
             println!(
                 "{}",

@@ -262,6 +262,18 @@ extension PlatformClient {
         return try await get("/monitoring-projects" + path)
     }
 
+    public func nodeArchiveLocation() async throws -> MonitoringValue { try await get("/archive/location") }
+
+    public func monitoringDuty(projectID: String, body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {
+        let path = "/monitoring-projects/\(Self.segment(projectID))/duty"
+        if let body { return try await post(path, body: body, timeoutInterval: 45) }
+        return try await get(path)
+    }
+
+    public func testDutyNotification(projectID: String, channel: String) async throws -> MonitoringValue {
+        guard ["telegram", "webhook"].contains(channel) else { throw PlatformError.invalidCommand("Выберите канал уведомления.") }
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/notifications/test", body: ["channel": channel])
+    }
     public func coreCapabilities() async throws -> MonitoringValue { try await get("/capabilities") }
 
     public func monitoringBandPlan(startHz: Int64? = nil, endHz: Int64? = nil) async throws -> MonitoringValue {
@@ -288,7 +300,7 @@ extension PlatformClient {
         _ projectID: String, resource: String = "", body: [String: MonitoringValue]? = nil
     ) async throws -> MonitoringValue {
         guard !projectID.isEmpty,
-              ["", "preflight", "baselines", "analyze", "allowed", "events", "configure", "arm", "disarm", "status"].contains(resource) else {
+              ["", "preflight", "scan-plan", "baselines", "analyze", "allowed", "events", "configure", "arm", "disarm", "status"].contains(resource) else {
             throw PlatformError.invalidCommand("Нужны проект и известный ресурс наблюдения")
         }
         let path = "/monitoring-projects/" + Self.segment(projectID) + (resource.isEmpty ? "" : "/" + resource)
@@ -458,12 +470,23 @@ extension PlatformClient {
                 return value.double?.isFinite == true ? (key, value) : nil
             })
             // The API contract returns only public webhook configuration, never the credential.
-            return .object(["autostart": result["autostart"],
+            var safe: [String: MonitoringValue] = ["autostart": result["autostart"],
                 "archive": .object(["minimum_free_bytes": result["archive"]["minimum_free_bytes"],
                                     "minimum_retention_seconds": result["archive"]["minimum_retention_seconds"]]),
                 "webhook": .object(["enabled": result["webhook"]["enabled"], "url": .string(url),
                                      "secret_configured": result["webhook"]["secret_configured"]]),
-                "detector": .object(detector)])
+                "detector": .object(detector)]
+            if case .object = result["notifications"] {
+                var channels: [String: MonitoringValue] = [:]
+                for name in ["telegram", "webhook"] {
+                    let channel = result["notifications"][name]
+                    if let enabled = channel["enabled"].bool, let configured = channel["configured"].bool {
+                        channels[name] = .object(["enabled": .boolean(enabled), "configured": .boolean(configured)])
+                    }
+                }
+                safe["notifications"] = .object(channels)
+            }
+            return .object(safe)
         } catch is CancellationError { throw CancellationError() }
         catch let error as PlatformError {
             // Neither a reflected server message nor the request body may expose the credential.

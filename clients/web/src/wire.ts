@@ -16,9 +16,13 @@ import {
   type JSONObject,
   type Sweep as ContractSweep,
 } from '../../../contracts/generated/typescript/index.ts';
+import { decodeReceiverPass } from './receiver-panorama';
 import { decodeMarkerReading, decodePassResponse } from './rf-pass';
 import type { Observation, Sweep } from './types';
-import { decodePairedRecheckResult } from '../../../contracts/generated/typescript/runtime';
+import {
+  decodeReceiverPanorama,
+  decodePairedRecheckResult,
+} from '../../../contracts/generated/typescript/runtime';
 export { stringifyJSON, encodePathSegment, normalizeUTC };
 const MAX_JSON = 8_388_608;
 function object(value: JSONValue): JSONObject {
@@ -65,6 +69,18 @@ export function responseValue(path: string, raw: string | Uint8Array): unknown {
   if (!Object.hasOwn(envelope, 'data')) return envelope;
   const route = path.split('?')[0];
   let data = envelope.data;
+  if (/^\/api\/v1\/sessions\/[^/]+\/streams\/[^/]+\/receiver-panorama$/.test(route)) {
+    const selected = new URLSearchParams(path.split('?')[1]).get('pass');
+    return {
+      ...envelope,
+      data: decodeReceiverPass(
+        decodeReceiverPanorama(data),
+        selected === null ? undefined : Number(selected),
+      ),
+    };
+  }
+  if (/^\/api\/v1\/sessions\/[^/]+\/streams\/[^/]+\/receiver-panorama\/point$/.test(route))
+    return { ...envelope, data: observationValue(data) };
   if (/^\/api\/v1\/sessions\/[^/]+\/frequency-bookmarks$/.test(route)) {
     const page = object(data);
     return {

@@ -33,6 +33,10 @@ class OwnershipError(RuntimeError):
     """Numeric ownership evidence is unavailable or no longer matches."""
 
 
+class _AnchorUnavailable(OwnershipError):
+    """The recorded process is no longer a live anchor for this session."""
+
+
 @dataclass(frozen=True)
 class ProcessIdentity:
     pid: int
@@ -78,6 +82,7 @@ class LinuxKernel:
     def session(self, sid):
         result = []
         scanned = 0
+        host_proc = self.proc_root == Path("/proc")
         for entry in self.proc_root.iterdir():
             if not entry.name.isdecimal():
                 continue
@@ -85,9 +90,20 @@ class LinuxKernel:
             if scanned > MAX_PROCESSES:
                 raise OwnershipError("Numeric process budget exceeded")
             # PID1 cannot belong to the newly created private session.
-            if int(entry.name) <= 1:
+            pid = int(entry.name)
+            if pid <= 1:
                 continue
-            identity = self.identity(int(entry.name))
+            if host_proc:
+                # Most host processes belong to other sessions. Only a full
+                # identity, rechecked after this hint, can establish ownership.
+                try:
+                    if os.getsid(pid) != sid:
+                        continue
+                except ProcessLookupError:
+                    continue
+                except PermissionError:
+                    pass
+            identity = self.identity(pid)
             if identity is not None and identity.sid == sid:
                 result.append(identity)
         return result
@@ -248,7 +264,7 @@ class SessionAuthority:
             or current.sid != self.anchor.sid
             or current.pgid != self.anchor.pgid
         ):
-            raise OwnershipError("Session anchor identity changed or disappeared")
+            raise _AnchorUnavailable("Session anchor identity changed or disappeared")
 
     def members(self):
         try:
@@ -884,18 +900,35 @@ class OwnedCommand:
     def release(self, timeout):
         self._release(time.monotonic() + timeout)
 
+    def _has_release_record(self):
+        value = self.status()
+        return value is not None and value["phase"] == "released"
+
+    def _request_unless_released(self, action, deadline):
+        if not self._has_release_record():
+            try:
+                if action == "cancel":
+                    self.authority._verify_anchor()
+                elif self.authority.members():
+                    raise OwnershipError("Cannot release an anchor with live members")
+            except _AnchorUnavailable:
+                # A previous release can publish its terminal proof and exit
+                # between the status read and the numeric identity check.
+                if not self._has_release_record():
+                    raise
+            else:
+                return self.request(action, deadline)
+        self._finish_release(deadline)
+        return None
+
     def _release(self, deadline):
         if self._resume_retirement(deadline):
             return
         _remaining(deadline)
         self.pending_phase = "release_check"
-        value = self.status()
-        if value is not None and value["phase"] == "released":
-            self._finish_release(deadline)
+        serial = self._request_unless_released("release", deadline)
+        if serial is None:
             return
-        if self.authority.members():
-            raise OwnershipError("Cannot release an anchor with live members")
-        serial = self.request("release", deadline)
         while True:
             value = self.status()
             # Terminal proof can precede this request when the original parent
@@ -1010,12 +1043,9 @@ class OwnedCommand:
             return
         _remaining(deadline)
         self.pending_phase = "cancel_check"
-        value = self.status()
-        if value is not None and value["phase"] == "released":
-            self._finish_release(deadline)
+        serial = self._request_unless_released("cancel", deadline)
+        if serial is None:
             return
-        self.authority._verify_anchor()
-        serial = self.request("cancel", deadline)
         while True:
             value = self.status()
             if value is not None and (
@@ -1107,6 +1137,7 @@ def supervise_anchor(command, directory, shutdown_timeout, cleanup_nested):
     interrupted = False
     abandoned = False
     eof = False
+    wake_prefix = b""
     status_unavailable = False
 
     def interrupt(_signum, _frame):
@@ -1273,12 +1304,20 @@ def supervise_anchor(command, directory, shutdown_timeout, cleanup_nested):
                 [] if eof else [sys.stdin.fileno()], [], [], 0.02
             )
             if readable:
-                line = sys.stdin.buffer.readline(33)
-                if line == b"":
+                # A read-ready pipe may contain only part of a notification.
+                # Return to the durable control record without waiting for LF.
+                chunk = sys.stdin.buffer.read1(32)
+                if not chunk:
+                    if wake_prefix:
+                        failed()
                     eof = True
                     abandoned = True
-                elif line != b"wake\n":
-                    failed()
+                else:
+                    lines = (wake_prefix + chunk).split(b"\n")
+                    wake_prefix = lines.pop()
+                    if any(line != b"wake" for line in lines) or not b"wake".startswith(wake_prefix):
+                        wake_prefix = b""
+                        failed()
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)

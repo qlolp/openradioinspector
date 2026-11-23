@@ -48,7 +48,7 @@ export function ScanPlan({ desk }: { desk: Desk }) {
     const saved = project?.scan_plan;
     setName(saved?.config.name ?? t('Site survey'));
     const first = initial();
-    const settings = project?.profile?.analyzer.settings;
+    const settings = project?.profile?.analyzer?.settings;
     if (settings)
       for (const key of ['start_hz', 'stop_hz', 'points', 'rbw_hz'] as const)
         if (settings[key] !== undefined) first[key] = String(settings[key]);

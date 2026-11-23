@@ -7,10 +7,13 @@ license = "MIT"
 description = "Owned backend supervision and offline LAN security for OpenRadioInspector"
 
 [dependencies]
+ori-archive = { path = "../ori-archive" }
+tempfile = "=3.27.0"
 ori-contracts = { path = "../ori-contracts" }
 base64 = "=0.23.1"
 fs2 = "=0.4.3"
 rand = "=0.8.8"
+ring = "=0.17.14"
 rcgen = { version = "=0.14.10", features = ["pem", "ring"] }
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-pemfile = "=2.2.0"
@@ -29,8 +32,6 @@ libc = "=0.2.191"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_SystemServices", "Win32_System_Threading"] }
 
-[dev-dependencies]
-tempfile = "=3.27.0"
 
 [[bin]]
 name = "ori-supervisor"

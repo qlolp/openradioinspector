@@ -180,6 +180,7 @@ pub(crate) fn writer(
     tx.execute_batch(include_str!("schema_v6.sql"))?;
     crate::queries::install_scan_window_scope(&tx)?;
     crate::bookmarks::install(&tx)?;
+    crate::duty_outbox::install(&tx)?;
     let mut columns = tx.prepare("PRAGMA table_info(investigations)")?;
     let listening = columns
         .query_map([], |r| r.get::<_, String>(1))?
@@ -250,6 +251,7 @@ pub(crate) fn writer(
     }
     crate::rf_explorer::install(&tx)?;
     tx.execute_batch(PRECISION_DDL)?;
+    crate::receiver_panorama::install(&tx)?;
     crate::candidate_precision::install(&tx)?;
     crate::export_indexes::install(&tx)?;
     crate::query_indexes::install(&tx)?;

@@ -2,84 +2,67 @@ import Foundation
 import Combine
 import SpektrKomandy
 
-struct NativeRCPreparationDraft {
-    var name = "Радиомониторинг · Mac", site = "Объект проверки"
-    var tinySAPort = "", receiverPort = ""
-    var startHz = "88000000", stopHz = "108000000"
-    var points = 201, rbwHz = 10_000
-    func validated() throws -> PlatformSerialReceiveConfiguration {
-        let nativePort: (String) -> Bool = { path in
-            path.hasPrefix("/dev/cu.") && path.utf8.count <= 1024 && !path.contains("\0") && !path.dropFirst(5).contains("/")
-        }
-        guard nativePort(tinySAPort), nativePort(receiverPort), tinySAPort != receiverPort else {
-            throw PlatformError.invalidCommand("Выберите два разных порта /dev/cu.…; симуляторы в этом мастере не используются.")
-        }
-        for text in [name, site] {
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.unicodeScalars.count <= 200 else {
-                throw PlatformError.invalidCommand("Название и объект: 1…200 символов.")
-            }
-        }
-        guard !startHz.isEmpty, !stopHz.isEmpty, startHz.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
-              stopHz.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }), let start = Int(startHz), let stop = Int(stopHz) else {
-            throw PlatformError.invalidCommand("Частоты задаются целыми Гц.")
-        }
-        return try PlatformSerialReceiveConfiguration(startHz: start, stopHz: stop, points: points, rbwHz: rbwHz)
-    }
-    static func validateCapabilities(_ value: MonitoringValue) throws {
-        guard value["candidate"]["mode"].text == "live", value["features"]["explicit_serial_adapters"].bool == true,
-              value["features"]["monitoring_backup_reserve"].bool == true else {
-            throw PlatformError.invalidResponse("Мастеру нужна live Rust-служба с serial и проверкой резерва backup. Переключение на replay или Python не выполняется.")
-        }
-    }
-}
-
-struct NativeRCReadiness {
-    let preflight: MonitoringValue
-    var baselineCollected: Bool {
-        NativeBaselineProgress(preflight: preflight).ready
-    }
-    var budgetReady: Bool {
-        let storage = preflight["storage"]
-        guard let rate = storage["bytes_per_second"].double, rate.isFinite, rate > 0 else { return false }
-        return storage["ready"].bool == true && storage["write_probe"].bool == true && storage["backup_reserve_requested"].bool == true
-            && (storage["required_retention_seconds"].integer ?? 0) >= 43_200
-    }
-}
-
 @MainActor
 final class NativeRCPreparationModel: ObservableObject {
     @Published var draft = NativeRCPreparationDraft()
     @Published private(set) var projectID = ""
     @Published private(set) var busy = false
+    @Published private(set) var location: MonitoringValue = .null
+    @Published private(set) var locationError = ""
+    @Published private(set) var original: NativeDutyOriginal?
+    @Published private(set) var originalError = ""
+    private var pendingProject: (session: String, site: String, plan: MonitoringValue?, project: MonitoringValue)?
+    private var pendingSession: (name: String, plan: NativeDutyAcquisition, id: String)?
     @Published private(set) var message = "Создание профиля сохраняет настройки и не открывает USB-порты."
     @Published private(set) var error = ""
     private var client: PlatformClient?
     private var endpoint = ""
     private var revision = 0
 
-    func configure(server: String, client: PlatformClient?, workspace: MonitoringWorkspaceModel) {
+    func configure(server: String, client: PlatformClient?, workspace: MonitoringWorkspaceModel, sessionID: String) {
         guard !PlatformExactID.same(server, endpoint) || client !== self.client else { return }
         revision += 1; endpoint = server; self.client = client; projectID = ""; busy = false; error = ""
         workspace.configure(server, client: client)
-        let paths = Array(SerialPort.availablePaths().prefix(256))
-        draft.tinySAPort = paths.first(where: { $0.contains("usbmodem") }) ?? ""
-        draft.receiverPort = paths.first(where: { $0 != draft.tinySAPort && $0.contains("usbserial") }) ?? ""
+        pendingSession = nil; pendingProject = nil; original = nil; originalError = ""; location = .null; locationError = ""
         let project = workspace.project
-        if !workspace.selected.isEmpty, project["profile"]["analyzer"]["settings"]["adapter"].text == "tinysa-serial",
-           project["profile"]["receiver"]["settings"]["adapter"].text == "ardv1-serial" {
+        let kind = NativeDutySource(rawValue: project["primary_source_kind"].text)
+        let legacyPair = project["profile"]["analyzer"]["settings"]["adapter"].text == "tinysa-serial" &&
+            project["profile"]["receiver"]["settings"]["adapter"].text == "ardv1-serial"
+        if workspace.includesSession(sessionID), kind != nil || legacyPair {
+            draft.source = kind ?? .tinySA
             projectID = workspace.selected; draft.name = project["name"].text; draft.site = project["site"].text
+            let profile = project["profile"]
+            draft.receiverPort = profile["receiver"]["port"].text
+            if draft.source == .tinySA {
+                draft.tinySAPort = profile["analyzer"]["port"].text
+                draft.tinyUsesGrid = project["scan_plan"]["config"]["bands"].items.first?["step_hz"].integer == 10_000
+            } else if draft.source == .rfExplorer {
+                draft.explorer.port = profile["analyzer"]["port"].text
+            } else {
+                draft.restoreReceiverGrid(profile["receiver"]["settings"]["fast_scan"])
+            }
             message = "Продолжение выбранного проекта. Приборы не переподключаются при открытии мастера."
         }
     }
+    func readLocation() async {
+        guard let client else { return }
+        let token = revision
+        do {
+            let value = try await client.nodeArchiveLocation()
+            guard current(token) else { return }
+            location = value; locationError = ""
+        } catch { if current(token) { location = .null; locationError = error.localizedDescription } }
+    }
+
     func cancel() { revision += 1; busy = false }
     func newProfile(workspace: MonitoringWorkspaceModel) async {
-        guard owns(workspace), !busy, !workspace.isArmed else { return }
+        guard owns(workspace), !busy, !workspace.isArmed, !workspace.dutyEnabled else { return }
         let token = revision
         busy = true
         defer { if revision == token { busy = false } }
         if workspace.isCollecting { await workspace.stopPreparation() }
         guard current(token), owns(workspace), !workspace.isCollecting else { return }
-        projectID = ""
+        projectID = ""; original = nil; originalError = ""; pendingSession = nil; pendingProject = nil
         message = "Выберите новый диапазон или порты. Предыдущий проект и все измерения сохранены."
     }
     func owns(_ workspace: MonitoringWorkspaceModel) -> Bool {
@@ -87,32 +70,96 @@ final class NativeRCPreparationModel: ObservableObject {
     }
     private func current(_ token: Int) -> Bool { revision == token && !Task.isCancelled }
 
+    func canSubmitProfile(in workspace: MonitoringWorkspaceModel) -> Bool {
+        client != nil && !busy && !workspace.hasPendingProjectAction && !workspace.isArmed && !workspace.dutyEnabled
+    }
+
     func create(workspace: MonitoringWorkspaceModel, onSession: (String) -> Void) async {
-        guard let client, !busy, !workspace.isArmed else { return }
+        guard let client, canSubmitProfile(in: workspace) else { return }
         let token = revision, requested = draft
+        let projectContext = workspace.signalContext, selectedProject = workspace.selected
+        let actionGeneration = workspace.projectActionGeneration
+        let check: @MainActor @Sendable () throws -> Void = {
+            guard self.current(token) else { throw CancellationError() }
+            guard workspace.signalContext == projectContext,
+                  workspace.matchesOperations(endpoint: self.endpoint, projectID: selectedProject) else {
+                throw PlatformError.invalidCommand("Выбранный проект или узел изменился. Проверьте выбор перед повторной отправкой.")
+            }
+            guard !workspace.isArmed, !workspace.dutyEnabled else {
+                throw PlatformError.invalidCommand("У выбранного проекта включилось дежурство. Проверьте его состояние перед продолжением.")
+            }
+            guard !workspace.hasPendingProjectAction, workspace.projectActionGeneration == actionGeneration else {
+                throw PlatformError.invalidCommand("Во время создания профиля поступила другая команда проекта. Проверьте состояние и повторите отправку.")
+            }
+        }
         busy = true; error = ""
         defer { if revision == token { busy = false } }
         do {
-            let receive = try requested.validated()
-            try NativeRCPreparationDraft.validateCapabilities(await client.coreCapabilities())
-            guard current(token) else { return }
-            let session = try await client.createSerialSession(name: requested.name, tinySAPort: requested.tinySAPort,
-                ardv1Port: requested.receiverPort, receive: receive, monitorReceiverProfile: true)
-            guard current(token) else { return }
-            let project = try await client.monitoring(body: ["name": .string(requested.name), "site": .string(requested.site), "session_id": .string(session.id)])
-            guard current(token) else { return }
+            let plan = try requested.validated()
+            let scanPlan = try requested.scanPlan()
+            let capabilities = try await client.coreCapabilities()
+            try NativeRCPreparationDraft.validateCapabilities(capabilities)
+            if requested.source != .tinySA || requested.receiverPort.isEmpty {
+                guard capabilities["features"]["single_source_duty"].bool == true else {
+                    throw PlatformError.invalidCommand("Для выбранного состава нужен узел с поддержкой одиночного дежурства.")
+                }
+            }
+            if scanPlan != nil, capabilities["features"]["scan_plan_grid_10khz"].bool != true {
+                throw PlatformError.invalidCommand("Узел не поддерживает сетку tinySA 10 кГц. Выберите одиночный свип или обновите узел.")
+            }
+            try check()
+            let sessionID: String
+            if let pendingSession, pendingSession.plan == plan, pendingSession.name == requested.name {
+                sessionID = pendingSession.id
+            } else {
+                let session = try await plan.create(client: client, name: requested.name, beforePosting: check)
+                guard current(token) else { return }
+                guard !session.id.isEmpty else { throw PlatformError.invalidResponse("Ядро не вернуло ID сеанса.") }
+                sessionID = session.id
+                pendingSession = (requested.name, plan, session.id)
+            }
+            // Retain each acknowledged ID before checking whether the next write is still authorized.
+            try check()
+            let project: MonitoringValue
+            let retry: Bool
+            if let pendingProject, PlatformExactID.same(pendingProject.session, sessionID),
+               pendingProject.site == requested.site, pendingProject.plan == scanPlan {
+                project = pendingProject.project; retry = true
+            } else {
+                retry = false
+                project = try await client.monitoring(body: ["name": .string(requested.name), "site": .string(requested.site), "session_id": .string(sessionID)])
+                guard current(token) else { return }
+                guard !project["id"].text.isEmpty else { throw PlatformError.invalidResponse("Ядро не вернуло ID проекта.") }
+                pendingProject = (sessionID, requested.site, scanPlan, project)
+            }
+            try check()
             let id = project["id"].text
-            guard !id.isEmpty else { throw PlatformError.invalidResponse("Ядро не вернуло ID проекта.") }
-            _ = try await client.monitoringSettings(projectID: id, body: ["autostart": .boolean(false), "archive": .object([
-                "minimum_free_bytes": .integer(268_435_456), "minimum_retention_seconds": .integer(43_200), "reserve_backup": .boolean(false)])])
-            guard current(token) else { return }
-            _ = try await client.monitoringProject(id, resource: "configure", body: ["audio": .null, "receiver_mode": .string("AUTO")])
-            guard current(token) else { return }
+            if let scanPlan, case .object(let fields) = scanPlan {
+                let existing = retry ? try await client.monitoringProject(id, resource: "scan-plan") : .null
+                try check()
+                // After a response timeout the core may already have committed a revision.
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                let expected = try encoder.encode(scanPlan)
+                if try encoder.encode(existing["config"]) != expected {
+                    let saved = try await client.monitoringProject(id, resource: "scan-plan", body: fields)
+                    guard try encoder.encode(saved["config"]) == expected else {
+                        throw PlatformError.invalidResponse("Ядро не подтвердило полную сетку tinySA. Проверьте диапазон и повторите сохранение.")
+                    }
+                }
+            }
+            try check()
+            // Commit both local selections on the main actor before another project or duty can take over.
             projectID = id
-            await workspace.adoptCreatedProject(project)
-            guard current(token), owns(workspace) else { return }
-            onSession(session.id)
-            message = "Профиль создан. Подтвердите тракт, затем явно подключите оба прибора."
+            workspace.adoptCreatedProject(project)
+            pendingSession = nil; pendingProject = nil
+            onSession(sessionID)
+            message = "Профиль создан. Подтвердите тракт и запустите пробный приём."
+            let adoptedContext = workspace.signalContext
+            await workspace.refreshStatus(syncConfiguration: true)
+            if current(token), workspace.signalContext == adoptedContext, owns(workspace) {
+                await workspace.loadOperationsSettings()
+            }
         } catch { if current(token) { self.error = error.localizedDescription } }
     }
 
@@ -122,14 +169,39 @@ final class NativeRCPreparationModel: ObservableObject {
         busy = true; error = ""
         defer { if revision == token { busy = false } }
         await workspace.savePreparation(notes: workspace.antennaNotes, receivePath: workspace.receivePathConfirmed, location: workspace.locationConfirmed)
-        guard current(token), owns(workspace), workspace.canStartPreparation else { return }
+        guard current(token), owns(workspace) else { return }
+        guard workspace.canStartPreparation else {
+            let reasons = workspace.preflight["checks"].items.filter { $0["ok"].bool == false }.map { $0["detail"].text }
+            error = reasons.isEmpty ? "Узел не подтвердил готовность к пробному приёму. Обновите проверку." : reasons.joined(separator: " · ")
+            return
+        }
         await workspace.startPreparation()
         guard current(token), owns(workspace) else { return }
-        message = "Ожидайте ответы модели/прошивки и минимум 60 секунд / 20 полных совместимых свипов."
+        message = "Ожидаются первая запись и накопление совместимых измерений для эталона."
+    }
+
+    func verifiedOriginal(_ workspace: MonitoringWorkspaceModel) -> NativeDutyOriginal? {
+        guard owns(workspace), let original, original.run == NativeDutyRun(workspace.project) else { return nil }
+        return original
+    }
+
+    func readOriginal(workspace: MonitoringWorkspaceModel) async {
+        guard let client, owns(workspace), let run = NativeDutyRun(workspace.project),
+              verifiedOriginal(workspace) == nil else { return }
+        let token = revision
+        do {
+            let record = try await NativeDutyOriginal.read(run: run, client: client)
+            guard current(token), owns(workspace), run == NativeDutyRun(workspace.project) else { return }
+            original = record; originalError = ""
+        } catch {
+            guard current(token), owns(workspace), run == NativeDutyRun(workspace.project) else { return }
+            if case PlatformError.http(status: 404, code: _, message: _) = error { originalError = "" }
+            else { originalError = error.localizedDescription }
+        }
     }
 
     func saveBaseline(workspace: MonitoringWorkspaceModel) async {
-        guard let client, owns(workspace), !busy, workspace.baselineConfirmed, workspace.preflightIsCurrent(),
+        guard let client, verifiedOriginal(workspace) != nil, !busy, workspace.baselineConfirmed, workspace.preflightIsCurrent(),
               workspace.savedPreparationReady, !workspace.preparationDirty,
               NativeRCReadiness(preflight: workspace.preflight).baselineCollected else { return }
         let token = revision, id = projectID
@@ -141,8 +213,20 @@ final class NativeRCPreparationModel: ObservableObject {
             _ = try await client.monitoringSettings(projectID: id, body: ["autostart": .boolean(false), "archive": .object([
                 "minimum_retention_seconds": .integer(43_200), "minimum_free_bytes": .integer(268_435_456), "reserve_backup": .boolean(true)])])
             guard current(token), owns(workspace) else { return }
-            await workspace.command("baselines", body: ["name": .string(draft.name), "location": .string(draft.site), "confirm": .boolean(true)], success: "Эталон сохранён.")
+            let progress = NativeBaselineProgress(preflight: workspace.preflight)
+            let base: [String: MonitoringValue] = ["name": .string(draft.name), "location": .string(draft.site), "confirm": .boolean(true)]
+            if progress.bands.isEmpty {
+                _ = try await client.monitoringProject(id, resource: "baselines", body: base)
+            } else {
+                for band in progress.eligibleBands where band["confirmed_windows"].integer != band["eligible_windows"].integer {
+                    guard current(token), verifiedOriginal(workspace) != nil else { return }
+                    var body = base
+                    body["band_id"] = band["band_id"]
+                    _ = try await client.monitoringProject(id, resource: "baselines", body: body)
+                }
+            }
             guard current(token), owns(workspace) else { return }
+            await workspace.refreshStatus()
             await workspace.loadOperationsSettings()
             await workspace.checkPreflight()
             if current(token) { message = "Проверьте бюджет и результаты preflight. Охрана включается отдельной кнопкой." }

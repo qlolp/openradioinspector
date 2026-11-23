@@ -30,9 +30,9 @@ struct NativeConsoleEventCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(NativeGuardSignal.frequency(signal.value["start_frequency_hz"]) + "–" +
                          NativeGuardSignal.frequency(signal.value["end_frequency_hz"]) + " МГц")
-                    Text("Пик tinySA: " + NativeGuardSignal.level(signal.value["peak_level"], unit: "dBm"))
-                    Text("Над фоном: " + NativeGuardSignal.level(signal.value["peak_excess_db"], unit: "dB"))
-                    Text(signal.receiver)
+                    Text("Пик · " + signal.peakReading)
+                    Text("Превышение фона · " + signal.excessReading)
+                    Text(remote?.receiver == nil && remote != nil ? "Дополнительный AR-DV1 не подключён" : signal.receiver)
                     if let reason = signal.receiverReason { Text(reason).foregroundStyle(.secondary) }
                     let analysis = signal.value["analysis"]
                     let matched = analysis["verification_evidence"]["receiver"]
@@ -43,19 +43,34 @@ struct NativeConsoleEventCard: View {
                              reading["level"].scalar + " " + unit)
                             .accessibilityIdentifier("observation.receiver-level")
                     }
+                    if let ref = signal.observationSource {
+                        Text("Одноприборное событие. Обзор продолжается до ручного удержания.").font(.caption)
+                        Button("Удерживать \(ref.frequencyHz) Гц · приостановить обзор") {
+                            workspace.perform { await workspace.holdPrimaryReceiver(frequencyHz: ref.frequencyHz) }
+                        }.disabled(!workspace.isArmed || !workspace.projectStatusIsCurrent() || workspace.researchPending.contains("control") ||
+                            !PlatformExactID.same(workspace.project["active_session_id"].text, ref.session.rawValue))
+                        if workspace.leases["receiver"] != nil {
+                            Button("Возобновить обзор") { workspace.perform { await workspace.manual("return", role: "receiver") } }
+                                .disabled(workspace.researchPending.contains("control"))
+                        }
+                        ErrorLine(text: workspace.researchError)
+                    } else if remote?.receiver != nil {
                     Button("В очередь AR-DV1") { enqueueOriginal() }
                         .disabled(investigationScope == nil || loadingSource || remote?.consoleInvestigation.pending == true ||
                                   remote?.consoleInvestigation.canEnqueue != true)
                         .help("По пику исходного свипа внутри полосы события. Постановка в очередь не означает начало приёма.")
                         .accessibilityIdentifier("observation.enqueue")
+                    }
                     if loadingSource || remote?.consoleInvestigation.pending == true {
                         ProgressView("Проверка исходника и постановка в очередь…").controlSize(.small)
                     }
                     if let message = remote?.consoleInvestigation.message, !message.isEmpty { Text(message) }
                     ErrorLine(text: queueError)
                     ErrorLine(text: remote?.consoleInvestigation.error ?? "")
-                    Button("Очередь и управление AR-DV1…", action: openReceiver)
-                        .accessibilityIdentifier("observation.receiver")
+                    if remote?.receiver != nil && !signal.isReceiverPrimary {
+                        Button("Очередь и управление AR-DV1…", action: openReceiver)
+                            .accessibilityIdentifier("observation.receiver")
+                    }
                 }.font(.callout).monospacedDigit().frame(maxWidth: .infinity, alignment: .leading)
             }
             DisclosureGroup("Справка и гипотезы") {

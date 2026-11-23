@@ -5,6 +5,8 @@ mod bookmarks;
 mod candidate_precision;
 mod checkpoint;
 mod domains;
+mod duty_outbox;
+pub use duty_outbox::{ClaimedDutyDelivery, DutyChannel, DutyKind, DutyOccurrence};
 mod error;
 mod export_indexes;
 mod json;
@@ -13,6 +15,8 @@ mod outbox;
 mod panorama_events;
 mod queries;
 mod query_indexes;
+mod receiver_panorama;
+pub use receiver_panorama::verified_receiver_scan_context;
 mod rf_explorer;
 mod rows;
 mod schema;
@@ -24,8 +28,9 @@ mod validate;
 pub use storage_sample::SweepStorageSample;
 mod writer;
 pub use backup::{
-    BackupCancellation, BackupIoBudget, BackupOptions, init_compact_archive, materialize_archive,
-    materialize_stopped_archive, restore_backup, verify_backup,
+    BackupCancellation, BackupIoBudget, BackupOptions, backup_stopped_archive,
+    init_compact_archive, materialize_archive, materialize_stopped_archive, restore_backup,
+    verify_backup,
 };
 pub use checkpoint::{CheckpointBudget, CheckpointIoPermit};
 pub use error::{ArchiveError, Result};

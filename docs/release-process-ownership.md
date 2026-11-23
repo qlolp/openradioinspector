@@ -70,6 +70,10 @@ OwnedCommand(Path("/tmp/ori-release-owner-EXACT-RUN")).stop(15)
 This repeats numeric ownership checks and retains the scope again if closure
 cannot be proven. Terminal released proof is idempotent, including recovery
 after the original parent has died or the old anchor PID has been reused.
+The anchor can publish its terminal record and exit between a status read
+and an identity check. In that case the controller rereads the original
+owner's status. A matching release record permits reaping within the same
+deadline. Missing proof keeps the registration available for recovery.
 Recovery does not search process names, environments, ports or unrelated
 temporary directories. Existing command and shutdown deadlines are preserved.
 

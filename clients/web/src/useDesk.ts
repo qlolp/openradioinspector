@@ -195,19 +195,23 @@ export function useDesk(transport: Connection, rfSessionId?: string, readOnly = 
         searchScope.active && searchScope.session_id ? searchScope.session_id : p.active_session_id;
       const stream =
         searchScope.active && searchScope.stream_id ? searchScope.stream_id : p.analyzer_stream_id;
-      liveStore.scope(sid, stream, p.receiver_stream_id, p.active_session_id);
+      liveStore.scope(sid, stream ?? '', p.receiver_stream_id ?? '', p.active_session_id);
       if (!liveStore.needsSeed()) return;
       const [sweeps, observations] = await Promise.all([
-        api.get<Sweep[]>(
-          `/sessions/${encodePathSegment(sid)}/sweeps?` +
-            new URLSearchParams({ stream_id: stream, limit: '1' }),
-          signal,
-        ),
-        api.get<Observation[]>(
-          `/sessions/${encodePathSegment(p.active_session_id)}/observations?` +
-            new URLSearchParams({ stream_id: p.receiver_stream_id, limit: '1' }),
-          signal,
-        ),
+        stream
+          ? api.get<Sweep[]>(
+              `/sessions/${encodePathSegment(sid)}/sweeps?` +
+                new URLSearchParams({ stream_id: stream, limit: '1' }),
+              signal,
+            )
+          : [],
+        p.receiver_stream_id
+          ? api.get<Observation[]>(
+              `/sessions/${encodePathSegment(p.active_session_id)}/observations?` +
+                new URLSearchParams({ stream_id: p.receiver_stream_id, limit: '1' }),
+              signal,
+            )
+          : [],
       ]);
       if (!signal?.aborted && !rfMode.current && selection.current === p.id)
         liveStore.seed(sweeps, observations);
@@ -355,8 +359,8 @@ export function useDesk(transport: Connection, rfSessionId?: string, readOnly = 
           const p = status.project;
           liveStore.scope(
             search.active && search.session_id ? search.session_id : p.active_session_id,
-            search.active && search.stream_id ? search.stream_id : p.analyzer_stream_id,
-            p.receiver_stream_id,
+            search.active && search.stream_id ? search.stream_id : (p.analyzer_stream_id ?? ''),
+            p.receiver_stream_id ?? '',
             p.active_session_id,
           );
         }
@@ -462,6 +466,7 @@ export function useDesk(transport: Connection, rfSessionId?: string, readOnly = 
     project?.id,
     project?.active_session_id,
     project?.analyzer_stream_id,
+    project?.receiver_stream_id,
     search?.active,
     search?.session_id,
     search?.stream_id,

@@ -5,8 +5,31 @@ import { rfExplorerAdapter } from './rf-explorer';
 import type { Desk } from './useDesk';
 import type { Project, Session } from './types';
 import { Modal } from './components';
+import { DutySetup, ReceiveChecks } from './DutySetup';
 
-export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
+export function Prepare({
+  desk,
+  close,
+  resume,
+  onLocalArchiveSettings,
+}: {
+  desk: Desk;
+  close: () => void;
+  resume?: Project;
+  onLocalArchiveSettings?: () => void;
+}) {
+  return desk.capabilities?.features.single_source_duty === true ? (
+    <DutySetup
+      desk={desk}
+      close={close}
+      resume={resume}
+      onLocalArchiveSettings={onLocalArchiveSettings}
+    />
+  ) : (
+    <PairedPrepare desk={desk} close={close} />
+  );
+}
+function PairedPrepare({ desk, close }: { desk: Desk; close: () => void }) {
   const [step, setStep] = useState(0),
     [error, setError] = useState('');
   const [form, setForm] = useState({
@@ -238,34 +261,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                   ? t('Explicit synthetic profiles')
                   : t('tinySA Ultra + AR-DV1 · receive only')}
             </div>
-            <label>
-              {t('Antenna and receive path notes')}
-              <textarea
-                required
-                maxLength={1000}
-                rows={3}
-                value={form.notes}
-                onChange={(e) => update('notes', e.target.value)}
-              />
-            </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                required
-                checked={form.receive}
-                onChange={(e) => update('receive', e.target.checked)}
-              />
-              {t('Receive path and antenna checked')}
-            </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                required
-                checked={form.location}
-                onChange={(e) => update('location', e.target.checked)}
-              />
-              {t('Location and ordinary RF environment checked')}
-            </label>
+            <ReceiveChecks value={form} change={update} />
             <p className="muted">
               {t(
                 'After creating the project, run preflight, collect at least 20 sweeps over 60 seconds, then confirm a baseline before arming. RF readback and hardware validation remain unverified.',

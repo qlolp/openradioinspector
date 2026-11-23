@@ -1,5 +1,8 @@
 //! Thin domain/effect binding. Domain crates own business transactions; Core
 //! alone owns device actors, filesystem probes, HTTP and research processes.
+mod outbound;
+#[cfg(test)]
+mod outbound_tests;
 use crate::{
     Core, CoreError,
     devices::{DeviceError, ExecutionGate, Target, TuneOutcome},
@@ -30,6 +33,9 @@ struct Clock {
     start: Instant,
 }
 impl ori_guard::Clock for Clock {
+    fn now_micros(&self) -> i64 {
+        chrono::Utc::now().timestamp_micros()
+    }
     fn now(&self) -> UtcTimestamp {
         crate::utc_now().parse().expect("system UTC")
     }
@@ -232,9 +238,17 @@ fn gate(
     permit: ControlPermit,
 ) -> ControlResult<ExecutionGate> {
     let guard = Arc::downgrade(&core.domains.get().ok_or_else(unavailable)?.guard);
-    let target = target.clone();
+    Ok(guard_gate(guard, target.clone(), permit))
+}
+fn guard_gate(
+    guard: Weak<GuardService>,
+    target: ControlTarget,
+    permit: ControlPermit,
+) -> ExecutionGate {
+    let project = permit.project_id().to_owned();
+    let duty = guard.clone();
     let expected = permit.expected_worker_instance().map(str::to_owned);
-    Ok(ExecutionGate::new(
+    ExecutionGate::new(
         move || {
             guard
                 .upgrade()
@@ -243,7 +257,11 @@ fn gate(
                 .map_err(|_| DeviceError::Denied)
         },
         expected,
-    ))
+    )
+    .with_acquisition_window(Arc::new(move || {
+        duty.upgrade()
+            .is_some_and(|guard| guard.duty_acquisition_allowed(&project))
+    }))
 }
 fn worker(status: crate::devices::WorkerStatus) -> ControlResult<ori_guard::WorkerStatus> {
     let mut extra = status
@@ -322,6 +340,18 @@ impl SessionEffects for Effects {
         })
     }
 }
+async fn close_control_targets(core: &Core, session: &str) -> ControlResult<()> {
+    if let Some(service) = core.instrument_control.get() {
+        let devices = core.devices.as_ref().ok_or_else(unavailable)?;
+        for status in devices.list(Some(session)).await.map_err(control)? {
+            service
+                .close_target(&Target::new(&status.session_id, &status.stream_id))
+                .await
+                .map_err(control)?;
+        }
+    }
+    Ok(())
+}
 impl InstrumentControl for Effects {
     fn preflight<'a>(
         &'a self,
@@ -363,23 +393,14 @@ impl InstrumentControl for Effects {
         Box::pin(async move {
             let core = self.core.upgrade().ok_or_else(unavailable)?;
             let guard = Arc::downgrade(&core.domains.get().ok_or_else(unavailable)?.guard);
-            let expected = permit.expected_worker_instance().map(str::to_owned);
             let factory = Arc::new(move |target: &Target| {
-                let guard = guard.clone();
-                let permit = permit.clone();
-                let target = ControlTarget {
-                    session_id: target.session_id.clone(),
-                    stream_id: target.stream_id.clone(),
-                };
-                ExecutionGate::new(
-                    move || {
-                        guard
-                            .upgrade()
-                            .ok_or(DeviceError::Closed)?
-                            .authorize_control(&target, Some(&permit))
-                            .map_err(|_| DeviceError::Denied)
+                guard_gate(
+                    guard.clone(),
+                    ControlTarget {
+                        session_id: target.session_id.clone(),
+                        stream_id: target.stream_id.clone(),
                     },
-                    expected.clone(),
+                    permit.clone(),
                 )
             });
             core.devices
@@ -399,21 +420,7 @@ impl InstrumentControl for Effects {
     ) -> ControlFuture<'a, Vec<ori_guard::WorkerStatus>> {
         Box::pin(async move {
             let core = self.core.upgrade().ok_or_else(unavailable)?;
-            if let Some(control_service) = core.instrument_control.get() {
-                for status in core
-                    .devices
-                    .as_ref()
-                    .ok_or_else(unavailable)?
-                    .list(Some(session))
-                    .await
-                    .map_err(control)?
-                {
-                    control_service
-                        .close_target(&Target::new(&status.session_id, &status.stream_id))
-                        .await
-                        .map_err(control)?;
-                }
-            }
+            close_control_targets(&core, session).await?;
             core.devices
                 .as_ref()
                 .ok_or_else(unavailable)?
@@ -423,6 +430,29 @@ impl InstrumentControl for Effects {
                 .into_iter()
                 .map(joined_worker)
                 .collect()
+        })
+    }
+    fn finish_duty_session<'a>(
+        &'a self,
+        session: &'a str,
+    ) -> ControlFuture<'a, Vec<ori_guard::WorkerStatus>> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            let devices = core.devices.as_ref().ok_or_else(unavailable)?;
+            // Hold session admission through both the receiver join and control-scope cleanup.
+            // close_target normally cancels its transport, so it must follow the current RX.
+            let _stopping = devices
+                .quiesce_session_mode(session, true)
+                .map_err(control)?;
+            let joined: Vec<_> = devices
+                .stop_session_quiesced_mode(session, true)
+                .await
+                .map_err(control)?
+                .into_iter()
+                .map(joined_worker)
+                .collect::<ControlResult<_>>()?;
+            close_control_targets(&core, session).await?;
+            Ok(joined)
         })
     }
     fn start_stream<'a>(
@@ -465,6 +495,25 @@ impl InstrumentControl for Effects {
                     .as_ref()
                     .ok_or_else(unavailable)?
                     .stop_stream(&target.session_id, &target.stream_id)
+                    .await
+                    .map_err(control)?,
+            )
+        })
+    }
+    fn receiver_scan_hold<'a>(
+        &'a self,
+        target: &'a ControlTarget,
+        hold: bool,
+        permit: ControlPermit,
+    ) -> ControlFuture<'a, ori_guard::WorkerStatus> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            let gate = gate(&core, target, permit)?;
+            let target = Target::new(&target.session_id, &target.stream_id);
+            let devices = core.devices.as_ref().ok_or_else(unavailable)?;
+            worker(
+                devices
+                    .set_receiver_scan_hold(target, hold, gate)
                     .await
                     .map_err(control)?,
             )
@@ -590,7 +639,12 @@ impl InstrumentControl for Effects {
             if *core.shutdown.borrow() {
                 return Err(unavailable());
             }
-            let directory = core.config.data_directory.clone();
+            let directory = core
+                .config
+                .database
+                .parent()
+                .ok_or_else(unavailable)?
+                .to_path_buf();
             let admitted = core
                 .effect_io
                 .clone()
@@ -631,49 +685,41 @@ impl InstrumentControl for Effects {
             .map_err(|_| ControlError::Unavailable("storage_probe_failed"))
         })
     }
+    fn outbound_channels_available(&self) -> bool {
+        true
+    }
+    fn configure_notifications<'a>(
+        &'a self,
+        project: &'a str,
+        patch: Value,
+    ) -> ControlFuture<'a, Value> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            outbound::configure(&core, project, patch).await
+        })
+    }
+    fn deliver_duty<'a>(
+        &'a self,
+        channel: ori_archive::DutyChannel,
+        claim: &'a ori_archive::ClaimedDutyDelivery,
+    ) -> ControlFuture<'a, ori_guard::DutyDeliveryReceipt> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            outbound::deliver(&core, channel, claim).await
+        })
+    }
     fn deliver_webhook<'a>(
         &'a self,
         request: ori_guard::WebhookRequest,
     ) -> ControlFuture<'a, ori_guard::DeliveryReceipt> {
         Box::pin(async move {
-            use hmac::{Hmac, KeyInit, Mac};
-            use sha2::Sha256;
             let core = self.core.upgrade().ok_or_else(unavailable)?;
             let _admitted = core
                 .webhook_slots
                 .clone()
                 .try_acquire_owned()
                 .map_err(|_| ControlError::Unavailable("notification_busy"))?;
-            let url = url::Url::parse(&request.url)
-                .map_err(|_| ControlError::Failed("invalid webhook URL".into()))?;
-            if !matches!(url.scheme(), "http" | "https")
-                || !url.username().is_empty()
-                || url.password().is_some()
-            {
-                return Err(ControlError::Failed("invalid webhook URL".into()));
-            }
-            let mut signature = Hmac::<Sha256>::new_from_slice(request.secret.as_bytes())
-                .map_err(|_| ControlError::Failed("invalid webhook key".into()))?;
-            signature.update(&request.body);
-            let signature = signature
-                .finalize()
-                .into_bytes()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
-            let response = core
-                .webhook_client
-                .post(url)
-                .header("Content-Type", "application/json")
-                .header(
-                    "X-OpenRadioInspector-Notification-ID",
-                    request.notification_id,
-                )
-                .header(
-                    "X-OpenRadioInspector-Signature",
-                    format!("sha256={signature}"),
-                )
-                .body(request.body)
+            let response = outbound::signed_request(&core.webhook_client, request)?
                 .send()
                 .await
                 .map_err(|_| ControlError::Failed("network_error".into()))?;

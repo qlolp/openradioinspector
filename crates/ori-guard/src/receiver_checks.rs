@@ -53,7 +53,26 @@ struct ControlEvidence {
     analyzer: Option<Value>,
 }
 
+fn rfe_band(project: &Value, source: &Value) -> Option<ControlBand> {
+    let index = source
+        .get("rfe_window_index")
+        .or_else(|| source.get("scan_window_index"))?
+        .as_u64()?;
+    if index >= project["rfe_reference_windows"].as_u64()? {
+        return None;
+    }
+    Some(ControlBand {
+        band_id: None,
+        window_index: Some(index as u32),
+        baseline_id: crate::aor::block_id(project["baseline_id"].as_str()?, index as usize),
+    })
+}
 fn accepted_bands(project: &Value) -> Result<Vec<ControlBand>> {
+    if crate::rfe::survey(project) {
+        return Ok(rfe_band(project, &project["detector_state"])
+            .into_iter()
+            .collect());
+    }
     if let Some(plan) = configured_plan(project)? {
         let mut contexts = Vec::new();
         for band in &plan.bands {
@@ -81,6 +100,15 @@ fn accepted_bands(project: &Value) -> Result<Vec<ControlBand>> {
 }
 
 fn matches_band(source: &Value, project: &Value, band: &ControlBand) -> bool {
+    if crate::rfe::survey(project) {
+        let index = source["survey"]["tile"]
+            .as_u64()
+            .and_then(|n| n.checked_sub(1))
+            .or_else(|| source["rfe_window_index"].as_u64())
+            .or_else(|| source["window_index"].as_u64())
+            .or_else(|| source["scan_window_index"].as_u64());
+        return index.is_some() && index == band.window_index.map(u64::from);
+    }
     if let Some(band_id) = &band.band_id {
         source["scan_band_id"] == *band_id
             && source["scan_window_index"] == json!(band.window_index)
@@ -111,7 +139,10 @@ fn compatible_sweep(
         return false;
     };
     if !source_qualification(project, sweep).is_ok_and(|q| q.eligible())
-        || !matches!(adapter, "tinysa-serial" | "tinysa-sim")
+        || !matches!(
+            adapter,
+            "tinysa-serial" | "tinysa-sim" | "rf-explorer-3g-serial"
+        )
         || project["profile"]["analyzer"]["settings"]["adapter"] != adapter
         || settings.get("simulated") != Some(&json!(adapter == "tinysa-sim"))
         || settings.get("replay") == Some(&Value::Bool(true))
@@ -306,7 +337,14 @@ impl GuardService {
     ) -> Result<Option<Baseline>> {
         let Some(raw) = self
             .archive
-            .monitoring("baseline", &band.baseline_id)
+            .monitoring(
+                if crate::rfe::survey(project) {
+                    crate::aor::BLOCK
+                } else {
+                    "baseline"
+                },
+                &band.baseline_id,
+            )
             .await?
         else {
             return Ok(None);
@@ -403,9 +441,13 @@ impl GuardService {
         samples: &[(&Value, TimeInterval)],
         now: &UtcTimestamp,
     ) -> Result<Option<(ReceiverActivity, Value, Value)>> {
-        let band = accepted_bands(project)?.into_iter().find(|band| {
-            event["baseline_id"] == band.baseline_id && matches_band(event, project, band)
-        });
+        let band = if crate::rfe::survey(project) {
+            rfe_band(project, event).filter(|b| event["baseline_id"] == b.baseline_id)
+        } else {
+            accepted_bands(project)?.into_iter().find(|band| {
+                event["baseline_id"] == band.baseline_id && matches_band(event, project, band)
+            })
+        };
         let Some(band) = band else {
             return Ok(None);
         };
@@ -669,7 +711,13 @@ impl GuardService {
         let current_scope = scope_matches(&project, runtime)
             && project["coverage"] == "wide"
             && matches_band(&check.record, &project, &check.band)
-            && accepted_bands(&project)?.into_iter().any(|band| {
+            && (if crate::rfe::survey(&project) {
+                rfe_band(&project, &check.record).into_iter().collect()
+            } else {
+                accepted_bands(&project)?
+            })
+            .into_iter()
+            .any(|band| {
                 band.band_id == check.band.band_id && band.baseline_id == check.band.baseline_id
             })
             && self.check_idle_receiver(id, runtime).is_ok()
@@ -789,6 +837,12 @@ impl GuardService {
         project: &Value,
         runtime: Option<&ProjectRuntime>,
     ) -> Result<Value> {
+        if !project["receiver_stream_id"].is_string() || !project["analyzer_stream_id"].is_string()
+        {
+            return Ok(
+                json!({"state":"unavailable","active_band_id":null,"completed":0,"total":0,"items":[]}),
+            );
+        }
         let bands = accepted_bands(project)?;
         // A logical band gets one idle receiver check per run, even if the
         // analyzer revisits it in hundreds of separately referenced windows.
@@ -802,6 +856,10 @@ impl GuardService {
             .latest_receiver_checks(id, s(project, "active_session_id")?)
             .await?;
         items.retain(|record| {
+            if crate::rfe::survey(project) {
+                return rfe_band(project, record)
+                    .is_some_and(|b| record["baseline_id"] == b.baseline_id);
+            }
             bands.iter().any(|band| {
                 record["baseline_id"] == band.baseline_id && matches_band(record, project, band)
             })

@@ -508,7 +508,77 @@ async fn invalid_profiles_are_rejected_before_the_connector_runs() {
 }
 
 #[tokio::test]
-async fn guard_cannot_prepare_or_arm_an_explorer_receiver_pair() {
+async fn guard_explains_verified_max_hold_and_releases_the_port() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = CoreConfig::live(directory.path());
+    config.devices.transport = Some(Arc::new(DuplexFactory::default()));
+    let server = Server::start(config).await;
+    setup(
+        &server,
+        json!({"id":"rfe-guard","name":"Guard","streams":[explorer("COM21")]}),
+    )
+    .await;
+    let (code, project) = server
+        .request(
+            "POST",
+            "/api/v1/monitoring-projects",
+            Some(&json!({"name":"Guard","site":"Fixture","session_id":"rfe-guard"})),
+        )
+        .await;
+    assert_eq!(code, 201, "{project}");
+    let path = format!(
+        "/api/v1/monitoring-projects/{}",
+        project["data"]["id"].as_str().unwrap()
+    );
+    for (operation, payload) in [
+        (
+            "settings",
+            json!({"archive":{"minimum_free_bytes":1048576,"minimum_retention_seconds":60}}),
+        ),
+        (
+            "preparation",
+            json!({"antenna_notes":"Duplex fixture","receive_path_confirmed":true,"location_confirmed":true}),
+        ),
+    ] {
+        let (code, result) = server
+            .request("POST", &format!("{path}/{operation}"), Some(&payload))
+            .await;
+        assert_eq!(code, 200, "{result}");
+    }
+    let (code, error) = server
+        .request(
+            "POST",
+            &format!("{path}/preparation/start"),
+            Some(&json!({})),
+        )
+        .await;
+    assert_eq!(code, 409, "{error}");
+    assert_eq!(error["error"]["code"], "monitoring_conflict");
+    let message = error["error"]["message"].as_str().unwrap();
+    let (code, status) = server.request("GET", &format!("{path}/status"), None).await;
+    assert_eq!(code, 200, "{status}");
+    assert!(
+        message.contains("Max Hold") && message.contains("Normal"),
+        "{message}, workers: {}",
+        status["data"]["workers"]
+    );
+    assert_eq!(status["data"]["active"], false);
+    assert_eq!(status["data"]["project"]["coverage"], "stopped");
+    let mut ordinary = explorer("COM21");
+    ordinary["id"] = json!("ordinary-rfe");
+    setup(
+        &server,
+        json!({"id":"rfe-ordinary","name":"Ordinary","streams":[ordinary]}),
+    )
+    .await;
+    let (code, worker) = worker(&server, "rfe-ordinary", "ordinary-rfe", "start").await;
+    assert_eq!(code, 200, "{worker}");
+    assert_eq!(worker["data"]["current"]["detector_code"], 4);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn explorer_receiver_pair_has_supported_profile_and_requires_confirmed_path_and_baseline() {
     let directory = tempfile::tempdir().unwrap();
     let mut config = CoreConfig::live(directory.path());
     let factory = Arc::new(DuplexFactory::default());
@@ -538,7 +608,7 @@ async fn guard_cannot_prepare_or_arm_an_explorer_receiver_pair() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|check| check["name"] == "adapters" && check["ok"] == false)
+            .any(|check| check["name"] == "adapters" && check["ok"] == true)
     );
     for operation in ["preparation/start", "arm"] {
         let (code, error) = server
