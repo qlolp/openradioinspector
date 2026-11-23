@@ -8,7 +8,8 @@ struct NativeDutyControls: View {
     @State private var schedule = NativeDutyScheduleDraft()
     @State private var channel = "telegram"
     @State private var enabled = false
-    @State private var address = "", secret = ""
+    @State private var address = ""
+    @State private var secret = ""
     private let days = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
     private var stored: MonitoringValue { workspace.operationsSettings["notifications"][channel] }
     private var configuring: Bool { workspace.operationsPending.contains("notification-settings") }
