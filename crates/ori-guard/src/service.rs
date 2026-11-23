@@ -352,24 +352,59 @@ impl GuardService {
             .iter()
             .filter(|s| s.role == ori_contracts::DeviceRole::Receiver)
             .collect::<Vec<_>>();
-        if analyzers.len() != 1 || receivers.len() != 1 {
-            return Err(invalid("Нужны ровно один анализатор и один receiver"));
+        if analyzers.len() > 1
+            || receivers.len() > 1
+            || typed.streams.is_empty()
+            || analyzers.len() + receivers.len() != typed.streams.len()
+        {
+            return Err(invalid(
+                "Нужны один источник и не более одного вторичного AR-DV1",
+            ));
         }
-        let a = analyzers[0];
-        let r = receivers[0];
-        if a.level_unit != "dBm" || r.level_unit != "s_meter_count" {
+        let analyzer = analyzers.first().copied();
+        let receiver = receivers.first().copied();
+        if analyzer.is_some_and(|s| s.level_unit != "dBm")
+            || receiver.is_some_and(|s| s.level_unit != "s_meter_count")
+        {
             return Err(invalid(
                 "Требуются исходные dBm и s_meter_count без преобразования",
             ));
         }
-        let raw = |id: &str| {
-            session["streams"]
-                .as_array()
-                .and_then(|v| v.iter().find(|v| v["id"].as_str() == Some(id)))
-                .cloned()
-                .ok_or_else(|| invalid("profile stream"))
+        let mut profile = json!({});
+        for (role, stream) in [("analyzer", analyzer), ("receiver", receiver)] {
+            if let Some(stream) = stream {
+                profile[role] = session["streams"]
+                    .as_array()
+                    .and_then(|rows| rows.iter().find(|row| row["id"] == stream.id))
+                    .cloned()
+                    .ok_or_else(|| invalid("profile stream"))?;
+            }
+        }
+        let primary = analyzer.or(receiver).expect("one validated primary stream");
+        let adapter = primary
+            .settings
+            .as_ref()
+            .and_then(|s| s.get("adapter"))
+            .and_then(Value::as_str);
+        let kind = match (analyzer.is_some(), adapter) {
+            (true, Some("rf-explorer-3g-serial")) => "rf_explorer",
+            (true, Some("tinysa-sim" | "tinysa-serial")) => "tinysa",
+            (false, Some("ardv1-serial")) => "ardv1",
+            _ if analyzer.is_some() && receiver.is_some() => "unavailable",
+            _ => return Err(invalid("Неизвестный профиль основного источника")),
         };
-        let mut p=self.record(None,json!({"name":name,"site":site,"state":"draft","session_ids":[sid],"active_session_id":typed.id,"analyzer_stream_id":a.id,"receiver_stream_id":r.id,"baseline_id":null,"autostart":false,"parameters":{"margin_db":6.0,"impulse_db":12.0,"hysteresis_db":3.0,"confirmations":3,"window_sweeps":5,"dwell_seconds":10.0},"profile":{"analyzer":raw(&a.id)?,"receiver":raw(&r.id)?}}))?;
+        let mut p=self.record(None,json!({"name":name,"site":site,"state":"draft","session_ids":[sid],"active_session_id":typed.id,
+            "analyzer_stream_id":analyzer.map(|s| &s.id),"receiver_stream_id":receiver.map(|s| &s.id),"baseline_id":null,
+            "autostart":false,"parameters":{"margin_db":6.0,"impulse_db":12.0,"hysteresis_db":3.0,"confirmations":3,"window_sweeps":5,"dwell_seconds":10.0},"profile":profile}))?;
+        // Keep the historical two-instrument project contract byte-for-byte.
+        if analyzer.is_none() || receiver.is_none() || kind == "rf_explorer" {
+            p["primary_source_kind"] = json!(kind);
+            p["primary_stream_id"] = json!(primary.id);
+            p["secondary_stream_id"] = json!(analyzer.and(receiver).map(|s| &s.id));
+        }
+        if kind == "ardv1" {
+            p["parameters"] = json!({"threshold_sigma":3,"impulse_sigma":6,"minimum_sigma_counts":1,"mad_scale":1.4826,"confirmations":3,"window_passes":5,"quiet_adaptation_alpha":0.02});
+        }
         p["project_id"] = p["id"].clone();
         self.archive.put_monitoring("project", p.clone()).await?;
         Ok(p)
@@ -429,6 +464,22 @@ impl GuardService {
         limit: usize,
         recent: bool,
     ) -> Result<Value> {
+        self.record_page(kind, project, after, limit, recent, false)
+            .await
+    }
+    pub async fn project_list(&self, after: &str, limit: usize) -> Result<Value> {
+        self.record_page("project", None, after, limit, false, true)
+            .await
+    }
+    async fn record_page(
+        &self,
+        kind: &str,
+        project: Option<&str>,
+        after: &str,
+        limit: usize,
+        recent: bool,
+        public_projects: bool,
+    ) -> Result<Value> {
         if let Some(id) = project {
             self.project(id).await?;
         }
@@ -447,7 +498,11 @@ impl GuardService {
             .await?;
         for item in &mut items {
             if kind == "baseline" {
-                let count = item["source_refs"].as_array().map_or(0, Vec::len);
+                let count = item["source_count"].as_u64().unwrap_or_else(|| {
+                    item["source_refs"]
+                        .as_array()
+                        .map_or(0, |refs| refs.len() as u64)
+                });
                 if let Some(m) = item.as_object_mut() {
                     for k in [
                         "frequencies_hz",
@@ -465,8 +520,21 @@ impl GuardService {
                     m.remove("source_refs");
                 }
             } else if kind == "project" {
-                let old = item.clone();
+                let old = if public_projects {
+                    project_view(item.clone())
+                } else {
+                    item.clone()
+                };
                 *item = json!({});
+                if old["primary_source_kind"].is_string() {
+                    for key in [
+                        "primary_source_kind",
+                        "primary_stream_id",
+                        "secondary_stream_id",
+                    ] {
+                        item[key] = old[key].clone();
+                    }
+                }
                 for k in [
                     "id",
                     "name",
@@ -501,4 +569,28 @@ impl GuardService {
         }
         Ok(())
     }
+}
+
+/// Add the primary/secondary aliases only at the API boundary. Historical
+/// paired project records keep their original representation in the archive.
+pub fn project_view(mut payload: Value) -> Value {
+    let p = if payload.get("project").is_some_and(Value::is_object) {
+        &mut payload["project"]
+    } else {
+        &mut payload
+    };
+    if p["session_ids"].is_array() && p["profile"].is_object() && p["primary_source_kind"].is_null()
+    {
+        let kind = match p["profile"]["analyzer"]["settings"]["adapter"].as_str() {
+            Some("tinysa-sim" | "tinysa-serial") => Some("tinysa"),
+            Some("rf-explorer-3g-serial") => Some("rf_explorer"),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            p["primary_source_kind"] = json!(kind);
+            p["primary_stream_id"] = p["analyzer_stream_id"].clone();
+            p["secondary_stream_id"] = p["receiver_stream_id"].clone();
+        }
+    }
+    payload
 }

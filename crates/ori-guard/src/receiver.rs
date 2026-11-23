@@ -166,7 +166,8 @@ impl GuardService {
         let Some(r) = self.runtime_snapshot(id)?.filter(|r| !r.stopped) else {
             return Ok(());
         };
-        if r.receiver_work.is_some()
+        if !r.paired()
+            || r.receiver_work.is_some()
             || r.manual.contains_key(&r.receiver)
             || r.faults.contains_key(&r.receiver)
             || !self.receiver_job_idle(id)?

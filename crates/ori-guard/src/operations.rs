@@ -27,6 +27,17 @@ impl GuardService {
         {
             return Err(invalid("Сначала снимите проект с охраны"));
         }
+        if (payload.get("receiver_mode").is_some()
+            || payload.get("audio").is_some_and(|a| !a.is_null()))
+            && p["profile"]["receiver"].is_null()
+        {
+            return Err(invalid("В проекте нет приёмника AR-DV1"));
+        }
+        if p["primary_source_kind"] == "ardv1"
+            && payload.get("receiver_mode").is_some_and(|m| m != "FM")
+        {
+            return Err(invalid("Для циклического обзора AR-DV1 требуется FM"));
+        }
         let scan_plan = payload
             .get("scan_plan")
             .map(|config| self.scan_plan_record(&p, config.clone()))
@@ -172,7 +183,18 @@ impl GuardService {
             }
             p["archive"] = merged;
         }
-        if let Some(patch) = payload.get("detector") {
+        if p["primary_source_kind"] == "ardv1"
+            && let Some(patch) = payload.get("detector")
+        {
+            if patch
+                .as_object()
+                .is_none_or(|m| m.iter().any(|(k, v)| p["parameters"].get(k) != Some(v)))
+            {
+                return Err(invalid(
+                    "Параметры детектора AR-DV1 заданы в сигмах и исходных отсчётах",
+                ));
+            }
+        } else if let Some(patch) = payload.get("detector") {
             if self.runtime_snapshot(id)?.is_some() {
                 return Err(invalid("Снимите охрану перед изменением детектора"));
             }

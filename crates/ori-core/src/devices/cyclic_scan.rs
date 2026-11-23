@@ -2,8 +2,6 @@
 //! only its current physical segment and receives one global point at a time.
 use super::*;
 use ori_instruments::CyclicReceiverScope;
-use sha2::{Digest, Sha256};
-use std::fmt::Write as _;
 
 const MAX_PASS: u64 = 9_007_199_254_740_991;
 
@@ -34,12 +32,8 @@ impl Scan {
     ) -> DeviceResult<Self> {
         // Bind a checkpoint to the original receiver port and stream settings.
         // Display names and lifecycle state can change between connections.
-        let identity = to_json_vec(&(&stream.port, &stream.settings))
-            .map_err(|_| DeviceError::Invalid("Invalid receiver scan settings".into()))?;
-        let mut key = String::from("ardv1-cyclic-v1-");
-        for byte in Sha256::digest(identity) {
-            write!(key, "{byte:02x}").expect("String write");
-        }
+        let key = ori_guard::ardv1_plan_key(stream)
+            .map_err(|error| DeviceError::Invalid(error.to_string()))?;
         let scan = Self {
             plan,
             key,

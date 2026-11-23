@@ -118,6 +118,12 @@ impl GuardService {
             .await?)
     }
     pub async fn baseline_collection(&self, project: &Value) -> Result<Value> {
+        if project["primary_source_kind"] == "ardv1" {
+            return self.receiver_collection(project).await;
+        }
+        if crate::rfe::survey(project) {
+            return self.rfe_collection(project).await;
+        }
         if let Some(plan) = crate::scan_plan::configured_plan(project)? {
             let mut bands = vec![];
             for band in plan.bands {
@@ -186,13 +192,16 @@ impl GuardService {
                 json!({"bands":bands,"ready":ready,"minimum_sweeps":20,"minimum_seconds":60}),
             );
         }
-        let selected = self
-            .archive
-            .baseline_selection(
-                s(project, "active_session_id")?,
-                s(project, "analyzer_stream_id")?,
-            )
-            .await?;
+        let selected = if project["primary_source_kind"] == "rf_explorer" {
+            self.fixed_rfe_selection(project).await?
+        } else {
+            self.archive
+                .baseline_selection(
+                    s(project, "active_session_id")?,
+                    s(project, "analyzer_stream_id")?,
+                )
+                .await?
+        };
         Ok(
             json!({"sweeps":selected.count,"elapsed_seconds":selected.elapsed_seconds,"minimum_sweeps":20,"minimum_seconds":60,"ready":selected.count>=20&&selected.elapsed_seconds>=60.}),
         )
@@ -277,10 +286,27 @@ impl GuardService {
             .get_session(s(&p, "active_session_id")?)
             .await?
             .ok_or(GuardError::NotFound)?;
-        let typed: ori_contracts::Session = decode(&session)?;
+        // A saved plan configures the next preparation/armed clone. Validate its
+        // physical first window, including receive-only upper windows, against
+        // the plan; the original template session may predate that configuration.
+        let mut proposed = session.clone();
+        if plan.is_some()
+            && let Some(streams) = proposed["streams"].as_array_mut()
+        {
+            for stream in streams
+                .iter_mut()
+                .filter(|s| s["id"] == p["analyzer_stream_id"])
+            {
+                stream["settings"] = p["profile"]["analyzer"]["settings"].clone();
+            }
+        }
+        let typed: ori_contracts::Session = decode(&proposed)?;
         let stream = |key: &str| -> Result<Value> {
+            if p[key].is_null() {
+                return Ok(Value::Null);
+            }
             let id = s(&p, key)?;
-            session["streams"]
+            proposed["streams"]
                 .as_array()
                 .and_then(|a| a.iter().find(|s| s["id"].as_str() == Some(id)))
                 .cloned()
@@ -299,6 +325,14 @@ impl GuardService {
             !self.closed.load(std::sync::atomic::Ordering::Acquire),
             "Служба принимает новые действия".into(),
         );
+        if p["manual_primary_hold"] == true {
+            check(
+                "manual_primary_hold",
+                false,
+                "Основной прибор передан оператору; требуется явный возврат или снятие охраны"
+                    .into(),
+            );
+        }
         if let Some(plan) = &plan {
             let maximum = if aa == "tinysa-serial" {
                 800_000_000
@@ -325,14 +359,28 @@ impl GuardService {
         }
         check(
             "adapters",
-            (aa == "tinysa-serial" && ra == "ardv1-serial")
-                || (aa == "tinysa-sim" && ra == "ardv1-sim"),
-            "tinySA Ultra + AR-DV1; симуляторы выбираются только явно".into(),
+            matches!(
+                (aa.as_str(), ra.as_str()),
+                (
+                    Some("tinysa-serial" | "rf-explorer-3g-serial"),
+                    None | Some("ardv1-serial")
+                ) | (Some("tinysa-sim"), None | Some("ardv1-sim"))
+                    | (None, Some("ardv1-serial"))
+            ),
+            if p.get("primary_source_kind").is_none() {
+                "tinySA Ultra + AR-DV1; симуляторы выбираются только явно"
+            } else {
+                "Явно выбранный RX-профиль основного и вторичного приборов"
+            }
+            .into(),
         );
         for (label, stream, baud) in [
             ("analyzer", &analyzer, 9600),
             ("receiver", &receiver, 115200),
         ] {
+            if stream.is_null() {
+                continue;
+            }
             check(
                 &format!("{label}_worker_settings"),
                 worker_settings(&stream["settings"]),
@@ -340,7 +388,7 @@ impl GuardService {
             );
             if matches!(
                 stream["settings"]["adapter"].as_str(),
-                Some("tinysa-serial" | "ardv1-serial")
+                Some("tinysa-serial" | "ardv1-serial" | "rf-explorer-3g-serial")
             ) {
                 let valid = stream["port"].as_str().is_some_and(|s| {
                     !s.trim().is_empty()
@@ -348,12 +396,26 @@ impl GuardService {
                         && (!cfg!(windows) || valid_com(s))
                 });
                 check(&format!("{label}_serial_port"),valid,"Нужен явно заданный последовательный порт; доступность без открытия не проверяется".into());
+                let rfe = stream["settings"]["adapter"] == "rf-explorer-3g-serial";
                 let baud =
-                    integer_compatible(stream["settings"].get("baud").unwrap_or(&json!(baud)));
+                    integer_compatible(stream["settings"].get("baud").unwrap_or(&json!(if rfe {
+                        500000
+                    } else {
+                        baud
+                    })));
                 check(
                     &format!("{label}_serial_baud"),
-                    baud.is_some_and(|b| [9600, 19200, 38400, 57600, 115200].contains(&b)),
-                    "Скорости порта: 9600, 19200, 38400, 57600, 115200".into(),
+                    if rfe {
+                        baud == Some(500000)
+                    } else {
+                        baud.is_some_and(|b| [9600, 19200, 38400, 57600, 115200].contains(&b))
+                    },
+                    if rfe {
+                        "RF Explorer Standard: 500000"
+                    } else {
+                        "Скорости порта: 9600, 19200, 38400, 57600, 115200"
+                    }
+                    .into(),
                 );
             }
         }
@@ -381,13 +443,25 @@ impl GuardService {
                     .into(),
             );
         }
-        if aa == "tinysa-serial" {
+        if p["primary_source_kind"] == "ardv1" {
+            check(
+                "cyclic_receiver_scan",
+                crate::aor::plan(&p).is_ok(),
+                "Требуется циклический план AR-DV1 с проверкой RX".into(),
+            );
+        }
+        if aa == "tinysa-serial"
+            || aa == "rf-explorer-3g-serial"
+            || p["primary_source_kind"] == "ardv1"
+        {
             check(
                 "operator_receive_path",
                 p["preparation"]["receive_path_confirmed"] == true
                     && p["preparation"]["location_confirmed"] == true,
                 "Оператор подтверждает антенну, тракт и место; RF readback не заявлен".into(),
             );
+        }
+        if aa == "tinysa-serial" {
             let received = receive_settings(&analyzer["settings"]);
             check(
                 "receive_profile",
@@ -413,13 +487,21 @@ impl GuardService {
                 let b = self
                     .get_record("baseline", s(&p, "baseline_id")?, Some(id))
                     .await?;
+                if p["primary_source_kind"] == "ardv1" || crate::rfe::survey(&p) {
+                    self.validate_standalone_baseline(&p, &b).await?;
+                    return Ok(b);
+                }
                 self.detection_baseline(b).await
             }
             .await;
             let ok = result.as_ref().is_ok_and(|b| {
-                b["sweep_period_seconds"]
-                    .as_f64()
-                    .is_some_and(|n| n.is_finite() && n > 0.)
+                b[if p["primary_source_kind"] == "ardv1" {
+                    "pass_period_seconds"
+                } else {
+                    "sweep_period_seconds"
+                }]
+                .as_f64()
+                .is_some_and(|n| n.is_finite() && n > 0.)
             });
             check(
                 "baseline_cadence",
@@ -459,10 +541,19 @@ impl GuardService {
             capacity["state"] != "full",
             "Полный архив; автоматическое удаление выключено".into(),
         );
-        let sweeps = self
-            .archive
-            .list_sweeps(&typed.id, Some(s(&p, "analyzer_stream_id")?), 128)
-            .await?;
+        let receiver_primary = p["primary_source_kind"] == "ardv1";
+        let sweeps = if receiver_primary {
+            let mut observations = self
+                .archive
+                .list_observations(&typed.id, Some(s(&p, "receiver_stream_id")?), 128)
+                .await?;
+            observations.reverse();
+            observations
+        } else {
+            self.archive
+                .list_sweeps(&typed.id, Some(s(&p, "analyzer_stream_id")?), 128)
+                .await?
+        };
         let mut durations = vec![];
         let mut bytes = 0usize;
         for sweep in &sweeps {
@@ -492,6 +583,19 @@ impl GuardService {
                 .map(|sweep| sweep["interval"]["ended_at"].clone())
                 .unwrap_or(Value::Null);
         }
+        if receiver_primary {
+            let values = performance.as_object_mut().expect("performance object");
+            for (original, replacement) in [
+                ("sweeps", "observations"),
+                ("mean_sweep_bytes", "mean_observation_bytes"),
+                ("mean_sweep_seconds", "mean_observation_seconds"),
+                ("latest_sweep_ended_at", "latest_observation_ended_at"),
+            ] {
+                if let Some(value) = values.remove(original) {
+                    values.insert(replacement.to_owned(), value);
+                }
+            }
+        }
         let storage = self.storage_report(id, true).await?;
         check(
             "storage_budget",
@@ -499,8 +603,19 @@ impl GuardService {
             "Свободное место, запись и прогноз хранения без автоудаления".into(),
         );
         let workers = self.control.list_workers(&typed.id).await?;
+        let preparation_ready = checks.iter().all(|check| {
+            check["ok"] == true
+                || matches!(
+                    check["name"].as_str(),
+                    Some(
+                        "measurement_qualification"
+                            | "baseline_acquisition_context"
+                            | "baseline_cadence"
+                    )
+                )
+        });
         Ok(
-            json!({"project_id":id,"ready":checks.iter().all(|c|c["ok"]==true),"checks":checks,"storage":storage,"baseline_collection":self.baseline_collection(&p).await?,"capacity":capacity,"performance":performance,"workers":value(&workers)?,"hardware_validation":"not_run","baseline_ready":crate::scan_plan::all_baselines_ready(&p)? && !checks.iter().any(|c| c["name"]=="baseline_acquisition_context" && c["ok"]==false)}),
+            json!({"project_id":id,"ready":checks.iter().all(|c|c["ok"]==true),"preparation_ready":preparation_ready,"checks":checks,"storage":storage,"baseline_collection":self.baseline_collection(&p).await?,"capacity":capacity,"performance":performance,"workers":value(&workers)?,"hardware_validation":"not_run","baseline_ready":crate::scan_plan::all_baselines_ready(&p)? && !checks.iter().any(|c| (c["name"]=="baseline_acquisition_context" || (p["primary_source_kind"].is_string() && c["name"]=="baseline_cadence")) && c["ok"]==false)}),
         )
     }
     pub async fn storage_report(&self, id: &str, probe: bool) -> Result<Value> {
@@ -521,13 +636,38 @@ impl GuardService {
             filesystem_free_bytes: None,
             writable: None,
         });
-        let sample = self
-            .archive
-            .sweep_storage_sample(
-                s(&project, "active_session_id")?,
-                s(&project, "analyzer_stream_id")?,
-            )
-            .await?;
+        let receiver_primary = project["primary_source_kind"] == "ardv1";
+        let sid = s(&project, "active_session_id")?;
+        let stream = s(
+            &project,
+            if receiver_primary {
+                "receiver_stream_id"
+            } else {
+                "analyzer_stream_id"
+            },
+        )?;
+        let mut sample = self.archive.sweep_storage_sample(sid, stream).await?;
+        if receiver_primary {
+            let observations = self
+                .archive
+                .list_observations(sid, Some(stream), 64)
+                .await?;
+            sample.count = observations.len() as i64;
+            sample.first_started_at = observations
+                .last()
+                .and_then(|v| v["interval"]["started_at"].as_str())
+                .map(str::to_owned);
+            sample.last_ended_at = observations
+                .first()
+                .and_then(|v| v["interval"]["ended_at"].as_str())
+                .map(str::to_owned);
+            let mut bytes = 0;
+            for v in &observations {
+                bytes += spaced_json(v, true)?.len() as i64;
+            }
+            sample.column_bytes = Some(bytes);
+            sample.array_bytes = None;
+        }
         let mean_stored_sweep_bytes = sample
             .array_bytes
             .map(|bytes| bytes as f64 / sample.count as f64);
@@ -618,8 +758,12 @@ impl GuardService {
             && capacity["state"] != "full"
             && retention.is_none_or(|r| r >= retention_required as f64);
         let mut report = json!({"capacity":capacity,"filesystem_free_bytes":inspected.filesystem_free_bytes,"minimum_free_bytes":minimum,"available_bytes":available,"bytes_per_second":rate,"estimated_retention_seconds":retention,"required_retention_seconds":retention_required,"ready":ready,"write_probe":if probe{inspected.writable}else{None},"rate_source":"measured_archive_or_conservative_payload_window","automatic_deletion":false});
-        report["sampled_sweeps"] = json!(sample.count);
-        report["mean_stored_sweep_bytes"] = json!(mean_stored_sweep_bytes);
+        if receiver_primary {
+            report["sampled_observations"] = json!(sample.count);
+        } else {
+            report["sampled_sweeps"] = json!(sample.count);
+            report["mean_stored_sweep_bytes"] = json!(mean_stored_sweep_bytes);
+        }
         report["projected_bytes_per_day"] = json!(rate.filter(|r| *r > 0.).map(|r| r * 86_400.));
         report["wal_bytes"] = json!(sample.wal_bytes);
         report["writer_queue"] = json!(self.archive.queue_status());

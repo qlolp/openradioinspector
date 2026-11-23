@@ -29,6 +29,18 @@ impl GuardService {
         {
             return Err(invalid("Снимите проект с охраны перед заменой эталона"));
         }
+        if project["primary_source_kind"] == "ardv1" || crate::rfe::survey(&project) {
+            if payload.get("band_id").is_some() {
+                return Err(invalid("Поддиапазон не входит в этот профиль"));
+            }
+            text(&payload, "name", 200)?;
+            text(&payload, "location", 200)?;
+            return if project["primary_source_kind"] == "ardv1" {
+                self.receiver_reference(&project, &payload).await
+            } else {
+                self.rfe_reference(&project, &payload).await
+            };
+        }
         let plan = crate::scan_plan::configured_plan(&project)?;
         let band = if let Some(plan) = &plan {
             let requested = s(&payload, "band_id")?;
@@ -90,6 +102,9 @@ impl GuardService {
                             &b.id,
                         )
                         .await?
+                }
+                None if project["primary_source_kind"] == "rf_explorer" => {
+                    self.fixed_rfe_selection(&project).await?
                 }
                 None => {
                     self.archive
@@ -202,6 +217,10 @@ impl GuardService {
         fields.insert("location".into(), json!(location));
         baseline = self.record(Some(id), baseline)?;
         baseline["confirmed"] = json!(true);
+        if project["primary_source_kind"].is_string() {
+            baseline["primary_source_kind"] = project["primary_source_kind"].clone();
+            baseline["level_unit"] = json!("dBm");
+        }
         baseline["sweep_period_seconds"] = json!(selection.sweep_period_seconds);
         baseline["sample_strategy"] = json!("uniform_window_plus_latest_twenty");
         if let Some(band) = &band {
@@ -357,6 +376,18 @@ impl GuardService {
                 "Нужен подтверждённый эталон"
             }));
         }
+        if project["primary_source_kind"] == "ardv1" {
+            return self.analyze_receiver(project).await;
+        }
+        let survey = crate::rfe::survey(&project);
+        let survey_reference = if survey {
+            Some(
+                self.get_record("baseline", s(&project, "baseline_id")?, Some(id))
+                    .await?,
+            )
+        } else {
+            None
+        };
         let parameters: Parameters = decode(&project["parameters"])?;
         // A full survey has 449 windows. Load only the windows touched by this
         // bounded ingestion batch, keeping checkpoints separate in the archive.
@@ -400,7 +431,17 @@ impl GuardService {
                 .as_ref()
                 .map(|p| crate::scan_plan::source_scope(&project, p, &sweep))
                 .transpose()?;
-            if !source_qualification(&project, &sweep)?.eligible() {
+            if !source_qualification(&project, &sweep)?.eligible()
+                || (survey_reference.is_some()
+                    && self
+                        .archive
+                        .rfe_guard_source_context(&sweep.id)
+                        .await?
+                        .as_deref()
+                        != survey_reference
+                            .as_ref()
+                            .and_then(|r| r["context_key"].as_str()))
+            {
                 let _tx = self.coordinator.lock().await;
                 self.ensure_open()?;
                 project = self.current_detector_project(id, &project).await?;
@@ -412,9 +453,15 @@ impl GuardService {
                 excluded += 1;
                 continue;
             }
-            let key = source_scope.map_or_else(String::new, |(b, w)| b.context_key(w));
+            let key = if survey {
+                crate::rfe::window_id(&project, &sweep)?
+            } else {
+                source_scope.map_or_else(String::new, |(b, w)| b.context_key(w))
+            };
             let grid = source_scope.is_some_and(|(b, _)| b.step_hz.is_some());
-            let baseline_id = if source_scope.is_some() {
+            let baseline_id = if survey {
+                key.as_str()
+            } else if source_scope.is_some() {
                 s(&project["band_baselines"], &key)?
             } else {
                 s(&project, "baseline_id")?
@@ -423,12 +470,34 @@ impl GuardService {
             if let std::collections::btree_map::Entry::Vacant(entry) = detectors.entry(key.clone())
             {
                 let baseline = self
-                    .detection_baseline(self.get_record("baseline", &baseline_id, Some(id)).await?)
+                    .detection_baseline(
+                        self.get_record(
+                            if survey {
+                                crate::aor::BLOCK
+                            } else {
+                                "baseline"
+                            },
+                            &baseline_id,
+                            Some(id),
+                        )
+                        .await?,
+                    )
                     .await?;
                 if let Some((band, index)) = source_scope {
                     crate::scan_plan::check_baseline(&project, band, index, &baseline)?;
                 }
-                let checkpoint = if grid {
+                let checkpoint = if survey {
+                    let generation = project["survey_generation"]
+                        .as_str()
+                        .unwrap_or(&sweep.session_id);
+                    self.archive
+                        .monitoring(
+                            "scan-window-detector",
+                            &format!("{baseline_id}.{generation}"),
+                        )
+                        .await?
+                        .map(|v| v["checkpoint"].clone())
+                } else if grid {
                     if let Some(reference) = project["band_detectors"][&key].as_str() {
                         if reference != baseline_id {
                             return Err(invalid("Контрольная точка другого эталона"));
@@ -551,6 +620,22 @@ impl GuardService {
                         }
                         fields["scan_plan_id"] = project["scan_plan"]["id"].clone();
                         fields["scan_plan_revision"] = project["scan_plan"]["revision"].clone();
+                    }
+                    if project["primary_source_kind"].is_string() {
+                        fields["primary_source_kind"] = project["primary_source_kind"].clone();
+                        fields["level_unit"] = json!("dBm");
+                    }
+                    if survey {
+                        fields["rfe_window_index"] = json!(
+                            sweep
+                                .settings
+                                .as_ref()
+                                .and_then(|s| s.get("survey"))
+                                .and_then(|s| s["tile"].as_u64())
+                                .unwrap()
+                                - 1
+                        );
+                        fields["reference_set_id"] = project["baseline_id"].clone();
                     }
                     fields["detector_version"] = json!(ori_monitoring::VERSION);
                     fields["detector_parameters"] = project["parameters"].clone();
@@ -690,7 +775,20 @@ impl GuardService {
             }
             project["detector_cursor"] = json!(sweep.id);
             project["detector_rowid"] = json!(capture.rowid);
-            if grid {
+            if survey {
+                let tile = sweep
+                    .settings
+                    .as_ref()
+                    .and_then(|s| s.get("survey"))
+                    .and_then(|s| s["tile"].as_u64())
+                    .expect("validated RFE window");
+                project["detector_state"] = json!({"scan_window_index":tile-1,"recent_sources":[{"session_id":sweep.session_id,"stream_id":sweep.stream_id,"sweep_id":sweep.id}]});
+                let generation = project["survey_generation"]
+                    .as_str()
+                    .unwrap_or(&sweep.session_id);
+                mutations.push(Self::mutation("scan-window-detector",json!({"id":format!("{baseline_id}.{generation}"),"project_id":id,
+                    "created_at":sweep.interval.started_at.as_str(),"checkpoint":detector.checkpoint()?})));
+            } else if grid {
                 let record = json!({"id":baseline_id,"project_id":id,"created_at":detector.baseline().ended_at,
                     "updated_at":sweep.interval.ended_at.as_str(),"checkpoint":detector.checkpoint()?});
                 mutations.push(Self::mutation("scan-window-detector", record));

@@ -54,6 +54,7 @@ pub struct FakeControl {
     pub workers: Mutex<Vec<WorkerStatus>>,
     pub ready: Mutex<Option<bool>>,
     pub preflight_gate: Mutex<Option<Arc<TuneGate>>>,
+    pub rfe_readback_override: Mutex<JSONObject>,
     pub storage: Mutex<StorageProbe>,
     pub permits: Mutex<Vec<(ControlTarget, ControlPermit)>>,
     pub acknowledged: Mutex<Option<bool>>,
@@ -91,6 +92,7 @@ impl FakeControl {
             workers: Mutex::new(vec![]),
             ready: Mutex::new(Some(true)),
             preflight_gate: Mutex::new(None),
+            rfe_readback_override: Mutex::new(JSONObject::new()),
             storage: Mutex::new(StorageProbe {
                 filesystem_free_bytes: Some(1_000_000_000_000),
                 writable: Some(true),
@@ -119,7 +121,32 @@ impl FakeControl {
             stream_id: stream_id.to_owned(),
             state: "running".into(),
             alive: true,
-            current: JSONObject::new(),
+            current: if session
+                .streams
+                .iter()
+                .find(|s| s.id == stream_id)
+                .and_then(|s| s.settings.as_ref())
+                .and_then(|s| s.get("adapter"))
+                .is_some_and(|adapter| adapter == "rf-explorer-3g-serial")
+            {
+                let stream = session.streams.iter().find(|s| s.id == stream_id).unwrap();
+                let settings = stream.settings.as_ref().unwrap();
+                let first = settings
+                    .get("start_hz")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(100_000_000);
+                let mut actual:JSONObject=serde_json::from_value(json!({"profile_verified":true,"detector":"normal","detector_code":0,
+                    "adapter":"rf-explorer-3g-serial","device_mode":"spectrum_analyzer","artifact_kind":"raw_spectrum",
+                    "receive_profile":"rf-explorer-3g-combo-standard-1.34","device_identity":{"main_model":3,"expansion_model":5,"firmware":"01.34"},
+                    "active_board":"expansion","active_input":"right","board_min_hz":15_000_000,"board_max_hz":2_700_000_000_u64,
+                    "board_max_span_hz":600_000_000,"start_hz":first,"stop_hz":first+1110000,"rbw_hz":15000,"step_hz":10000,"points":112,
+                    "amplitude_top_dbm":-10,"amplitude_bottom_dbm":-120,"offset_db":0,"simulated":false,
+                    "settings_source":"device_readback","settings_readback":true})).unwrap();
+                actual.extend(self.rfe_readback_override.lock().unwrap().clone());
+                actual
+            } else {
+                JSONObject::new()
+            },
             extra: [("device".into(), json!("synthetic"))].into(),
             worker_instance: Some(format!("instance-{stream_id}")),
         }
@@ -268,6 +295,27 @@ impl InstrumentControl for FakeControl {
             Ok(w.clone())
         })
     }
+    fn receiver_scan_hold<'a>(
+        &'a self,
+        target: &'a ControlTarget,
+        hold: bool,
+        permit: ControlPermit,
+    ) -> ControlFuture<'a, WorkerStatus> {
+        Box::pin(async move {
+            self.validate(target, &permit)?;
+            let mut workers = self.workers.lock().unwrap();
+            let w = workers
+                .iter_mut()
+                .find(|w| w.session_id == target.session_id && w.stream_id == target.stream_id)
+                .ok_or(ControlError::Denied)?;
+            w.current.insert(
+                "receiver_scan".into(),
+                json!({"state":if hold {"held"} else {"scanning"}}),
+            );
+            Ok(w.clone())
+        })
+    }
+
     fn tune<'a>(&'a self, r: TuneRequest) -> ControlFuture<'a, TuneReply> {
         Box::pin(async move {
             self.validate(&r.target, &r.permit)?;

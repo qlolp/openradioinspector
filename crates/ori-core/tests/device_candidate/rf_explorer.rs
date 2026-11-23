@@ -508,7 +508,7 @@ async fn invalid_profiles_are_rejected_before_the_connector_runs() {
 }
 
 #[tokio::test]
-async fn guard_cannot_prepare_or_arm_an_explorer_receiver_pair() {
+async fn explorer_receiver_pair_has_supported_profile_and_requires_confirmed_path_and_baseline() {
     let directory = tempfile::tempdir().unwrap();
     let mut config = CoreConfig::live(directory.path());
     let factory = Arc::new(DuplexFactory::default());
@@ -538,7 +538,7 @@ async fn guard_cannot_prepare_or_arm_an_explorer_receiver_pair() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|check| check["name"] == "adapters" && check["ok"] == false)
+            .any(|check| check["name"] == "adapters" && check["ok"] == true)
     );
     for operation in ["preparation/start", "arm"] {
         let (code, error) = server

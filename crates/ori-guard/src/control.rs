@@ -239,6 +239,15 @@ pub trait InstrumentControl: Send + Sync + 'static {
         permit: ControlPermit,
     ) -> ControlFuture<'a, WorkerStatus>;
     fn stop_stream<'a>(&'a self, target: &'a ControlTarget) -> ControlFuture<'a, WorkerStatus>;
+    /// Switch the live cyclic receiver at an acknowledged acquisition boundary.
+    fn receiver_scan_hold<'a>(
+        &'a self,
+        _target: &'a ControlTarget,
+        _hold: bool,
+        _permit: ControlPermit,
+    ) -> ControlFuture<'a, WorkerStatus> {
+        Box::pin(async { Err(ControlError::Unavailable("cyclic_receiver_hold")) })
+    }
     fn tune<'a>(&'a self, request: TuneRequest) -> ControlFuture<'a, TuneReply>;
     /// Cache-only post-effect gate. Recheck the same worker instance, applied
     /// revision, frequency/mode and known acknowledged state under the shared

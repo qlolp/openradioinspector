@@ -379,7 +379,9 @@ impl GuardService {
             .runtime_snapshot(id)?
             .filter(|r| !r.stopped)
             .ok_or(ControlError::Denied)?;
-        if !current.manual.contains_key(&current.analyzer) {
+        if !current.manual.contains_key(current.primary())
+            && !current.faults.contains_key(current.primary())
+        {
             self.analyze_locked(id).await?;
         }
         if self.runtime_snapshot(id)?.is_none_or(|r| r.stopped) {
@@ -393,11 +395,16 @@ impl GuardService {
         let r = self.runtime_snapshot(id)?.ok_or(ControlError::Denied)?;
         let mut faults = BTreeMap::new();
         for stream in [&r.analyzer, &r.receiver] {
-            if r.manual.contains_key(stream) {
+            if stream.is_empty() || r.manual.contains_key(stream) {
                 continue;
             }
             let status = statuses.iter().find(|s| s.stream_id == *stream);
-            if status.is_none_or(|s| !s.alive) {
+            if status.is_none_or(|s| {
+                !s.alive
+                    || (stream == r.primary()
+                        && r.cached_project["primary_source_kind"] == "rf_explorer"
+                        && !ori_monitoring::rfe::normal_readback(&json!(s.current)))
+            }) {
                 faults.insert(
                     stream.clone(),
                     status
@@ -421,7 +428,7 @@ impl GuardService {
             let message = "Часть приборов недоступна; исправный прибор продолжает регистрацию";
             p["state"] = json!("degraded");
             p["last_error"] = json!(message);
-            if faults.contains_key(&r.analyzer) {
+            if faults.contains_key(r.primary()) {
                 p["coverage"] = json!("unavailable");
             }
             for (stream, started) in &faults {

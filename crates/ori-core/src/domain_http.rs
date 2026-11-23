@@ -350,11 +350,7 @@ async fn guard_get(core: &Core, tail: &[&str], query: &Query) -> ApiResult<Respo
     let limit = || count(query, "limit", 200, 1000);
     let after = || optional(query, "after").unwrap_or("");
     let data = match tail {
-        [] => {
-            guard
-                .list_records("project", None, after(), limit()?, false)
-                .await?
-        }
+        [] => guard.project_list(after(), limit()?).await?,
         ["audio-inputs"] => guard.audio_inputs().await?,
         [id] => guard.project(id).await?,
         [id, "preflight"] => guard.preflight(id, false).await?,
@@ -551,7 +547,7 @@ async fn guard_get(core: &Core, tail: &[&str], query: &Query) -> ApiResult<Respo
             ));
         }
     };
-    Ok(envelope(StatusCode::OK, data))
+    Ok(envelope(StatusCode::OK, ori_guard::project_view(data)))
 }
 async fn guard_post(core: &Core, tail: &[&str], payload: Value) -> ApiResult<Response> {
     let guard = &core.domain()?.guard;
@@ -617,5 +613,5 @@ async fn guard_post(core: &Core, tail: &[&str], payload: Value) -> ApiResult<Res
             ));
         }
     };
-    Ok(envelope(status, data))
+    Ok(envelope(status, ori_guard::project_view(data)))
 }

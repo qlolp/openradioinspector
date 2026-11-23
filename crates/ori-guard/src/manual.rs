@@ -62,6 +62,9 @@ impl GuardService {
         } else {
             r.receiver.clone()
         };
+        if stream.is_empty() {
+            return Err(invalid("Выбранная роль отсутствует в проекте"));
+        }
         let workers = self.control.list_workers(&r.sid).await?;
         let instance = workers
             .iter()
@@ -78,7 +81,15 @@ impl GuardService {
         {
             let _tx = self.coordinator.lock().await;
             self.ensure_open()?;
-            self.project(id).await?;
+            let mut project = self.project(id).await?;
+            if project["primary_source_kind"].is_string() && project["primary_stream_id"] == stream
+            {
+                if r.manual.contains_key(&stream) {
+                    return Err(GuardError::Conflict("Прибор уже передан вручную".into()));
+                }
+                project["manual_primary_hold"] = json!(true);
+                self.archive.put_monitoring("project", project).await?;
+            }
             self.update_runtime(id, |runtime| {
                 if runtime.stopped
                     || runtime.token != r.token
@@ -114,6 +125,31 @@ impl GuardService {
             })?;
         }
         self.wake.notify_waiters();
+        if role == "receiver" && r.cached_project["primary_source_kind"] == "ardv1" {
+            let result = async {
+                let current = self.runtime_snapshot(id)?.ok_or(ControlError::Denied)?;
+                let lease = current.manual.get(&stream).ok_or(ControlError::Denied)?;
+                let mut permit = self.permit(id, &current);
+                permit.token = lease.token.clone();
+                permit.expected_worker_instance = lease.worker_instance.clone();
+                let target = Self::target(&current, &stream);
+                self.set_cyclic_hold(&target, true, permit.clone()).await?;
+                let _tx = self.coordinator.lock().await;
+                self.authorize_control(&target, Some(&permit))?;
+                let mut p = self.project(id).await?;
+                p["coverage"] = json!("paused");
+                self.archive.put_monitoring("project", p.clone()).await?;
+                self.update_runtime(id, |r| {
+                    r.cached_project = p;
+                    Ok(())
+                })
+            }
+            .await;
+            if let Err(error) = result {
+                self.fail_runtime(id, &error.to_string()).await?;
+                return Err(error);
+            }
+        }
         if role == "analyzer" {
             let target = Self::target(&r, &stream);
             let original = self.pending_manual_control(&target, &token)?;
@@ -222,7 +258,7 @@ impl GuardService {
                     .returning = true;
                 Ok(())
             })?;
-            if lease.role == "analyzer" {
+            if lease.role == "analyzer" || r.cached_project["primary_source_kind"] == "ardv1" {
                 let mut p = self.project(id).await?;
                 p["coverage"] = json!("restoring");
                 self.archive.put_monitoring("project", p).await?;
@@ -257,6 +293,34 @@ impl GuardService {
                 .get_session(&current.sid)
                 .await?
                 .ok_or(GuardError::NotFound)?;
+            if current.cached_project["primary_source_kind"] == "ardv1" {
+                let progress = self
+                    .archive
+                    .ardv1_reference_progress(&current.sid, &stream)
+                    .await?;
+                let mut permit = self.permit(id, &current);
+                permit.expected_worker_instance = lease.worker_instance.clone();
+                let target = Self::target(&current, &stream);
+                self.set_cyclic_hold(&target, false, permit.clone()).await?;
+                let _tx = self.coordinator.lock().await;
+                self.authorize_control(&target, Some(&permit))?;
+                let mut p = self.project(id).await?;
+                p["coverage"] = json!("restoring");
+                p.as_object_mut()
+                    .expect("project")
+                    .remove("manual_primary_hold");
+                p["detector_rowid"] = progress["boundary"].clone();
+                p["receiver_detector_generation"] = json!(self.ids.next_id(IdKind::Owner));
+                self.archive.put_monitoring("project", p.clone()).await?;
+                return self.update_runtime(id, |r| {
+                    if r.stopped || r.token != current.token || r.epoch != current.epoch {
+                        return Err(ControlError::Denied.into());
+                    }
+                    r.manual.remove(&stream);
+                    r.cached_project = p;
+                    Ok(())
+                });
+            }
             let workers = self.control.list_workers(&current.sid).await?;
             let worker = workers.iter().find(|w| w.stream_id == stream);
             if worker
@@ -326,6 +390,33 @@ impl GuardService {
         }
         Ok(json!({"state":"returned","role":"receiver"}))
     }
+    async fn set_cyclic_hold(
+        &self,
+        target: &ControlTarget,
+        held: bool,
+        permit: ControlPermit,
+    ) -> Result<()> {
+        self.authorize_control(target, Some(&permit))?;
+        let worker = self
+            .control
+            .receiver_scan_hold(target, held, permit.clone())
+            .await?;
+        if !worker.alive
+            || worker.state != "running"
+            || worker.session_id != target.session_id
+            || worker.stream_id != target.stream_id
+            || permit.expected_worker_instance.is_none()
+            || worker.worker_instance != permit.expected_worker_instance
+            || worker
+                .current
+                .get("receiver_scan")
+                .is_none_or(|s| s["state"] != if held { "held" } else { "scanning" })
+        {
+            return Err(ControlError::Unavailable("cyclic_receiver_ack").into());
+        }
+        Ok(())
+    }
+
     pub(crate) async fn restore_analyzer(
         self: &Arc<Self>,
         id: &str,
@@ -357,7 +448,7 @@ impl GuardService {
         let mut expected = std::collections::BTreeMap::new();
         if let Some(plan) = &plan {
             for band in &plan.bands {
-                for index in 0..band.window_count() {
+                for index in crate::qualification::eligible_windows(&project, band) {
                     let key = band.context_key(index);
                     let baseline = self
                         .get_record("baseline", s(&project["band_baselines"], &key)?, Some(id))
@@ -365,6 +456,17 @@ impl GuardService {
                     crate::scan_plan::check_baseline(&project, band, index, &baseline)?;
                     expected.insert(key, s(&baseline, "fingerprint")?.to_owned());
                 }
+            }
+        } else if crate::rfe::survey(&project) {
+            let baseline = self
+                .get_record("baseline", s(&project, "baseline_id")?, Some(id))
+                .await?;
+            self.validate_standalone_baseline(&project, &baseline)
+                .await?;
+            for index in 0..integer(&baseline, "windows")? as usize {
+                let key = crate::aor::block_id(s(&baseline, "id")?, index);
+                let block = self.get_record(crate::aor::BLOCK, &key, Some(id)).await?;
+                expected.insert(key, s(&block, "fingerprint")?.to_owned());
             }
         } else {
             let baseline = self
@@ -395,9 +497,10 @@ impl GuardService {
         // Long grid surveys keep running while disarm and receiver controls
         // remain available. Only a freshly verified new window extends the wait.
         drop(_life);
-        let gridded = plan
-            .as_ref()
-            .is_some_and(|p| p.bands.iter().any(|b| b.step_hz.is_some()));
+        let gridded = crate::rfe::survey(&project)
+            || plan
+                .as_ref()
+                .is_some_and(|p| p.bands.iter().any(|b| b.step_hz.is_some()));
         let mut deadline = self.clock.monotonic() + Duration::from_secs(100);
         loop {
             let current = self
@@ -415,11 +518,17 @@ impl GuardService {
                 after = *sequence;
                 let sweep: ori_contracts::Sweep = decode(raw)?;
                 if sweep.interval.started_at >= started {
+                    if !crate::qualification::source_qualification(&project, &sweep)?.eligible() {
+                        continue;
+                    }
                     let key = match &plan {
                         Some(p) => {
                             let (band, index) =
                                 crate::scan_plan::source_scope(&project, p, &sweep)?;
                             band.context_key(index)
+                        }
+                        None if crate::rfe::survey(&project) => {
+                            crate::rfe::window_id(&project, &sweep)?
                         }
                         None => String::new(),
                     };
@@ -446,6 +555,12 @@ impl GuardService {
                 }
                 p["state"] = json!("armed");
                 p["coverage"] = json!("wide");
+                p.as_object_mut()
+                    .expect("project")
+                    .remove("manual_primary_hold");
+                if crate::rfe::survey(&p) {
+                    p["survey_generation"] = json!(self.ids.next_id(IdKind::Owner));
+                }
                 reset_detectors(&mut p);
                 p["last_error"] = Value::Null;
                 self.archive.put_monitoring("project", p.clone()).await?;

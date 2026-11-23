@@ -56,6 +56,38 @@ pub(crate) struct ProjectRuntime {
     pub storage_checked: Option<Duration>,
     pub startup_storage_basis: Option<StartupStorageBasis>,
 }
+impl ProjectRuntime {
+    pub(crate) fn primary(&self) -> &str {
+        if self.analyzer.is_empty() {
+            &self.receiver
+        } else {
+            &self.analyzer
+        }
+    }
+
+    pub(crate) fn paired(&self) -> bool {
+        !self.analyzer.is_empty() && !self.receiver.is_empty()
+    }
+}
+
+fn workers_started(session: &Value, workers: &[WorkerStatus]) -> bool {
+    let Some(streams) = session["streams"].as_array() else {
+        return false;
+    };
+    workers.len() == streams.len()
+        && streams.iter().all(|stream| {
+            workers.iter().any(|worker| {
+                worker.session_id == session["id"]
+                    && worker.stream_id == stream["id"]
+                    && worker.alive
+                    && worker.state != "error"
+                    && (stream["settings"]["adapter"] != "rf-explorer-3g-serial"
+                        || worker.current.get("profile_verified") == Some(&json!(true))
+                            && ori_monitoring::rfe::normal_readback(&json!(worker.current)))
+            })
+        })
+}
+
 pub(crate) struct RuntimeState {
     pub projects: HashMap<String, ProjectRuntime>,
     pub preparing: HashMap<String, Preparation>,
@@ -284,6 +316,9 @@ impl GuardService {
             vec!["analyzer", "receiver"]
         } {
             let mut stream = p["profile"][role].clone();
+            if stream.is_null() && search.is_none() {
+                continue;
+            }
             if !stream.is_object() {
                 return Err(invalid("monitoring receive profile"));
             }
@@ -293,7 +328,7 @@ impl GuardService {
             if !stream["settings"].is_object() {
                 stream["settings"] = json!({});
             }
-            if role == "receiver" {
+            if role == "receiver" && p["primary_source_kind"] != "ardv1" {
                 // Guard clones use a retunable receiver for event investigations.
                 // An ordinary session may have used that port for a finite segment.
                 stream["settings"]
@@ -383,11 +418,32 @@ impl GuardService {
     pub(crate) fn select_project_session(p: &mut Value, session: &Value) -> Result<()> {
         let streams = session["streams"]
             .as_array()
-            .filter(|a| a.len() == 2)
+            .filter(|a| (1..=2).contains(&a.len()))
             .ok_or_else(|| invalid("monitoring session streams"))?;
         p["active_session_id"] = session["id"].clone();
-        p["analyzer_stream_id"] = streams[0]["id"].clone();
-        p["receiver_stream_id"] = streams[1]["id"].clone();
+        for (key, role) in [
+            ("analyzer_stream_id", "spectrum_analyzer"),
+            ("receiver_stream_id", "receiver"),
+        ] {
+            p[key] = streams
+                .iter()
+                .find(|s| s["role"] == role)
+                .map_or(Value::Null, |s| s["id"].clone());
+        }
+        if p["primary_source_kind"].is_string() {
+            let receiver_primary = p["primary_source_kind"] == "ardv1";
+            p["primary_stream_id"] = p[if receiver_primary {
+                "receiver_stream_id"
+            } else {
+                "analyzer_stream_id"
+            }]
+            .clone();
+            p["secondary_stream_id"] = if receiver_primary {
+                Value::Null
+            } else {
+                p["receiver_stream_id"].clone()
+            };
+        }
         let mut ids = p["session_ids"]
             .as_array()
             .cloned()
@@ -507,12 +563,7 @@ impl GuardService {
             .start_session(&decode::<Session>(&session)?, permit)
             .await;
         let statuses = match result {
-            Ok(statuses)
-                if statuses.len() == 2
-                    && statuses.iter().all(|s| s.state != "error" && s.alive) =>
-            {
-                statuses
-            }
+            Ok(statuses) if workers_started(&session, &statuses) => statuses,
             _ => {
                 self.stop_preparation_locked(id).await?;
                 return Err(GuardError::Conflict(
@@ -608,8 +659,19 @@ impl GuardService {
         let _life = self.lock_project(id).await?;
         self.ensure_open()?;
         let mut original = self.project(id).await?;
-        if self.runtime_snapshot(id)?.is_some() {
+        if let Some(active) = self.runtime_snapshot(id)? {
+            if active.stopped {
+                return Err(GuardError::Conflict(
+                    "Исполнитель остановлен: требуется снять охрану и проверить прибор".into(),
+                ));
+            }
             return Ok(original);
+        }
+        if original["manual_primary_hold"] == true {
+            return Err(GuardError::Conflict(
+                "Основной прибор был передан оператору: требуется явный возврат или снятие охраны"
+                    .into(),
+            ));
         }
         let plan = crate::scan_plan::configured_plan(&original)?;
         if let Some(plan) = &plan {
@@ -651,11 +713,29 @@ impl GuardService {
         p["detector_rowid"] = json!(0);
         p["last_error"] = Value::Null;
         p["coverage"] = json!("wide");
+        if p["primary_source_kind"] == "ardv1" {
+            p["receiver_detector_generation"] = session["id"].clone();
+        }
+        if crate::rfe::survey(&p) {
+            p["survey_generation"] = session["id"].clone();
+        }
         p["armed_at"] = json!(self.clock.now().as_str());
         let token = self.ids.next_id(IdKind::Owner);
         let sid = s(&session, "id")?.to_owned();
-        let analyzer = s(&p, "analyzer_stream_id")?.to_owned();
-        let receiver = s(&p, "receiver_stream_id")?.to_owned();
+        let analyzer = p["analyzer_stream_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let receiver = p["receiver_stream_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let claims = session["streams"]
+            .as_array()
+            .ok_or_else(|| invalid("streams"))?
+            .iter()
+            .map(|stream| Ok((sid.clone(), s(stream, "id")?.to_owned())))
+            .collect::<Result<BTreeSet<_>>>()?;
         // The accepted preflight measured the compatible preparation session.
         // Keep that conservative basis while its fresh clone obtains two sweeps;
         // never manufacture a rate for a genuinely unmeasured project.
@@ -687,7 +767,7 @@ impl GuardService {
             analyzer_epoch: 0,
             stopped: false,
             manual: BTreeMap::new(),
-            claims: [(sid.clone(), analyzer), (sid, receiver)].into(),
+            claims,
             receiver_work: None,
             receiver_checks_done: BTreeSet::new(),
             receiver_checks_resume_after: None,
@@ -725,11 +805,12 @@ impl GuardService {
             .start_session(&decode::<Session>(&session)?, self.permit(id, &runtime))
             .await
         {
-            Ok(statuses)
-                if statuses.len() == 2
-                    && statuses.iter().all(|s| s.state != "error" && s.alive) =>
-            {
+            Ok(statuses) if workers_started(&session, &statuses) => {
                 self.ensure_open()?;
+                if let Err(error) = self.check_rfe_start(&p, &statuses).await {
+                    self.fail_runtime(id, &error.to_string()).await?;
+                    return Err(error);
+                }
                 if self
                     .runtime_snapshot(id)?
                     .is_none_or(|r| r.stopped || r.token != runtime.token)
@@ -748,7 +829,7 @@ impl GuardService {
                 Err(e.into())
             }
             _ => {
-                let message = "Не удалось запустить оба прибора; проверьте журнал исполнителей";
+                let message = "Не удалось запустить приборы; проверьте журнал исполнителей";
                 self.fail_runtime(id, message).await?;
                 Err(GuardError::Conflict(message.into()))
             }
@@ -838,7 +919,13 @@ impl GuardService {
         let _life = self.lock_project(id).await?;
         let _tx = self.coordinator.lock().await;
         let mut p = self.project(id).await?;
-        p["state"] = json!("ready");
+        p["state"] = json!(if p["primary_source_kind"].is_string()
+            && !crate::scan_plan::all_baselines_ready(&p)?
+        {
+            "draft"
+        } else {
+            "ready"
+        });
         p["coverage"] = json!("stopped");
         if !preserve_intent {
             p["resume_requested"] = json!(false);

@@ -473,6 +473,25 @@ impl InstrumentControl for Effects {
             )
         })
     }
+    fn receiver_scan_hold<'a>(
+        &'a self,
+        target: &'a ControlTarget,
+        hold: bool,
+        permit: ControlPermit,
+    ) -> ControlFuture<'a, ori_guard::WorkerStatus> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            let gate = gate(&core, target, permit)?;
+            let target = Target::new(&target.session_id, &target.stream_id);
+            let devices = core.devices.as_ref().ok_or_else(unavailable)?;
+            worker(
+                devices
+                    .set_receiver_scan_hold(target, hold, gate)
+                    .await
+                    .map_err(control)?,
+            )
+        })
+    }
     fn tune<'a>(
         &'a self,
         request: ori_guard::TuneRequest,
