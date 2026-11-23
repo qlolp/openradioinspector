@@ -342,6 +342,30 @@ if os.name == "posix" and sys.platform in ("linux", "darwin"):
                             owner.process.stdin.flush()
                             owner.stop(5)
 
+            def test_verified_cli_anchor_exits_at_release_and_target_finalizers_complete(self):
+                with tempfile.TemporaryDirectory(prefix="ori-owner-exit-") as temporary:
+                    root = Path(temporary)
+                    loaded = root / "anchor-loaded"
+                    finalized = root / "anchor-finalized"
+                    (root / "sitecustomize.py").write_text(textwrap.dedent(f"""\
+                        import atexit, sys
+                        from pathlib import Path
+                        if "--_session-owner" in sys.argv:
+                            Path({str(loaded)!r}).touch()
+                            atexit.register(Path({str(finalized)!r}).touch)
+                        """), encoding="utf-8")
+                    environment = release.child_environment()
+                    environment["PYTHONPATH"] = str(root) + os.pathsep + environment["PYTHONPATH"]
+                    with redirect_stdout(io.StringIO()):
+                        output = release.run_command(
+                            [sys.executable, "-c", "import atexit; atexit.register(print, 'target finalized')"],
+                            name="verified-anchor-exit", environment=environment,
+                            directory=root, timeout=5, shutdown_timeout=2,
+                        )
+                    self.assertTrue(loaded.is_file(), "the real CLI anchor must load the fixture")
+                    self.assertIn("target finalized", output)
+                    self.assertFalse(finalized.exists(), "the released helper ran interpreter finalizers")
+
         def test_actual_child_keeps_stdin_eof_and_negative_signal_exit(self):
             with tempfile.TemporaryDirectory(prefix="ori-owner-contract-") as temporary:
                 registry = Path(temporary)
