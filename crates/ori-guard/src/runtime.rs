@@ -474,6 +474,11 @@ impl GuardService {
         let _life = self.lock_project(id).await?;
         self.ensure_open()?;
         let original = self.project(id).await?;
+        if original["duty"]["enabled"] == true {
+            return Err(GuardError::Conflict(
+                "Сначала снимите дежурство, чтобы начать новый сбор эталона".into(),
+            ));
+        }
         let already_preparing = {
             let all = self
                 .runtime
@@ -616,7 +621,15 @@ impl GuardService {
             .get(id)
             .cloned();
         if let Some(prep) = &prep {
-            self.control.stop_session(&prep.sid).await?;
+            let workers = self.control.stop_session(&prep.sid).await?;
+            if workers
+                .iter()
+                .any(|worker| worker.session_id == prep.sid && worker.alive)
+            {
+                return Err(GuardError::Conflict(
+                    "Исполнитель подготовительного приёма ещё работает".into(),
+                ));
+            }
             self.stop_archived_session(&prep.sid).await?;
         }
         let _tx = self.coordinator.lock().await;

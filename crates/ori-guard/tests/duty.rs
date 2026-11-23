@@ -222,3 +222,63 @@ async fn disarm_during_preflight_prevents_a_late_worker_start() {
     assert_eq!(f.service.duty(&id).await.unwrap()["enabled"], false);
     f.close().await;
 }
+
+#[tokio::test]
+async fn waiting_shift_releases_collector_and_keeps_its_confirmed_originals() {
+    let f = Harness::new().await;
+    let id = f.prepared().await;
+    let preparation = f.service.start_preparation(&id, json!({})).await.unwrap();
+    let project = &preparation["project"];
+    let target = ori_guard::ControlTarget {
+        session_id: project["active_session_id"].as_str().unwrap().into(),
+        stream_id: project["analyzer_stream_id"].as_str().unwrap().into(),
+    };
+    let mut originals = fixture()["sweeps"].as_array().unwrap()[..20].to_vec();
+    for (index, original) in originals.iter_mut().enumerate() {
+        original["id"] = json!(format!("weekly-preparation-{index}"));
+        original["session_id"] = json!(target.session_id);
+        original["stream_id"] = json!(target.stream_id);
+    }
+    f.archive.append_sweeps(originals.clone()).await.unwrap();
+    let baseline = f
+        .service
+        .create_baseline(
+            &id,
+            json!({"name":"Weekly","location":"Room","confirm":true}),
+        )
+        .await
+        .unwrap();
+    assert!(f.service.authorize_control(&target, None).is_err());
+    clock(&f, "2026-11-23T21:00:00Z");
+    *f.control.fail_stop.lock().unwrap() = true;
+    assert!(f.service.arm_duty(&id, weekly()).await.is_err());
+    assert_eq!(f.service.duty(&id).await.unwrap()["status"], "stop_failed");
+    assert!(f.service.authorize_control(&target, None).is_err());
+
+    *f.control.fail_stop.lock().unwrap() = false;
+    f.service
+        .reconcile_duty(&id, DutyTrigger::Timer)
+        .await
+        .unwrap();
+    assert_eq!(f.service.duty(&id).await.unwrap()["status"], "waiting");
+    assert!(f.service.authorize_control(&target, None).is_ok());
+    assert!(
+        f.control
+            .workers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|w| w.session_id == target.session_id)
+            .all(|w| !w.alive)
+    );
+    assert_eq!(
+        f.service.project(&id).await.unwrap()["baseline_id"],
+        baseline["id"]
+    );
+    assert_eq!(
+        f.archive.get_sweep("weekly-preparation-0").await.unwrap(),
+        Some(originals[0].clone())
+    );
+    assert!(f.service.start_preparation(&id, json!({})).await.is_err());
+    f.close().await;
+}

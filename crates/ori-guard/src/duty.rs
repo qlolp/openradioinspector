@@ -335,6 +335,22 @@ impl GuardService {
         if running && (window != Window::Open || interrupted) {
             self.disarm_runtime(id).await?;
         }
+        if window != Window::Open || (interrupted && state["resume_after_restart"] != true) {
+            let _life = self.lock_project(id).await?;
+            let collecting = self
+                .runtime
+                .lock()
+                .map_err(|_| invalid("guard runtime lock"))?
+                .preparing
+                .contains_key(id);
+            if collecting && let Err(error) = self.stop_preparation_locked(id).await {
+                state["status"] = json!("stop_failed");
+                state["last_error"] =
+                    json!("Не удалось подтвердить остановку подготовительного приёма");
+                self.store_duty(id, &state).await?;
+                return Err(error);
+            }
+        }
         state["last_error"] = Value::Null;
         if window == Window::Expired {
             state["enabled"] = json!(false);
