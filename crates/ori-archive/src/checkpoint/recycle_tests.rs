@@ -148,17 +148,21 @@ fn commit_during_bulk_backfill_gets_an_automatic_tail_pass_before_the_regular_re
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     assert_eq!(originals, [bulk, vec![0, 0x41, 0xff], vec![0x9a, 0]]);
+
+    // Set ORI_WAL_MEASUREMENT_BATCHES=1 for 120 paced commits or 12 for 1,440.
+    if let Some(value) = std::env::var_os("ORI_WAL_MEASUREMENT_BATCHES") {
+        let batches = value
+            .to_str()
+            .and_then(|s| s.parse().ok())
+            .filter(|n| (1..=32).contains(n))
+            .expect("ORI_WAL_MEASUREMENT_BATCHES must be an integer from 1 to 32");
+        measure_wal_size_during_steady_commits(batches);
+    }
 }
 
-// Run explicitly with --ignored --nocapture. Each report covers 120 commits.
-#[test]
-#[ignore = "paced WAL size and reuse measurement"]
-fn measure_wal_size_during_steady_commits() {
+fn measure_wal_size_during_steady_commits(batches: u32) {
     const ROWS: u32 = 120;
     const BYTES: usize = 120 * 1024;
-    let batches: u32 =
-        std::env::var("ORI_WAL_MEASUREMENT_BATCHES").map_or(1, |s| s.parse().unwrap());
-    assert!((1..=32).contains(&batches));
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("steady.sqlite");
     let mut writer = writer(&path);
