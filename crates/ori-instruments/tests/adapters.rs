@@ -399,6 +399,38 @@ fn assert_drained(audit: &Arc<Mutex<Audit>>) {
 }
 
 #[tokio::test]
+async fn receiver_leaves_remote_mode_after_a_clean_duty_cutoff_during_preparation() {
+    for accepted in 0..=2 {
+        let mut steps = receiver_setup("2504A");
+        steps.truncate(accepted);
+        if accepted > 0 {
+            steps.push(Step::line("EX", "20"));
+        }
+        let (wire, audit) = Scripted::new(steps);
+        let transcript = audit.clone();
+        let mut adapter = ArDv1::new(wire, receiver(), IoLimits::default())
+            .unwrap()
+            .with_acquisition_window(Arc::new(move || {
+                transcript.lock().unwrap().sent.len() < accepted
+            }));
+        assert!(matches!(
+            adapter.prepare().await,
+            Err(InstrumentError::AcquisitionWindowClosed)
+        ));
+        assert!(!adapter.state().restart_required);
+        adapter.close().await.unwrap();
+        adapter.close().await.unwrap();
+        let expected = match accepted {
+            0 => vec![],
+            1 => vec!["RE1\r", "EX\r"],
+            _ => vec!["RE1\r", "VR\r", "EX\r"],
+        };
+        assert_eq!(sent(&audit), expected);
+        assert_drained(&audit);
+    }
+}
+
+#[tokio::test]
 async fn receiver_rejection_identifies_phase_command_and_code_without_private_data() {
     for (rejected, phase, name) in [
         ("RE1", "prepare", "RE1"),
@@ -427,6 +459,7 @@ async fn receiver_rejection_identifies_phase_command_and_code_without_private_da
         );
         assert!(adapter.state().restart_required);
         assert!(adapter.poll_receiver().await.is_err());
+        adapter.close().await.unwrap();
         assert_eq!(sent(&audit).len(), index + 1);
         assert_drained(&audit);
     }

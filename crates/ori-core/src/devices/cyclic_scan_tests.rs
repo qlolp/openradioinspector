@@ -576,6 +576,38 @@ async fn cutoff_node(
 }
 
 #[tokio::test]
+async fn duty_expiring_during_receiver_setup_leaves_remote_mode_and_releases_the_port() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let factory = Factory::new(false);
+    let (node, id, clock) = cutoff_node(dir.path(), &factory, "RE1").await;
+    let guard = node.domains.get().unwrap().guard.clone();
+    let starting = tokio::spawn(async move {
+        guard
+            .arm_duty(
+                &id,
+                json!({"schedule":{"mode":"until","until_at":"2026-11-23T11:00:00Z"}}),
+            )
+            .await
+    });
+    until(|| factory.poll_started.load(Ordering::Acquire) == 1).await;
+    clock.0.store(false, Ordering::Release);
+    factory.poll_release.add_permits(1);
+    assert_eq!(starting.await.unwrap().unwrap()["status"], "expired");
+    let commands = factory.commands.lock().unwrap().clone();
+    let remote = commands
+        .iter()
+        .position(|command| command == "RE1")
+        .unwrap();
+    assert_eq!(&commands[remote..], ["RE1", "EX"]);
+    assert!(factory.opens.load(Ordering::Acquire) > 0);
+    assert_eq!(
+        factory.opens.load(Ordering::Acquire),
+        factory.drops.load(Ordering::Acquire)
+    );
+    node.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn weekly_cutoff_between_tune_and_rx_does_not_start_a_late_measurement() {
     let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     let factory = Factory::new(false);

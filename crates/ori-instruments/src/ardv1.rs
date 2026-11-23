@@ -216,6 +216,7 @@ pub struct ArDv1<T> {
     acquisition_window: Option<AcquisitionWindow>,
     requested: ReceiverConfig,
     ready: bool,
+    remote_mode_acknowledged: bool,
     frequency: Option<u64>,
     mode: Option<ReceiverMode>,
     source: &'static str,
@@ -240,6 +241,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             acquisition_window: None,
             requested: config,
             ready: false,
+            remote_mode_acknowledged: false,
             frequency: None,
             mode: None,
             source: "unconfirmed",
@@ -480,6 +482,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         }
         let result = async {
             self.acknowledge("prepare", "RE1").await?;
+            self.remote_mode_acknowledged = true;
             let firmware = self.transact("prepare", "VR").await?;
             let firmware = firmware
                 .strip_prefix("VR")
@@ -780,7 +783,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         if self.connection.closed() {
             return Ok(());
         }
-        let result = if self.ready && !self.connection.tainted() {
+        let result = if self.remote_mode_acknowledged && !self.connection.tainted() {
             async {
                 self.restore_scope_raster().await?;
                 self.acknowledge("close", "EX").await
