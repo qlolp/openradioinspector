@@ -1,7 +1,6 @@
 use crate::{tinysa::now, transport::Connection, *};
 use serde_json::json;
-use sha2::{Digest, Sha256};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Instant;
 
@@ -179,35 +178,10 @@ impl ScopeRun {
     }
 }
 
-/// The same physical receiver can be recognized inside one stream without
-/// publishing its serial or linking independent runs through a stable tag.
+type ConfirmReceiver = Arc<dyn Fn(&str) -> Result<String> + Send + Sync>;
 struct CyclicStreamIdentity {
-    stream_id: String,
-    fingerprint: Option<String>,
-}
-impl CyclicStreamIdentity {
-    fn confirm(&mut self, serial: &str) -> Result<()> {
-        let mut hash = Sha256::new();
-        hash.update(self.stream_id.as_bytes());
-        hash.update([0]);
-        hash.update(serial.as_bytes());
-        let actual: String = hash
-            .finalize()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        if self
-            .fingerprint
-            .as_ref()
-            .is_some_and(|saved| saved != &actual)
-        {
-            return Err(InstrumentError::UnsupportedProfile(
-                "AR-DV1 identity differs from the archived cyclic run".into(),
-            ));
-        }
-        self.fingerprint = Some(actual);
-        Ok(())
-    }
+    confirm: ConfirmReceiver,
+    public_id: Option<String>,
 }
 
 /// Documented receive control only. AUTO excludes TETRA; levels are raw counts.
@@ -301,16 +275,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.acquisition_window = Some(window);
         self
     }
+    /// The node verifies RN in private storage and returns an opaque public run ID.
     pub fn with_cyclic_stream(
         self,
         plan: CyclicReceiverScope,
-        stream_id: &str,
-        archived_identity: Option<String>,
+        confirm: impl Fn(&str) -> Result<String> + Send + Sync + 'static,
     ) -> Result<Self> {
         let mut adapter = self.with_cyclic_scope(plan)?;
         adapter.cyclic_identity = Some(CyclicStreamIdentity {
-            stream_id: stream_id.into(),
-            fingerprint: archived_identity,
+            confirm: Arc::new(confirm),
+            public_id: None,
         });
         Ok(adapter)
     }
@@ -500,7 +474,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                 ));
             }
             if let Some(identity) = &mut self.cyclic_identity {
-                identity.confirm(&serial)?;
+                let verify = identity.confirm.clone();
+                let received = serial.clone();
+                identity.public_id = Some(
+                    tokio::task::spawn_blocking(move || verify(&received))
+                        .await
+                        .map_err(|_| {
+                            InstrumentError::UnsafeState(
+                                "AR-DV1 private identity check interrupted".into(),
+                            )
+                        })??,
+                );
             }
             self.verified_dv1 = serial.len() == 10
                 && serial.starts_with("RN0952")
@@ -619,7 +603,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             metadata["scan_tune_command"] = json!(command);
             metadata["scope_source"] = json!("sequential_receiver_readback");
             if let Some(identity) = &self.cyclic_identity {
-                metadata["receiver_run_unit"] = json!(identity.fingerprint);
+                metadata["receiver_run_unit"] = json!(identity.public_id);
+                metadata["receiver_run_binding_version"] = json!(2);
             }
             metadata["settle_s"] = json!(scope.config.settle.as_secs_f64());
             scope.index += 1;

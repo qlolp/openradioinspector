@@ -5,6 +5,7 @@ pub mod macos_agent;
 pub mod notification_secrets;
 pub mod power;
 pub mod qos;
+pub mod receiver_run;
 pub mod security;
 mod shared_io;
 

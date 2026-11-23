@@ -15,6 +15,8 @@ impl ReceiverDutyRun {
         let mut session = self.session.clone();
         session["state"] = json!("running");
         session["ended_at"] = Value::Null;
+        // A restart before the first RX still needs the original private RN association.
+        session["metadata"]["receiver_duty_resumed"] = json!(true);
         let event = EventDraft {
             event_type: "session.started".into(),
             occurred_at: now.into(),
@@ -89,6 +91,7 @@ impl GuardService {
                 || ori_archive::verified_receiver_scan_context(raw).as_deref() != Some(context)
                 || progress["context_key"] != context
                 || progress["plan_key"] != plan["plan_key"]
+                || raw["metadata"]["receiver_run_binding_version"] != 2
                 || raw["metadata"]["receiver_run_unit"]
                     .as_str()
                     .is_none_or(|tag| {

@@ -13,6 +13,7 @@ ori-contracts = { path = "../ori-contracts" }
 base64 = "=0.23.1"
 fs2 = "=0.4.3"
 rand = "=0.8.8"
+ring = "=0.17.14"
 rcgen = { version = "=0.14.10", features = ["pem", "ring"] }
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-pemfile = "=2.2.0"

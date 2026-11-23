@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     future::Future,
+    path::PathBuf,
     pin::Pin,
     sync::{
         Arc, Mutex, Weak,
@@ -357,6 +358,7 @@ struct Registry {
 }
 pub(crate) struct DeviceManager {
     archive: Archive,
+    node_directory: PathBuf,
     mode: crate::CoreMode,
     options: DeviceOptions,
     registry: Mutex<Registry>,
@@ -453,9 +455,15 @@ impl DeviceManager {
         }
         Ok(())
     }
-    pub fn new(archive: Archive, options: DeviceOptions, mode: crate::CoreMode) -> Arc<Self> {
+    pub fn new(
+        archive: Archive,
+        options: DeviceOptions,
+        mode: crate::CoreMode,
+        node_directory: PathBuf,
+    ) -> Arc<Self> {
         Arc::new(Self {
             archive,
+            node_directory,
             mode,
             options,
             registry: Mutex::new(Registry {
@@ -691,6 +699,7 @@ impl DeviceManager {
         let max_errors = simulator::integer(&settings, "max_consecutive_errors", 3, 1, 100)?;
         let mut scope_points = None;
         let mut cyclic_scan = None;
+        let mut receiver_run = None;
         let adapter_name = settings
             .get("adapter")
             .and_then(Value::as_str)
@@ -718,8 +727,36 @@ impl DeviceManager {
             let profile = Profile::read(&stream)?;
             transport::baud(&settings)?;
             if let Profile::Receiver(_, Some(Scope::Cyclic(plan)), _) = &profile {
-                cyclic_scan =
-                    Some(cyclic_scan::Scan::restore(&self.archive, &stream, *plan).await?);
+                let scan = cyclic_scan::Scan::restore(&self.archive, &stream, *plan).await?;
+                let node = self.node_directory.clone();
+                let resume_empty = session
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("receiver_duty_resumed"))
+                    .and_then(Value::as_bool)
+                    == Some(true);
+                let session = stream.session_id.clone();
+                let stream_id = stream.id.clone();
+                let previous = scan.archived_identity.clone();
+                receiver_run = Some(
+                    tokio::task::spawn_blocking(move || {
+                        ori_runtime::receiver_run::ReceiverRun::open(
+                            &node,
+                            &session,
+                            &stream_id,
+                            previous,
+                            resume_empty,
+                        )
+                    })
+                    .await
+                    .map_err(|_| DeviceError::Closed)?
+                    .map_err(|_| {
+                        DeviceError::Worker(
+                            "Private AR-DV1 run binding unavailable; start a new session".into(),
+                        )
+                    })?,
+                );
+                cyclic_scan = Some(scan);
             }
             let identity = factory.identity(&stream)?;
             if identity.is_empty() || identity.len() > 1024 {
@@ -773,21 +810,24 @@ impl DeviceManager {
                     if let Some(window) = &gate.acquisition_window {
                         adapter = adapter.with_acquisition_window(window.clone());
                     }
-                    adapter = match scope {
-                        Some(Scope::Once(scope)) => {
-                            scope_points = Some(scope.points());
-                            adapter.with_scope(scope)?
-                        }
-                        Some(Scope::Cyclic(plan)) => adapter.with_cyclic_stream(
-                            plan,
-                            &stream.id,
-                            cyclic_scan
-                                .as_ref()
-                                .and_then(|scan| scan.archived_identity.clone()),
-                        )?,
-                        None if readback => adapter.with_frequency_readback()?,
-                        None => adapter,
-                    };
+                    adapter =
+                        match scope {
+                            Some(Scope::Once(scope)) => {
+                                scope_points = Some(scope.points());
+                                adapter.with_scope(scope)?
+                            }
+                            Some(Scope::Cyclic(plan)) => {
+                                let run = receiver_run.ok_or(DeviceError::Closed)?;
+                                adapter.with_cyclic_stream(plan, move |serial| {
+                                    run.confirm(serial).map_err(|_| {
+                                        ori_instruments::InstrumentError::UnsupportedProfile(
+                                    "AR-DV1 run binding did not verify; start a new session".into())
+                                    })
+                                })?
+                            }
+                            None if readback => adapter.with_frequency_readback()?,
+                            None => adapter,
+                        };
                     Native::Receiver(ArDv1Actor::spawn(adapter, 1)?)
                 }
             };

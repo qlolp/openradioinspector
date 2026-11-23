@@ -1842,6 +1842,7 @@ dependencies = [
  "ori-contracts",
  "rand 0.8.8",
  "rcgen",
+ "ring",
  "rustls",
  "rustls-pemfile",
  "serde",

@@ -79,13 +79,20 @@ impl Scan {
             {
                 return Err(invalid());
             }
-            if let Some(unit) = meta.get("receiver_run_unit") {
-                let tag = unit
-                    .as_str()
-                    .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
-                    .ok_or_else(invalid)?;
-                scan.archived_identity = Some(tag.to_owned());
+            // Legacy public hashes and unbound originals remain readable, but cannot
+            // resume acquisition on this cursor. The next recording needs its own binding.
+            if meta["receiver_run_binding_version"] != 2 {
+                return Err(invalid());
             }
+            let tag = meta["receiver_run_unit"]
+                .as_str()
+                .filter(|s| {
+                    s.len() == 64
+                        && s.bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                })
+                .ok_or_else(invalid)?;
+            scan.archived_identity = Some(tag.to_owned());
             scan.committed(point, &original);
         }
         Ok(scan)

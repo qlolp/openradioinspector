@@ -870,6 +870,143 @@ async fn opted_in_duty_reopens_its_raw_stream_and_only_fills_the_next_verified_p
 }
 
 #[tokio::test]
+async fn existing_legacy_cyclic_original_requires_an_explicit_new_recording() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let factory = Factory::new(false);
+    let node = open_duty_node(dir.path(), &factory).await;
+    receiver_duty_fixture(&node).await;
+    let archive = node.archive().unwrap();
+    let session = parse_session(&archive.get_session("reference").await.unwrap().unwrap()).unwrap();
+    let stream = &session.streams[0];
+    let Profile::Receiver(_, Some(Scope::Cyclic(plan)), _) = Profile::read(stream).unwrap() else {
+        panic!("cyclic fixture")
+    };
+    assert!(
+        cyclic_scan::Scan::restore(archive, stream, plan)
+            .await
+            .is_err()
+    );
+    let mut legacy = archive.get_observation("ref-1-0").await.unwrap().unwrap();
+    legacy["id"] = json!("explicitly-legacy-fixture");
+    legacy["interval"] =
+        json!({"started_at":"2026-11-11T00:00:00Z","ended_at":"2026-11-11T00:00:00Z"});
+    legacy["metadata"]["scan_pass"] = json!(21);
+    legacy["metadata"]["receiver_run_unit"] = json!("a".repeat(64));
+    archive.append_observations(vec![legacy]).await.unwrap();
+    let key = ori_guard::ardv1_plan_key(stream).unwrap();
+    let saved = archive
+        .latest_receiver_scan_point(&session.id, &stream.id, &key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved["id"], "explicitly-legacy-fixture");
+    assert!(
+        cyclic_scan::Scan::restore(archive, stream, plan)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        archive
+            .get_observation("explicitly-legacy-fixture")
+            .await
+            .unwrap()
+            .unwrap(),
+        saved
+    );
+    assert!(factory.commands.lock().unwrap().is_empty());
+    node.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn portable_receiver_original_keeps_random_id_and_missing_private_binding_stops_resume() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let export_dir = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    let node = open_duty_node(dir.path(), &factory).await;
+    let project_id = receiver_duty_fixture(&node).await;
+    let project = arm_receiver_duty(&node, &project_id, true).await;
+    let sid = project["active_session_id"].as_str().unwrap();
+    let stream = project["primary_stream_id"].as_str().unwrap();
+    let original = next_duty_original(&node, sid, stream, 1).await.remove(0);
+    let unit = original["metadata"]["receiver_run_unit"].as_str().unwrap();
+    assert_eq!(original["metadata"]["receiver_run_binding_version"], 2);
+    let exported = export_dir.path().join("portable.sqlite");
+    node.archive()
+        .unwrap()
+        .export_portable(&exported)
+        .await
+        .unwrap();
+    let db = rusqlite::Connection::open_with_flags(
+        &exported,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let raw: String = db
+        .query_row(
+            "SELECT metadata_json FROM observations WHERE id=?",
+            [original["id"].as_str().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&raw).unwrap(),
+        original["metadata"]
+    );
+    drop(db);
+    let private = std::fs::read_dir(dir.path().join(".ori-runtime/receiver-runs"))
+        .unwrap()
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .find(|path| {
+            path.extension().is_some_and(|ext| ext == "json")
+                && std::fs::read_to_string(path).unwrap().contains(unit)
+        })
+        .unwrap();
+    let binding: Value = serde_json::from_slice(&std::fs::read(&private).unwrap()).unwrap();
+    let archive_bytes = std::fs::read(&exported).unwrap();
+    for private_value in [
+        b"RNSYNTHETIC".to_vec(),
+        serde_json::to_vec(&binding["key"]).unwrap(),
+        serde_json::to_vec(&binding["verifier"]).unwrap(),
+    ] {
+        assert!(
+            !archive_bytes
+                .windows(private_value.len())
+                .any(|window| window == private_value)
+        );
+    }
+    node.close().await.unwrap();
+    std::fs::remove_file(&private).unwrap();
+    factory.commands.lock().unwrap().clear();
+    let reopened = open_duty_node(dir.path(), &factory).await;
+    let guard = &reopened.domains.get().unwrap().guard;
+    assert_eq!(
+        guard.duty(&project_id).await.unwrap()["status"],
+        "preflight_failed"
+    );
+    assert!(factory.commands.lock().unwrap().is_empty());
+    assert!(!private.exists());
+    let rows = reopened
+        .archive()
+        .unwrap()
+        .list_observations(sid, Some(stream), 8)
+        .await
+        .unwrap();
+    assert_eq!(rows, vec![original]);
+    guard.disarm(&project_id, json!({})).await.unwrap();
+    let fresh = arm_receiver_duty(&reopened, &project_id, false).await;
+    let row = next_duty_original(
+        &reopened,
+        fresh["active_session_id"].as_str().unwrap(),
+        fresh["primary_stream_id"].as_str().unwrap(),
+        1,
+    )
+    .await
+    .remove(0);
+    assert_ne!(row["metadata"]["receiver_run_unit"], binding["public_id"]);
+    reopened.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn duty_recovery_rejects_a_different_receiver_on_the_same_port_before_scanning() {
     let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     let factory = Factory::new(false);
