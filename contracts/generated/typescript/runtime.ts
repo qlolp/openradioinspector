@@ -5,12 +5,14 @@ export type {JSONValue, JSONObject, Integer} from './codec.ts';
 export type AudioEvidenceInfoEncoding = "pcm16_le";
 export type BrowserPairingAccessScope = "operator" | "reader";
 export type BrowserPairingCredential = "browser_cookie";
+export type DutyNotificationTestRequestChannel = "telegram" | "webhook";
+export type DutyScheduleConfigMode = "continuous" | "until" | "weekly";
 export type HistoryJobOperation = "export" | "summary" | "occupancy";
 export type HistoryJobPhase = "snapshot" | "running" | "completed" | "cancelled" | "failed";
 export type HistoryRequestOperation = "export" | "summary" | "occupancy";
 export type KnownSignalInputKind = "broadcast" | "aviation" | "maritime" | "rail" | "municipal" | "cellular" | "short_range" | "wifi" | "bluetooth" | "remote_control" | "satellite_navigation" | "other" | "unknown";
 export type KnownSignalRecordKind = "broadcast" | "aviation" | "maritime" | "rail" | "municipal" | "cellular" | "short_range" | "wifi" | "bluetooth" | "remote_control" | "satellite_navigation" | "other" | "unknown";
-export type KnownSignalRecordLevelUnit = "dBm";
+export type KnownSignalRecordLevelUnit = "dBm" | "s_meter_count";
 export type MeasurementQualificationStatus = "supported" | "unverified" | "partial" | "synthetic";
 export type MeasurementWebSocketEncoding = "protobuf";
 export type MeasurementWebSocketSubprotocol = "ori.measurements.v1.protobuf";
@@ -22,6 +24,7 @@ export type PairedRecheckResultMethodology = "paired-local-recheck-v1";
 export type PairedRecheckResultState = "missing_evidence" | "evaluated";
 export type PairingInputClient = "browser" | "native";
 export type PairingInputRequiredScope = "operator" | "reader";
+export type ReceiverPanoramaLevelUnit = "s_meter_count";
 export type ScanPlanRevisionHardwareValidation = "not_run";
 export type SecurityStatusAccessScope = "operator" | "reader";
 export type SecurityStatusMode = "legacy_loopback" | "lan_tls";
@@ -75,6 +78,44 @@ export interface BrowserPairing {
 
 export interface CredentialRevocation {
   revoked: boolean;
+  [key: string]: unknown;
+}
+
+export interface DutyNotificationReceipt {
+  channel: string;
+  notification_id: string;
+  state: string;
+  [key: string]: unknown;
+}
+
+export interface DutyNotificationTestRequest {
+  channel: DutyNotificationTestRequestChannel;
+  [key: string]: unknown;
+}
+
+export interface DutyRequest {
+  resume_after_restart: boolean;
+  schedule: DutyScheduleConfig;
+  [key: string]: unknown;
+}
+
+export interface DutyScheduleConfig {
+  end_local?: string;
+  mode: DutyScheduleConfigMode;
+  start_local?: string;
+  timezone?: string;
+  until_at?: string;
+  weekdays?: Array<Integer>;
+  [key: string]: unknown;
+}
+
+export interface DutyStatus {
+  deliveries?: Array<JSONObject>;
+  enabled: boolean;
+  last_error?: string | null;
+  resume_after_restart?: boolean;
+  schedule?: DutyScheduleConfig;
+  status: string;
   [key: string]: unknown;
 }
 
@@ -273,6 +314,15 @@ export interface NativePairing {
   [key: string]: unknown;
 }
 
+export interface NodeArchiveLocation {
+  available_bytes: Integer | null;
+  database: string;
+  label: string;
+  relocation: string;
+  storage_id: string;
+  [key: string]: unknown;
+}
+
 export interface PairedControls {
   lower: PairedOriginals;
   upper: PairedOriginals;
@@ -414,6 +464,35 @@ export interface RFExplorerPassWindow {
 export interface RFExplorerPassWindows {
   items: Array<RFExplorerPassWindow>;
   next_after_tile: Integer | null;
+  [key: string]: unknown;
+}
+
+export interface ReceiverPanorama {
+  bins: Array<ReceiverPanoramaBin>;
+  complete: boolean;
+  coverage_hex: string;
+  ended_at: string;
+  level_unit: ReceiverPanoramaLevelUnit;
+  lower_is_stronger: boolean;
+  measured_points: Integer;
+  pass: Integer;
+  start_hz: Integer;
+  started_at: string;
+  step_hz: Integer;
+  stop_hz: Integer;
+  total_points: Integer;
+  [key: string]: unknown;
+}
+
+export interface ReceiverPanoramaBin {
+  end_index: Integer;
+  ended_at: string;
+  frequency_hz: Integer;
+  level: number;
+  measured_points: Integer;
+  observation_id: string;
+  start_index: Integer;
+  started_at: string;
   [key: string]: unknown;
 }
 
@@ -770,6 +849,129 @@ const schemas = {...baselineSchemas, ...{
         }
       }
     ]
+  },
+  "DutyNotificationReceipt": {
+    "properties": {
+      "channel": {
+        "type": "string"
+      },
+      "notification_id": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "notification_id",
+      "channel",
+      "state"
+    ],
+    "type": "object"
+  },
+  "DutyNotificationTestRequest": {
+    "properties": {
+      "channel": {
+        "enum": [
+          "telegram",
+          "webhook"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "channel"
+    ],
+    "type": "object"
+  },
+  "DutyRequest": {
+    "properties": {
+      "resume_after_restart": {
+        "type": "boolean"
+      },
+      "schedule": {
+        "$ref": "#/components/schemas/DutyScheduleConfig"
+      }
+    },
+    "required": [
+      "schedule",
+      "resume_after_restart"
+    ],
+    "type": "object"
+  },
+  "DutyScheduleConfig": {
+    "properties": {
+      "end_local": {
+        "type": "string"
+      },
+      "mode": {
+        "enum": [
+          "continuous",
+          "until",
+          "weekly"
+        ],
+        "type": "string"
+      },
+      "start_local": {
+        "type": "string"
+      },
+      "timezone": {
+        "type": "string"
+      },
+      "until_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "weekdays": {
+        "items": {
+          "format": "uint64",
+          "maximum": 7,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxItems": 7,
+        "type": "array",
+        "uniqueItems": true
+      }
+    },
+    "required": [
+      "mode"
+    ],
+    "type": "object"
+  },
+  "DutyStatus": {
+    "properties": {
+      "deliveries": {
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "last_error": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "resume_after_restart": {
+        "type": "boolean"
+      },
+      "schedule": {
+        "$ref": "#/components/schemas/DutyScheduleConfig"
+      },
+      "status": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "enabled",
+      "status"
+    ],
+    "type": "object"
   },
   "GuardSignalInboxEnvelope": {
     "allOf": [
@@ -1701,7 +1903,8 @@ const schemas = {...baselineSchemas, ...{
       },
       "level_unit": {
         "enum": [
-          "dBm"
+          "dBm",
+          "s_meter_count"
         ],
         "type": "string"
       },
@@ -1750,7 +1953,45 @@ const schemas = {...baselineSchemas, ...{
       "source_refs": {
         "items": {
           "additionalProperties": true,
+          "oneOf": [
+            {
+              "required": [
+                "sweep_id"
+              ]
+            },
+            {
+              "required": [
+                "observation_id"
+              ]
+            }
+          ],
           "properties": {
+            "frequency_hz": {
+              "maximum": 1300000000,
+              "minimum": 100000,
+              "type": "integer"
+            },
+            "interval": {
+              "type": "object"
+            },
+            "level": {
+              "type": "number"
+            },
+            "level_unit": {
+              "enum": [
+                "s_meter_count"
+              ],
+              "type": "string"
+            },
+            "observation_id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "scan_pass": {
+              "minimum": 1,
+              "type": "integer"
+            },
             "session_id": {
               "maxLength": 200,
               "minLength": 1,
@@ -1768,9 +2009,8 @@ const schemas = {...baselineSchemas, ...{
             }
           },
           "required": [
-            "sweep_id",
-            "stream_id",
-            "session_id"
+            "session_id",
+            "stream_id"
           ],
           "type": "object"
         },
@@ -1915,6 +2155,37 @@ const schemas = {...baselineSchemas, ...{
       "paired",
       "credential",
       "token"
+    ],
+    "type": "object"
+  },
+  "NodeArchiveLocation": {
+    "properties": {
+      "available_bytes": {
+        "format": "uint64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "database": {
+        "type": "string"
+      },
+      "label": {
+        "type": "string"
+      },
+      "relocation": {
+        "type": "string"
+      },
+      "storage_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "storage_id",
+      "label",
+      "database",
+      "available_bytes",
+      "relocation"
     ],
     "type": "object"
   },
@@ -2637,6 +2908,139 @@ const schemas = {...baselineSchemas, ...{
     ],
     "type": "object"
   },
+  "ReceiverPanorama": {
+    "properties": {
+      "bins": {
+        "items": {
+          "$ref": "#/components/schemas/ReceiverPanoramaBin"
+        },
+        "maxItems": 1024,
+        "type": "array"
+      },
+      "complete": {
+        "type": "boolean"
+      },
+      "coverage_hex": {
+        "description": "Byte i/8, bit i%8 marks an actually committed original at grid index i (hex bytes in ascending byte order).",
+        "maxLength": 32498,
+        "type": "string"
+      },
+      "ended_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "level_unit": {
+        "enum": [
+          "s_meter_count"
+        ],
+        "type": "string"
+      },
+      "lower_is_stronger": {
+        "type": "boolean"
+      },
+      "measured_points": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "pass": {
+        "format": "uint64",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "start_hz": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "started_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "step_hz": {
+        "format": "uint64",
+        "minimum": 10,
+        "type": "integer"
+      },
+      "stop_hz": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "total_points": {
+        "format": "uint64",
+        "maximum": 129991,
+        "minimum": 2,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "pass",
+      "total_points",
+      "measured_points",
+      "complete",
+      "start_hz",
+      "stop_hz",
+      "step_hz",
+      "level_unit",
+      "lower_is_stronger",
+      "started_at",
+      "ended_at",
+      "coverage_hex",
+      "bins"
+    ],
+    "type": "object"
+  },
+  "ReceiverPanoramaBin": {
+    "properties": {
+      "end_index": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "ended_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "frequency_hz": {
+        "format": "uint64",
+        "maximum": 1300000000,
+        "minimum": 100000,
+        "type": "integer"
+      },
+      "level": {
+        "type": "number"
+      },
+      "measured_points": {
+        "format": "uint64",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "observation_id": {
+        "type": "string"
+      },
+      "start_index": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "started_at": {
+        "format": "date-time",
+        "type": "string"
+      }
+    },
+    "required": [
+      "start_index",
+      "end_index",
+      "measured_points",
+      "frequency_hz",
+      "level",
+      "observation_id",
+      "started_at",
+      "ended_at"
+    ],
+    "type": "object"
+  },
   "RecognizedGuardEvent": {
     "additionalProperties": true,
     "properties": {
@@ -2647,7 +3051,45 @@ const schemas = {...baselineSchemas, ...{
       },
       "peak_source": {
         "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "sweep_id"
+            ]
+          },
+          {
+            "required": [
+              "observation_id"
+            ]
+          }
+        ],
         "properties": {
+          "frequency_hz": {
+            "maximum": 1300000000,
+            "minimum": 100000,
+            "type": "integer"
+          },
+          "interval": {
+            "type": "object"
+          },
+          "level": {
+            "type": "number"
+          },
+          "level_unit": {
+            "enum": [
+              "s_meter_count"
+            ],
+            "type": "string"
+          },
+          "observation_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scan_pass": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "session_id": {
             "maxLength": 200,
             "minLength": 1,
@@ -2666,8 +3108,7 @@ const schemas = {...baselineSchemas, ...{
         },
         "required": [
           "session_id",
-          "stream_id",
-          "sweep_id"
+          "stream_id"
         ],
         "type": "object"
       },
@@ -3095,6 +3536,13 @@ const schemas = {...baselineSchemas, ...{
               "null"
             ]
           },
+          "source_observation_count": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "source_sweep_count": {
             "minimum": 0,
             "type": [
@@ -3187,6 +3635,16 @@ export const decodeBrowserPairing = (value: JSONValue): BrowserPairing => walk(s
 export const encodeBrowserPairing = (value: BrowserPairing): string => stringifyJSON(walk(schemas.BrowserPairing as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeCredentialRevocation = (value: JSONValue): CredentialRevocation => walk(schemas.CredentialRevocation as unknown as Schema,value,false) as unknown as CredentialRevocation;
 export const encodeCredentialRevocation = (value: CredentialRevocation): string => stringifyJSON(walk(schemas.CredentialRevocation as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeDutyNotificationReceipt = (value: JSONValue): DutyNotificationReceipt => walk(schemas.DutyNotificationReceipt as unknown as Schema,value,false) as unknown as DutyNotificationReceipt;
+export const encodeDutyNotificationReceipt = (value: DutyNotificationReceipt): string => stringifyJSON(walk(schemas.DutyNotificationReceipt as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeDutyNotificationTestRequest = (value: JSONValue): DutyNotificationTestRequest => walk(schemas.DutyNotificationTestRequest as unknown as Schema,value,false) as unknown as DutyNotificationTestRequest;
+export const encodeDutyNotificationTestRequest = (value: DutyNotificationTestRequest): string => stringifyJSON(walk(schemas.DutyNotificationTestRequest as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeDutyRequest = (value: JSONValue): DutyRequest => walk(schemas.DutyRequest as unknown as Schema,value,false) as unknown as DutyRequest;
+export const encodeDutyRequest = (value: DutyRequest): string => stringifyJSON(walk(schemas.DutyRequest as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeDutyScheduleConfig = (value: JSONValue): DutyScheduleConfig => walk(schemas.DutyScheduleConfig as unknown as Schema,value,false) as unknown as DutyScheduleConfig;
+export const encodeDutyScheduleConfig = (value: DutyScheduleConfig): string => stringifyJSON(walk(schemas.DutyScheduleConfig as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeDutyStatus = (value: JSONValue): DutyStatus => walk(schemas.DutyStatus as unknown as Schema,value,false) as unknown as DutyStatus;
+export const encodeDutyStatus = (value: DutyStatus): string => stringifyJSON(walk(schemas.DutyStatus as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeHistoryCancelResult = (value: JSONValue): HistoryCancelResult => walk(schemas.HistoryCancelResult as unknown as Schema,value,false) as unknown as HistoryCancelResult;
 export const encodeHistoryCancelResult = (value: HistoryCancelResult): string => stringifyJSON(walk(schemas.HistoryCancelResult as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeHistoryEnforcement = (value: JSONValue): HistoryEnforcement => walk(schemas.HistoryEnforcement as unknown as Schema,value,false) as unknown as HistoryEnforcement;
@@ -3231,6 +3689,8 @@ export const decodeMeasurementWebSocket = (value: JSONValue): MeasurementWebSock
 export const encodeMeasurementWebSocket = (value: MeasurementWebSocket): string => stringifyJSON(walk(schemas.MeasurementWebSocket as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeNativePairing = (value: JSONValue): NativePairing => walk(schemas.NativePairing as unknown as Schema,value,false) as unknown as NativePairing;
 export const encodeNativePairing = (value: NativePairing): string => stringifyJSON(walk(schemas.NativePairing as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeNodeArchiveLocation = (value: JSONValue): NodeArchiveLocation => walk(schemas.NodeArchiveLocation as unknown as Schema,value,false) as unknown as NodeArchiveLocation;
+export const encodeNodeArchiveLocation = (value: NodeArchiveLocation): string => stringifyJSON(walk(schemas.NodeArchiveLocation as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairedControls = (value: JSONValue): PairedControls => walk(schemas.PairedControls as unknown as Schema,value,false) as unknown as PairedControls;
 export const encodePairedControls = (value: PairedControls): string => stringifyJSON(walk(schemas.PairedControls as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairedLocalBackground = (value: JSONValue): PairedLocalBackground => walk(schemas.PairedLocalBackground as unknown as Schema,value,false) as unknown as PairedLocalBackground;
@@ -3261,6 +3721,10 @@ export const decodeRFExplorerPassWindow = (value: JSONValue): RFExplorerPassWind
 export const encodeRFExplorerPassWindow = (value: RFExplorerPassWindow): string => stringifyJSON(walk(schemas.RFExplorerPassWindow as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeRFExplorerPassWindows = (value: JSONValue): RFExplorerPassWindows => walk(schemas.RFExplorerPassWindows as unknown as Schema,value,false) as unknown as RFExplorerPassWindows;
 export const encodeRFExplorerPassWindows = (value: RFExplorerPassWindows): string => stringifyJSON(walk(schemas.RFExplorerPassWindows as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeReceiverPanorama = (value: JSONValue): ReceiverPanorama => walk(schemas.ReceiverPanorama as unknown as Schema,value,false) as unknown as ReceiverPanorama;
+export const encodeReceiverPanorama = (value: ReceiverPanorama): string => stringifyJSON(walk(schemas.ReceiverPanorama as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeReceiverPanoramaBin = (value: JSONValue): ReceiverPanoramaBin => walk(schemas.ReceiverPanoramaBin as unknown as Schema,value,false) as unknown as ReceiverPanoramaBin;
+export const encodeReceiverPanoramaBin = (value: ReceiverPanoramaBin): string => stringifyJSON(walk(schemas.ReceiverPanoramaBin as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeRecognizedGuardEvent = (value: JSONValue): RecognizedGuardEvent => walk(schemas.RecognizedGuardEvent as unknown as Schema,value,false) as unknown as RecognizedGuardEvent;
 export const encodeRecognizedGuardEvent = (value: RecognizedGuardEvent): string => stringifyJSON(walk(schemas.RecognizedGuardEvent as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeScanBand = (value: JSONValue): ScanBand => walk(schemas.ScanBand as unknown as Schema,value,false) as unknown as ScanBand;
@@ -3288,6 +3752,22 @@ export const runtimeOperations = [
     "method": "GET",
     "operation_id": "get_api_v1_archive_capacity",
     "path": "/api/v1/archive/capacity",
+    "path_parameters": [],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "archive_location"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_archive_location",
+    "path": "/api/v1/archive/location",
     "path_parameters": [],
     "query": [],
     "request_features": []
@@ -3859,6 +4339,42 @@ export const runtimeOperations = [
   },
   {
     "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_duty_schedule"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_duty",
+    "path": "/api/v1/monitoring-projects/{project_id}/duty",
+    "path_parameters": [
+      "project_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_duty_schedule"
+    ],
+    "max_request_bytes": null,
+    "method": "POST",
+    "operation_id": "post_api_v1_monitoring_projects_project_id_duty",
+    "path": "/api/v1/monitoring-projects/{project_id}/duty",
+    "path_parameters": [
+      "project_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
       "python-legacy",
       "rust-candidate"
     ],
@@ -4276,6 +4792,24 @@ export const runtimeOperations = [
     "method": "POST",
     "operation_id": "post_api_v1_monitoring_projects_project_id_manual_tune",
     "path": "/api/v1/monitoring-projects/{project_id}/manual/tune",
+    "path_parameters": [
+      "project_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_notification_channels"
+    ],
+    "max_request_bytes": null,
+    "method": "POST",
+    "operation_id": "post_api_v1_monitoring_projects_project_id_notifications_test",
+    "path": "/api/v1/monitoring-projects/{project_id}/notifications/test",
     "path_parameters": [
       "project_id"
     ],
@@ -5479,6 +6013,25 @@ export const runtimeOperations = [
   },
   {
     "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "measurement_archive"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_observations_observation_id",
+    "path": "/api/v1/sessions/{id}/observations/{observation_id}",
+    "path_parameters": [
+      "id",
+      "observation_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
       "python-legacy"
     ],
     "capabilities": [],
@@ -5932,6 +6485,50 @@ export const runtimeOperations = [
       "stream_id"
     ],
     "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "ardv1_receiver_panorama"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama",
+    "path_parameters": [
+      "id",
+      "stream_id"
+    ],
+    "query": [
+      "pass",
+      "columns"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "ardv1_receiver_panorama"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point",
+    "path_parameters": [
+      "id",
+      "stream_id"
+    ],
+    "query": [
+      "pass",
+      "frequency_hz"
+    ],
     "request_features": []
   },
   {

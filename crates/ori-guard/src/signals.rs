@@ -103,11 +103,16 @@ fn observation_features(event: &Value) -> Value {
                 .filter(|mode| !mode.is_empty())
         })
         .flatten();
-    json!({
+    let mut features = json!({
         "detected_width_hz": detected_width(event),
         "source_sweep_count": event["source_count"].as_u64(),
         "confirmed_receiver_mode": confirmed_mode
-    })
+    });
+    if event["level_unit"] == "s_meter_count" {
+        features["source_sweep_count"] = Value::Null;
+        features["source_observation_count"] = event["source_count"].clone();
+    }
+    features
 }
 
 fn recognition(event: &Value, known: &[Value], detailed: bool, eligible: bool) -> Value {
@@ -123,7 +128,9 @@ fn recognition(event: &Value, known: &[Value], detailed: bool, eligible: bool) -
         .iter()
         .filter(|entry| {
             target.zip(signal_target(entry)).is_some_and(|(a, b)| {
-                a.center_frequency_hz == b.center_frequency_hz
+                entry["level_unit"].as_str().unwrap_or("dBm")
+                    == event["level_unit"].as_str().unwrap_or("dBm")
+                    && a.center_frequency_hz == b.center_frequency_hz
                     && a.scan_plan_id == b.scan_plan_id
                     && a.scan_band_id == b.scan_band_id
                     && a.scan_plan_revision == b.scan_plan_revision
@@ -224,6 +231,8 @@ impl GuardService {
             .await?;
         event["recognition"] = recognition(&event, &known, true, eligible);
         if let Some(peak) = self.archive.monitoring("event-peak", event_id).await?
+            && peak["sweep_id"].is_string()
+            && event["level_unit"] != "s_meter_count"
             && peak["project_id"] == id
             && peak["center_frequency_hz"] == event["center_frequency_hz"]
             && peak["peak_level"] == event["peak_level"]
@@ -274,6 +283,39 @@ impl GuardService {
         let last_seen = timestamp(s(event, "last_seen")?)?;
         if first_seen > last_seen {
             return Err(invalid("Неверный интервал исходного сигнала"));
+        }
+        if event["level_unit"] == "s_meter_count" {
+            let reference = &event["peak_source"];
+            let session = s(reference, "session_id")?;
+            let stream = s(reference, "stream_id")?;
+            let observation_id = s(reference, "observation_id")?;
+            let missing = || invalid("Исходная точка AR-DV1 не совпадает с пиком события");
+            let raw = self
+                .archive
+                .get_observation(observation_id)
+                .await?
+                .ok_or_else(missing)?;
+            let context = ori_archive::verified_receiver_scan_context(&raw).ok_or_else(missing)?;
+            if raw["session_id"] != session
+                || raw["stream_id"] != stream
+                || raw["frequency_hz"].as_u64() != Some(center)
+                || raw["level"].as_f64() != Some(peak)
+                || raw["metadata"]["scan_pass"] != reference["scan_pass"]
+                || raw["metadata"]["scan_plan_key"] != event["scan_plan_id"]
+                || event["receiver_context_key"]
+                    .as_str()
+                    .is_some_and(|key| key != context)
+                || event["run_session_id"] != session
+                || timestamp(s(&raw["interval"], "started_at")?)? < first_seen
+                || timestamp(s(&raw["interval"], "ended_at")?)? > last_seen
+                || !self.archive.monitoring_member(project, session).await?
+            {
+                return Err(missing());
+            }
+            return Ok(
+                json!({"session_id":session,"stream_id":stream,"observation_id":observation_id,
+                             "scan_pass":raw["metadata"]["scan_pass"],"frequency_hz":center}),
+            );
         }
         let stored = self.archive.monitoring("event-peak", event_id).await?;
         let mut refs: Vec<_> = stored
@@ -361,7 +403,7 @@ impl GuardService {
             "first_seen": event["first_seen"], "last_seen": event["last_seen"],
             "center_frequency_hz": center, "start_frequency_hz": start, "end_frequency_hz": end,
             "bandwidth_hz": end - start, "bin_span": bin_span(&event),
-            "peak_level": event["peak_level"], "level_unit": "dBm",
+            "peak_level": event["peak_level"], "level_unit": event["level_unit"].as_str().unwrap_or("dBm"),
             "scan_plan_id": event["scan_plan_id"], "scan_band_id": event["scan_band_id"],
             "scan_plan_revision": event["scan_plan_revision"],
             "baseline_id": event["baseline_id"], "source_refs": [source]

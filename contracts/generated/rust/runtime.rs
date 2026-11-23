@@ -33,6 +33,30 @@ impl crate::RestoreKeys for BrowserPairingCredential {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DutyNotificationTestRequestChannel {
+    #[serde(rename = "telegram")]
+    Telegram,
+    #[serde(rename = "webhook")]
+    Webhook,
+}
+impl crate::RestoreKeys for DutyNotificationTestRequestChannel {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DutyScheduleConfigMode {
+    #[serde(rename = "continuous")]
+    Continuous,
+    #[serde(rename = "until")]
+    Until,
+    #[serde(rename = "weekly")]
+    Weekly,
+}
+impl crate::RestoreKeys for DutyScheduleConfigMode {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HistoryJobOperation {
     #[serde(rename = "export")]
     Export,
@@ -145,6 +169,8 @@ impl crate::RestoreKeys for KnownSignalRecordKind {
 pub enum KnownSignalRecordLevelUnit {
     #[serde(rename = "dBm")]
     Dbm,
+    #[serde(rename = "s_meter_count")]
+    SMeterCount,
 }
 impl crate::RestoreKeys for KnownSignalRecordLevelUnit {
     fn restore_keys(&mut self) {}
@@ -262,6 +288,15 @@ pub enum PairingInputRequiredScope {
     Reader,
 }
 impl crate::RestoreKeys for PairingInputRequiredScope {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReceiverPanoramaLevelUnit {
+    #[serde(rename = "s_meter_count")]
+    SMeterCount,
+}
+impl crate::RestoreKeys for ReceiverPanoramaLevelUnit {
     fn restore_keys(&mut self) {}
 }
 
@@ -509,6 +544,96 @@ pub struct CredentialRevocation {
 impl crate::RestoreKeys for CredentialRevocation {
     fn restore_keys(&mut self) {
         crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DutyNotificationReceipt {
+    pub channel: String,
+    pub notification_id: String,
+    pub state: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for DutyNotificationReceipt {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DutyNotificationTestRequest {
+    pub channel: DutyNotificationTestRequestChannel,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for DutyNotificationTestRequest {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DutyRequest {
+    pub resume_after_restart: bool,
+    pub schedule: DutyScheduleConfig,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for DutyRequest {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.schedule);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DutyScheduleConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_local: Option<String>,
+    pub mode: DutyScheduleConfigMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_local: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until_at: Option<UtcTimestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weekdays: Option<Vec<u64>>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for DutyScheduleConfig {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DutyStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deliveries: Option<Vec<JSONObject>>,
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_after_restart: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<DutyScheduleConfig>,
+    pub status: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for DutyStatus {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.deliveries);
+        crate::RestoreKeys::restore_keys(&mut self.schedule);
     }
 }
 
@@ -1092,6 +1217,24 @@ fn runtime_const_nativepairing_paired<'de, D: serde::Deserializer<'de>>(
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeArchiveLocation {
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub available_bytes: Option<u64>,
+    pub database: String,
+    pub label: String,
+    pub relocation: String,
+    pub storage_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for NodeArchiveLocation {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairedControls {
     pub lower: PairedOriginals,
     pub upper: PairedOriginals,
@@ -1517,6 +1660,107 @@ fn runtime_integer_rfexplorerpasswindows_next_after_tile<'de, D: serde::Deserial
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReceiverPanorama {
+    pub bins: Vec<ReceiverPanoramaBin>,
+    pub complete: bool,
+    pub coverage_hex: String,
+    pub ended_at: UtcTimestamp,
+    pub level_unit: ReceiverPanoramaLevelUnit,
+    pub lower_is_stronger: bool,
+    pub measured_points: u64,
+    #[serde(deserialize_with = "runtime_integer_receiverpanorama_pass")]
+    pub pass: u64,
+    pub start_hz: u64,
+    pub started_at: UtcTimestamp,
+    #[serde(deserialize_with = "runtime_integer_receiverpanorama_step_hz")]
+    pub step_hz: u64,
+    pub stop_hz: u64,
+    #[serde(deserialize_with = "runtime_integer_receiverpanorama_total_points")]
+    pub total_points: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for ReceiverPanorama {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.bins);
+    }
+}
+
+fn runtime_integer_receiverpanorama_pass<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value < 1 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_receiverpanorama_step_hz<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value < 10 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_receiverpanorama_total_points<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(2..=129991).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReceiverPanoramaBin {
+    pub end_index: u64,
+    pub ended_at: UtcTimestamp,
+    #[serde(deserialize_with = "runtime_integer_receiverpanoramabin_frequency_hz")]
+    pub frequency_hz: u64,
+    pub level: f64,
+    #[serde(deserialize_with = "runtime_integer_receiverpanoramabin_measured_points")]
+    pub measured_points: u64,
+    pub observation_id: String,
+    pub start_index: u64,
+    pub started_at: UtcTimestamp,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for ReceiverPanoramaBin {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+fn runtime_integer_receiverpanoramabin_frequency_hz<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(100000..=1300000000).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_receiverpanoramabin_measured_points<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value < 1 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecognizedGuardEvent {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1681,6 +1925,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         path: "/api/v1/archive/capacity",
         backends: &["python-legacy"],
         features: &[],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &[],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_archive_location",
+        method: "GET",
+        path: "/api/v1/archive/location",
+        backends: &["rust-candidate"],
+        features: &["archive_location"],
         capabilities: &[],
         query: &[],
         path_parameters: &[],
@@ -2058,6 +2314,30 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_duty",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/duty",
+        backends: &["rust-candidate"],
+        features: &["monitoring_duty_schedule"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "post_api_v1_monitoring_projects_project_id_duty",
+        method: "POST",
+        path: "/api/v1/monitoring-projects/{project_id}/duty",
+        backends: &["rust-candidate"],
+        features: &["monitoring_duty_schedule"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "get_api_v1_monitoring_projects_project_id_events",
         method: "GET",
         path: "/api/v1/monitoring-projects/{project_id}/events",
@@ -2314,6 +2594,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         query: &[],
         path_parameters: &["project_id"],
         max_request_bytes: Some(65536),
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "post_api_v1_monitoring_projects_project_id_notifications_test",
+        method: "POST",
+        path: "/api/v1/monitoring-projects/{project_id}/notifications/test",
+        backends: &["rust-candidate"],
+        features: &["monitoring_notification_channels"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id"],
+        max_request_bytes: None,
         request_features: &[],
     },
     RuntimeOperation {
@@ -3085,6 +3377,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_observations_observation_id",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/observations/{observation_id}",
+        backends: &["rust-candidate"],
+        features: &["measurement_archive"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["id", "observation_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "post_api_v1_sessions_id_phonogram_frames",
         method: "POST",
         path: "/api/v1/sessions/{id}/phonogram/frames",
@@ -3394,6 +3698,30 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         query: &[],
         path_parameters: &["id", "stream_id"],
         max_request_bytes: Some(65536),
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama",
+        backends: &["rust-candidate"],
+        features: &["ardv1_receiver_panorama"],
+        capabilities: &[],
+        query: &["pass", "columns"],
+        path_parameters: &["id", "stream_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point",
+        backends: &["rust-candidate"],
+        features: &["ardv1_receiver_panorama"],
+        capabilities: &[],
+        query: &["pass", "frequency_hz"],
+        path_parameters: &["id", "stream_id"],
+        max_request_bytes: None,
         request_features: &[],
     },
     RuntimeOperation {

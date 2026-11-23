@@ -320,3 +320,67 @@ async fn catalog_resolves_an_old_peak_after_its_embedded_reference_rolls_over() 
     assert_eq!(known["peak_level"], -61.25);
     h.close().await;
 }
+
+#[tokio::test]
+async fn receiver_catalog_validates_the_exact_raw_point_and_preserves_its_unit() {
+    let h = Harness::new().await;
+    let id = project(&h, "Receiver originals").await;
+    let frequency = 100_000_000;
+    let session = fixture()["session"].clone();
+    let stream = session["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["role"] == "receiver")
+        .unwrap();
+    let interval = json!({"started_at":"2026-11-11T10:00:00.000000Z","ended_at":"2026-11-11T10:00:00.150000Z"});
+    let obs = json!({"id":"known-rx","session_id":session["id"],"stream_id":stream["id"],
+        "frequency_hz":frequency,"interval":interval,"mode":"FM","level":44,"level_unit":"s_meter_count","squelch_open":true,
+        "metadata":{"adapter":"ardv1-serial","receiver_profile":"ardv1-monitor-v1","receiver_firmware":"2504A",
+        "scan_plan_key":"first-duty","scan_strategy_requested":"rf","scope_source":"sequential_receiver_readback",
+        "scan_pass":2,"scan_index":0,"scan_total":2,"scan_start_hz":frequency,"scan_stop_hz":100010000,
+        "scan_step_hz":10000,"settle_s":0.015,"scan_segment_index":0,"observed_frequency_hz":frequency,
+        "requested_frequency_hz":frequency,"observed_mode":"FM","requested_mode":"FM","frequency_readback":true,
+        "frequency_source":"receiver_RX","mode_source":"receiver_RX","raw_squelch_status":1,"raw_mode_status":"MD0F0",
+        "simulated":false,"raw_receiver_status":"RX VFA RF0100.00000 ST010.00 MD0F0 LM441"}});
+    h.archive
+        .append_observations(vec![obs.clone()])
+        .await
+        .unwrap();
+    let mut event = json!({"id":"count-event","project_id":id,"created_at":interval["started_at"],
+        "first_seen":interval["started_at"],"last_seen":interval["ended_at"],
+        "run_session_id":session["id"],"center_frequency_hz":frequency,"start_frequency_hz":frequency,
+        "end_frequency_hz":frequency,"peak_level":44,"level_unit":"s_meter_count","scan_plan_id":"first-duty",
+        "kind":"new_signal","source_count":3,"disposition":"unreviewed",
+        "peak_source":{"session_id":session["id"],"stream_id":stream["id"],"scan_pass":2,
+                       "frequency_hz":frequency,"observation_id":"known-rx","level":44,"level_unit":"s_meter_count","interval":interval}});
+    h.archive
+        .put_monitoring("event", event.clone())
+        .await
+        .unwrap();
+    let request =
+        json!({"event_id":"count-event","name":"Собственный приёмный образец","kind":"other"});
+    let record = h
+        .service
+        .save_known_signal(&id, request.clone())
+        .await
+        .unwrap();
+    assert_eq!(record["level_unit"], "s_meter_count");
+    assert_eq!(record["source_refs"][0]["observation_id"], "known-rx");
+    assert!(record["source_refs"][0].get("sweep_id").is_none());
+    let viewed = h
+        .service
+        .event_with_recognition(&id, "count-event")
+        .await
+        .unwrap();
+    assert_eq!(
+        viewed["recognition"]["observed_features"]["source_observation_count"],
+        3
+    );
+    assert!(viewed["recognition"]["observed_features"]["confirmed_receiver_mode"].is_null());
+    assert_eq!(viewed["disposition"], "unreviewed");
+    event["peak_level"] = json!(45);
+    h.archive.put_monitoring("event", event).await.unwrap();
+    assert!(h.service.save_known_signal(&id, request).await.is_err());
+    h.close().await;
+}

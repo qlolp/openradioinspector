@@ -29,6 +29,27 @@ public enum BrowserPairingCredential: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum DutyNotificationTestRequestChannel: String, Sendable, Codable, CaseIterable {
+    case telegram = "telegram"
+    case webhook = "webhook"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
+public enum DutyScheduleConfigMode: String, Sendable, Codable, CaseIterable {
+    case continuous = "continuous"
+    case until = "until"
+    case weekly = "weekly"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public enum HistoryJobOperation: String, Sendable, Codable, CaseIterable {
     case export = "export"
     case summary = "summary"
@@ -108,6 +129,7 @@ public enum KnownSignalRecordKind: String, Sendable, Codable, CaseIterable {
 
 public enum KnownSignalRecordLevelUnit: String, Sendable, Codable, CaseIterable {
     case dBm = "dBm"
+    case s_meter_count = "s_meter_count"
     public init(json: JSONValue) throws {
         guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
         self = value
@@ -215,6 +237,15 @@ public enum PairingInputClient: String, Sendable, Codable, CaseIterable {
 public enum PairingInputRequiredScope: String, Sendable, Codable, CaseIterable {
     case `operator` = "operator"
     case reader = "reader"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
+public enum ReceiverPanoramaLevelUnit: String, Sendable, Codable, CaseIterable {
+    case s_meter_count = "s_meter_count"
     public init(json: JSONValue) throws {
         guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
         self = value
@@ -496,6 +527,162 @@ public struct CredentialRevocation: ContractModel, Equatable, Sendable {
     public var json: JSONValue {
         var object = extra
         object["revoked"] = .bool(revoked)
+        return .object(object)
+    }
+}
+
+public struct DutyNotificationReceipt: ContractModel, Equatable, Sendable {
+    public var channel: String
+    public var notification_id: String
+    public var state: String
+    public var extra: JSONObject
+    public init(channel: String, notification_id: String, state: String, extra: JSONObject = [:]) {
+        self.channel = channel
+        self.notification_id = notification_id
+        self.state = state
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let channelValue = object.removeValue(forKey: "channel") else { throw ContractError.invalid("Missing channel") }
+        channel = try channelValue.requireString()
+        guard let notification_idValue = object.removeValue(forKey: "notification_id") else { throw ContractError.invalid("Missing notification_id") }
+        notification_id = try notification_idValue.requireString()
+        guard let stateValue = object.removeValue(forKey: "state") else { throw ContractError.invalid("Missing state") }
+        state = try stateValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["channel"] = .string(channel)
+        object["notification_id"] = .string(notification_id)
+        object["state"] = .string(state)
+        return .object(object)
+    }
+}
+
+public struct DutyNotificationTestRequest: ContractModel, Equatable, Sendable {
+    public var channel: DutyNotificationTestRequestChannel
+    public var extra: JSONObject
+    public init(channel: DutyNotificationTestRequestChannel, extra: JSONObject = [:]) {
+        self.channel = channel
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let channelValue = object.removeValue(forKey: "channel") else { throw ContractError.invalid("Missing channel") }
+        channel = try DutyNotificationTestRequestChannel(json: channelValue)
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["channel"] = channel.json
+        return .object(object)
+    }
+}
+
+public struct DutyRequest: ContractModel, Equatable, Sendable {
+    public var resume_after_restart: Bool
+    public var schedule: DutyScheduleConfig
+    public var extra: JSONObject
+    public init(resume_after_restart: Bool, schedule: DutyScheduleConfig, extra: JSONObject = [:]) {
+        self.resume_after_restart = resume_after_restart
+        self.schedule = schedule
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let resume_after_restartValue = object.removeValue(forKey: "resume_after_restart") else { throw ContractError.invalid("Missing resume_after_restart") }
+        resume_after_restart = try resume_after_restartValue.requireBool()
+        guard let scheduleValue = object.removeValue(forKey: "schedule") else { throw ContractError.invalid("Missing schedule") }
+        schedule = try DutyScheduleConfig(json: scheduleValue)
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["resume_after_restart"] = .bool(resume_after_restart)
+        object["schedule"] = schedule.json
+        return .object(object)
+    }
+}
+
+public struct DutyScheduleConfig: ContractModel, Equatable, Sendable {
+    public var end_local: String?
+    public var mode: DutyScheduleConfigMode
+    public var start_local: String?
+    public var timezone: String?
+    public var until_at: UtcTimestamp?
+    public var weekdays: [UInt64]?
+    public var extra: JSONObject
+    public init(end_local: String? = nil, mode: DutyScheduleConfigMode, start_local: String? = nil, timezone: String? = nil, until_at: UtcTimestamp? = nil, weekdays: [UInt64]? = nil, extra: JSONObject = [:]) {
+        self.end_local = end_local
+        self.mode = mode
+        self.start_local = start_local
+        self.timezone = timezone
+        self.until_at = until_at
+        self.weekdays = weekdays
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        if let value = object.removeValue(forKey: "end_local"), value != .null { end_local = try value.requireString() } else { end_local = nil }
+        guard let modeValue = object.removeValue(forKey: "mode") else { throw ContractError.invalid("Missing mode") }
+        mode = try DutyScheduleConfigMode(json: modeValue)
+        if let value = object.removeValue(forKey: "start_local"), value != .null { start_local = try value.requireString() } else { start_local = nil }
+        if let value = object.removeValue(forKey: "timezone"), value != .null { timezone = try value.requireString() } else { timezone = nil }
+        if let value = object.removeValue(forKey: "until_at"), value != .null { until_at = try UtcTimestamp(json: value) } else { until_at = nil }
+        if let value = object.removeValue(forKey: "weekdays"), value != .null { weekdays = try value.requireArray().map { try $0.requireUInt64() } } else { weekdays = nil }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        if let value = end_local { object["end_local"] = .string(value) }
+        object["mode"] = mode.json
+        if let value = start_local { object["start_local"] = .string(value) }
+        if let value = timezone { object["timezone"] = .string(value) }
+        if let value = until_at { object["until_at"] = value.json }
+        if let value = weekdays { object["weekdays"] = .array(value.map { .integer(String($0)) }) }
+        return .object(object)
+    }
+}
+
+public struct DutyStatus: ContractModel, Equatable, Sendable {
+    public var deliveries: [JSONObject]?
+    public var enabled: Bool
+    public var last_error: String?
+    public var resume_after_restart: Bool?
+    public var schedule: DutyScheduleConfig?
+    public var status: String
+    public var extra: JSONObject
+    public init(deliveries: [JSONObject]? = nil, enabled: Bool, last_error: String? = nil, resume_after_restart: Bool? = nil, schedule: DutyScheduleConfig? = nil, status: String, extra: JSONObject = [:]) {
+        self.deliveries = deliveries
+        self.enabled = enabled
+        self.last_error = last_error
+        self.resume_after_restart = resume_after_restart
+        self.schedule = schedule
+        self.status = status
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        if let value = object.removeValue(forKey: "deliveries"), value != .null { deliveries = try value.requireArray().map { try $0.requireObject() } } else { deliveries = nil }
+        guard let enabledValue = object.removeValue(forKey: "enabled") else { throw ContractError.invalid("Missing enabled") }
+        enabled = try enabledValue.requireBool()
+        if let value = object.removeValue(forKey: "last_error"), value != .null { last_error = try value.requireString() } else { last_error = nil }
+        if let value = object.removeValue(forKey: "resume_after_restart"), value != .null { resume_after_restart = try value.requireBool() } else { resume_after_restart = nil }
+        if let value = object.removeValue(forKey: "schedule"), value != .null { schedule = try DutyScheduleConfig(json: value) } else { schedule = nil }
+        guard let statusValue = object.removeValue(forKey: "status") else { throw ContractError.invalid("Missing status") }
+        status = try statusValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        if let value = deliveries { object["deliveries"] = .array(value.map { .object($0) }) }
+        object["enabled"] = .bool(enabled)
+        if let value = last_error { object["last_error"] = .string(value) }
+        if let value = resume_after_restart { object["resume_after_restart"] = .bool(value) }
+        if let value = schedule { object["schedule"] = value.json }
+        object["status"] = .string(status)
         return .object(object)
     }
 }
@@ -1366,6 +1553,46 @@ public struct NativePairing: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct NodeArchiveLocation: ContractModel, Equatable, Sendable {
+    public var available_bytes: UInt64?
+    public var database: String
+    public var label: String
+    public var relocation: String
+    public var storage_id: String
+    public var extra: JSONObject
+    public init(available_bytes: UInt64? = nil, database: String, label: String, relocation: String, storage_id: String, extra: JSONObject = [:]) {
+        self.available_bytes = available_bytes
+        self.database = database
+        self.label = label
+        self.relocation = relocation
+        self.storage_id = storage_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let available_bytesValue = object.removeValue(forKey: "available_bytes") else { throw ContractError.invalid("Missing available_bytes") }
+        available_bytes = available_bytesValue == .null ? nil : try available_bytesValue.requireUInt64()
+        guard let databaseValue = object.removeValue(forKey: "database") else { throw ContractError.invalid("Missing database") }
+        database = try databaseValue.requireString()
+        guard let labelValue = object.removeValue(forKey: "label") else { throw ContractError.invalid("Missing label") }
+        label = try labelValue.requireString()
+        guard let relocationValue = object.removeValue(forKey: "relocation") else { throw ContractError.invalid("Missing relocation") }
+        relocation = try relocationValue.requireString()
+        guard let storage_idValue = object.removeValue(forKey: "storage_id") else { throw ContractError.invalid("Missing storage_id") }
+        storage_id = try storage_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        if let value = available_bytes { object["available_bytes"] = .integer(String(value)) } else { object["available_bytes"] = .null }
+        object["database"] = .string(database)
+        object["label"] = .string(label)
+        object["relocation"] = .string(relocation)
+        object["storage_id"] = .string(storage_id)
+        return .object(object)
+    }
+}
+
 public struct PairedControls: ContractModel, Equatable, Sendable {
     public var lower: PairedOriginals
     public var upper: PairedOriginals
@@ -2007,6 +2234,146 @@ public struct RFExplorerPassWindows: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
+    public var bins: [ReceiverPanoramaBin]
+    public var complete: Bool
+    public var coverage_hex: String
+    public var ended_at: UtcTimestamp
+    public var level_unit: ReceiverPanoramaLevelUnit
+    public var lower_is_stronger: Bool
+    public var measured_points: UInt64
+    public var pass: UInt64
+    public var start_hz: UInt64
+    public var started_at: UtcTimestamp
+    public var step_hz: UInt64
+    public var stop_hz: UInt64
+    public var total_points: UInt64
+    public var extra: JSONObject
+    public init(bins: [ReceiverPanoramaBin], complete: Bool, coverage_hex: String, ended_at: UtcTimestamp, level_unit: ReceiverPanoramaLevelUnit, lower_is_stronger: Bool, measured_points: UInt64, pass: UInt64, start_hz: UInt64, started_at: UtcTimestamp, step_hz: UInt64, stop_hz: UInt64, total_points: UInt64, extra: JSONObject = [:]) {
+        self.bins = bins
+        self.complete = complete
+        self.coverage_hex = coverage_hex
+        self.ended_at = ended_at
+        self.level_unit = level_unit
+        self.lower_is_stronger = lower_is_stronger
+        self.measured_points = measured_points
+        self.pass = pass
+        self.start_hz = start_hz
+        self.started_at = started_at
+        self.step_hz = step_hz
+        self.stop_hz = stop_hz
+        self.total_points = total_points
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let binsValue = object.removeValue(forKey: "bins") else { throw ContractError.invalid("Missing bins") }
+        bins = try binsValue.requireArray().map { try ReceiverPanoramaBin(json: $0) }
+        guard let completeValue = object.removeValue(forKey: "complete") else { throw ContractError.invalid("Missing complete") }
+        complete = try completeValue.requireBool()
+        guard let coverage_hexValue = object.removeValue(forKey: "coverage_hex") else { throw ContractError.invalid("Missing coverage_hex") }
+        coverage_hex = try coverage_hexValue.requireString()
+        guard let ended_atValue = object.removeValue(forKey: "ended_at") else { throw ContractError.invalid("Missing ended_at") }
+        ended_at = try UtcTimestamp(json: ended_atValue)
+        guard let level_unitValue = object.removeValue(forKey: "level_unit") else { throw ContractError.invalid("Missing level_unit") }
+        level_unit = try ReceiverPanoramaLevelUnit(json: level_unitValue)
+        guard let lower_is_strongerValue = object.removeValue(forKey: "lower_is_stronger") else { throw ContractError.invalid("Missing lower_is_stronger") }
+        lower_is_stronger = try lower_is_strongerValue.requireBool()
+        guard let measured_pointsValue = object.removeValue(forKey: "measured_points") else { throw ContractError.invalid("Missing measured_points") }
+        measured_points = try measured_pointsValue.requireUInt64()
+        guard let passValue = object.removeValue(forKey: "pass") else { throw ContractError.invalid("Missing pass") }
+        pass = try passValue.requireUInt64()
+        guard pass >= 1 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let start_hzValue = object.removeValue(forKey: "start_hz") else { throw ContractError.invalid("Missing start_hz") }
+        start_hz = try start_hzValue.requireUInt64()
+        guard let started_atValue = object.removeValue(forKey: "started_at") else { throw ContractError.invalid("Missing started_at") }
+        started_at = try UtcTimestamp(json: started_atValue)
+        guard let step_hzValue = object.removeValue(forKey: "step_hz") else { throw ContractError.invalid("Missing step_hz") }
+        step_hz = try step_hzValue.requireUInt64()
+        guard step_hz >= 10 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let stop_hzValue = object.removeValue(forKey: "stop_hz") else { throw ContractError.invalid("Missing stop_hz") }
+        stop_hz = try stop_hzValue.requireUInt64()
+        guard let total_pointsValue = object.removeValue(forKey: "total_points") else { throw ContractError.invalid("Missing total_points") }
+        total_points = try total_pointsValue.requireUInt64()
+        guard total_points >= 2 && total_points <= 129991 else { throw ContractError.invalid("Integer outside schema bounds") }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["bins"] = .array(bins.map { $0.json })
+        object["complete"] = .bool(complete)
+        object["coverage_hex"] = .string(coverage_hex)
+        object["ended_at"] = ended_at.json
+        object["level_unit"] = level_unit.json
+        object["lower_is_stronger"] = .bool(lower_is_stronger)
+        object["measured_points"] = .integer(String(measured_points))
+        object["pass"] = .integer(String(pass))
+        object["start_hz"] = .integer(String(start_hz))
+        object["started_at"] = started_at.json
+        object["step_hz"] = .integer(String(step_hz))
+        object["stop_hz"] = .integer(String(stop_hz))
+        object["total_points"] = .integer(String(total_points))
+        return .object(object)
+    }
+}
+
+public struct ReceiverPanoramaBin: ContractModel, Equatable, Sendable {
+    public var end_index: UInt64
+    public var ended_at: UtcTimestamp
+    public var frequency_hz: UInt64
+    public var level: Double
+    public var measured_points: UInt64
+    public var observation_id: String
+    public var start_index: UInt64
+    public var started_at: UtcTimestamp
+    public var extra: JSONObject
+    public init(end_index: UInt64, ended_at: UtcTimestamp, frequency_hz: UInt64, level: Double, measured_points: UInt64, observation_id: String, start_index: UInt64, started_at: UtcTimestamp, extra: JSONObject = [:]) {
+        self.end_index = end_index
+        self.ended_at = ended_at
+        self.frequency_hz = frequency_hz
+        self.level = level
+        self.measured_points = measured_points
+        self.observation_id = observation_id
+        self.start_index = start_index
+        self.started_at = started_at
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let end_indexValue = object.removeValue(forKey: "end_index") else { throw ContractError.invalid("Missing end_index") }
+        end_index = try end_indexValue.requireUInt64()
+        guard let ended_atValue = object.removeValue(forKey: "ended_at") else { throw ContractError.invalid("Missing ended_at") }
+        ended_at = try UtcTimestamp(json: ended_atValue)
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireUInt64()
+        guard frequency_hz >= 100000 && frequency_hz <= 1300000000 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let levelValue = object.removeValue(forKey: "level") else { throw ContractError.invalid("Missing level") }
+        level = try levelValue.requireDouble()
+        guard let measured_pointsValue = object.removeValue(forKey: "measured_points") else { throw ContractError.invalid("Missing measured_points") }
+        measured_points = try measured_pointsValue.requireUInt64()
+        guard measured_points >= 1 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let observation_idValue = object.removeValue(forKey: "observation_id") else { throw ContractError.invalid("Missing observation_id") }
+        observation_id = try observation_idValue.requireString()
+        guard let start_indexValue = object.removeValue(forKey: "start_index") else { throw ContractError.invalid("Missing start_index") }
+        start_index = try start_indexValue.requireUInt64()
+        guard let started_atValue = object.removeValue(forKey: "started_at") else { throw ContractError.invalid("Missing started_at") }
+        started_at = try UtcTimestamp(json: started_atValue)
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["end_index"] = .integer(String(end_index))
+        object["ended_at"] = ended_at.json
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        object["level"] = .number(level)
+        object["measured_points"] = .integer(String(measured_points))
+        object["observation_id"] = .string(observation_id)
+        object["start_index"] = .integer(String(start_index))
+        object["started_at"] = started_at.json
+        return .object(object)
+    }
+}
+
 public struct RecognizedGuardEvent: ContractModel, Equatable, Sendable {
     public var id: String
     public var peak_source: JSONObject?
@@ -2298,6 +2665,7 @@ public struct RuntimeOperationDescriptor: Sendable {
 }
 public let runtimeOperations: [RuntimeOperationDescriptor] = [
 RuntimeOperationDescriptor(operationId: "get_api_v1_archive_capacity",method: "GET",path: "/api/v1/archive/capacity",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_archive_location",method: "GET",path: "/api/v1/archive/location",backends: ["rust-candidate"],features: ["archive_location"],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_band_plan",method: "GET",path: "/api/v1/band-plan",backends: ["rust-candidate"],features: ["monitoring_signal_catalog"],capabilities: [], requestFeatures: [], query: ["start_hz", "end_hz"], pathParameters: [], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_capabilities",method: "GET",path: "/api/v1/capabilities",backends: ["python-legacy", "rust-candidate"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: [], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_events",method: "GET",path: "/api/v1/events",backends: ["python-legacy", "rust-candidate"],features: ["event_stream"],capabilities: [], requestFeatures: [], query: ["after"], pathParameters: [], maxRequestBytes: nil),
@@ -2328,6 +2696,8 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project
 RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_baselines_baseline_id",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/baselines/{baseline_id}",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id", "baseline_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_configure",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/configure",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_disarm",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/disarm",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
+RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_duty",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/duty",backends: ["rust-candidate"],features: ["monitoring_duty_schedule"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_duty",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/duty",backends: ["rust-candidate"],features: ["monitoring_duty_schedule"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_events",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/events",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: ["limit", "after"], pathParameters: ["project_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_events_event_id",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id", "event_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_events_event_id_audio",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id", "event_id"], maxRequestBytes: nil),
@@ -2349,6 +2719,7 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_manual_renew",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/manual/renew",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_manual_return",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/manual/return",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_manual_tune",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/manual/tune",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
+RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_notifications_test",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/notifications/test",backends: ["rust-candidate"],features: ["monitoring_notification_channels"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_preflight",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/preflight",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_preparation",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/preparation",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_preparation_start",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/preparation/start",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
@@ -2413,6 +2784,7 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_measurement_res
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_observations",method: "GET",path: "/api/v1/sessions/{id}/observations",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: ["stream_id", "limit"], pathParameters: ["id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_observations",method: "POST",path: "/api/v1/sessions/{id}/observations",backends: ["python-legacy", "rust-candidate"],features: ["measurement_ingest"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 16777216),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_observations_batch",method: "POST",path: "/api/v1/sessions/{id}/observations/batch",backends: ["python-legacy", "rust-candidate"],features: ["measurement_ingest"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 16777216),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_observations_observation_id",method: "GET",path: "/api/v1/sessions/{id}/observations/{observation_id}",backends: ["rust-candidate"],features: ["measurement_archive"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "observation_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_phonogram_frames",method: "POST",path: "/api/v1/sessions/{id}/phonogram/frames",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 16777216),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_phonogram_start",method: "POST",path: "/api/v1/sessions/{id}/phonogram/start",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_phonogram_status",method: "GET",path: "/api/v1/sessions/{id}/phonogram/status",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: ["stream_id"], pathParameters: ["id"], maxRequestBytes: nil),
@@ -2439,6 +2811,8 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_screen",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/screen",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "columns"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "frequency_hz"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_recover",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/recover",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["limit", "before"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["columns", "hold_since"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),

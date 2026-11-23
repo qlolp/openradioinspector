@@ -413,6 +413,39 @@
         "sessions"
       ],
       "request_examples": {
+        "arDv1Cyclic": {
+          "description": "Requires ardv1_cyclic_panorama. Receiver RX levels stay in native counts and one operator action starts the worker.",
+          "summary": "One AR-DV1, sequential receive-only panorama",
+          "value": {
+            "name": "AR-DV1 FM",
+            "streams": [
+              {
+                "capabilities": [
+                  "receiver"
+                ],
+                "device": "AOR AR-DV1",
+                "level_unit": "s_meter_count",
+                "port": "/dev/ttyUSB0",
+                "role": "receiver",
+                "settings": {
+                  "adapter": "ardv1-serial",
+                  "fast_scan": {
+                    "cyclic": true,
+                    "settle_s": 0.015,
+                    "start_hz": 100000000,
+                    "step_hz": 10000,
+                    "stop_hz": 400000000,
+                    "strategy": "auto"
+                  },
+                  "frequency_hz": 100000000,
+                  "mode": "FM",
+                  "period_s": 0,
+                  "receiver_profile": "ardv1-monitor-v1"
+                }
+              }
+            ]
+          }
+        },
         "rfExplorer10kHzSurvey": {
           "description": "Requires features.rf_explorer_10khz_survey on a live Rust core. Omitting start_hz and stop_hz surveys the whole active input. Supply both to choose an inclusive range on a 10 kHz grid. The core archives individual measured windows; settings.survey identifies their pass and position.",
           "summary": "Cycle across the active RF Explorer input at 10 kHz sample spacing",
@@ -990,6 +1023,129 @@
             }
           }
         ]
+      },
+      "DutyNotificationReceipt": {
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "notification_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "notification_id",
+          "channel",
+          "state"
+        ],
+        "type": "object"
+      },
+      "DutyNotificationTestRequest": {
+        "properties": {
+          "channel": {
+            "enum": [
+              "telegram",
+              "webhook"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel"
+        ],
+        "type": "object"
+      },
+      "DutyRequest": {
+        "properties": {
+          "resume_after_restart": {
+            "type": "boolean"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/DutyScheduleConfig"
+          }
+        },
+        "required": [
+          "schedule",
+          "resume_after_restart"
+        ],
+        "type": "object"
+      },
+      "DutyScheduleConfig": {
+        "properties": {
+          "end_local": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "continuous",
+              "until",
+              "weekly"
+            ],
+            "type": "string"
+          },
+          "start_local": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "until_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "format": "uint64",
+              "maximum": 7,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
+      "DutyStatus": {
+        "properties": {
+          "deliveries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resume_after_restart": {
+            "type": "boolean"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/DutyScheduleConfig"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "status"
+        ],
+        "type": "object"
       },
       "GuardSignalInboxEnvelope": {
         "allOf": [
@@ -1921,7 +2077,8 @@
           },
           "level_unit": {
             "enum": [
-              "dBm"
+              "dBm",
+              "s_meter_count"
             ],
             "type": "string"
           },
@@ -1970,7 +2127,45 @@
           "source_refs": {
             "items": {
               "additionalProperties": true,
+              "oneOf": [
+                {
+                  "required": [
+                    "sweep_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "observation_id"
+                  ]
+                }
+              ],
               "properties": {
+                "frequency_hz": {
+                  "maximum": 1300000000,
+                  "minimum": 100000,
+                  "type": "integer"
+                },
+                "interval": {
+                  "type": "object"
+                },
+                "level": {
+                  "type": "number"
+                },
+                "level_unit": {
+                  "enum": [
+                    "s_meter_count"
+                  ],
+                  "type": "string"
+                },
+                "observation_id": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "scan_pass": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
                 "session_id": {
                   "maxLength": 200,
                   "minLength": 1,
@@ -1988,9 +2183,8 @@
                 }
               },
               "required": [
-                "sweep_id",
-                "stream_id",
-                "session_id"
+                "session_id",
+                "stream_id"
               ],
               "type": "object"
             },
@@ -2135,6 +2329,37 @@
           "paired",
           "credential",
           "token"
+        ],
+        "type": "object"
+      },
+      "NodeArchiveLocation": {
+        "properties": {
+          "available_bytes": {
+            "format": "uint64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "database": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "relocation": {
+            "type": "string"
+          },
+          "storage_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "storage_id",
+          "label",
+          "database",
+          "available_bytes",
+          "relocation"
         ],
         "type": "object"
       },
@@ -2857,6 +3082,139 @@
         ],
         "type": "object"
       },
+      "ReceiverPanorama": {
+        "properties": {
+          "bins": {
+            "items": {
+              "$ref": "#/components/schemas/ReceiverPanoramaBin"
+            },
+            "maxItems": 1024,
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "coverage_hex": {
+            "description": "Byte i/8, bit i%8 marks an actually committed original at grid index i (hex bytes in ascending byte order).",
+            "maxLength": 32498,
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "level_unit": {
+            "enum": [
+              "s_meter_count"
+            ],
+            "type": "string"
+          },
+          "lower_is_stronger": {
+            "type": "boolean"
+          },
+          "measured_points": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pass": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "start_hz": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "step_hz": {
+            "format": "uint64",
+            "minimum": 10,
+            "type": "integer"
+          },
+          "stop_hz": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_points": {
+            "format": "uint64",
+            "maximum": 129991,
+            "minimum": 2,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pass",
+          "total_points",
+          "measured_points",
+          "complete",
+          "start_hz",
+          "stop_hz",
+          "step_hz",
+          "level_unit",
+          "lower_is_stronger",
+          "started_at",
+          "ended_at",
+          "coverage_hex",
+          "bins"
+        ],
+        "type": "object"
+      },
+      "ReceiverPanoramaBin": {
+        "properties": {
+          "end_index": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "frequency_hz": {
+            "format": "uint64",
+            "maximum": 1300000000,
+            "minimum": 100000,
+            "type": "integer"
+          },
+          "level": {
+            "type": "number"
+          },
+          "measured_points": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "observation_id": {
+            "type": "string"
+          },
+          "start_index": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_index",
+          "end_index",
+          "measured_points",
+          "frequency_hz",
+          "level",
+          "observation_id",
+          "started_at",
+          "ended_at"
+        ],
+        "type": "object"
+      },
       "RecognizedGuardEvent": {
         "additionalProperties": true,
         "properties": {
@@ -2867,7 +3225,45 @@
           },
           "peak_source": {
             "additionalProperties": false,
+            "oneOf": [
+              {
+                "required": [
+                  "sweep_id"
+                ]
+              },
+              {
+                "required": [
+                  "observation_id"
+                ]
+              }
+            ],
             "properties": {
+              "frequency_hz": {
+                "maximum": 1300000000,
+                "minimum": 100000,
+                "type": "integer"
+              },
+              "interval": {
+                "type": "object"
+              },
+              "level": {
+                "type": "number"
+              },
+              "level_unit": {
+                "enum": [
+                  "s_meter_count"
+                ],
+                "type": "string"
+              },
+              "observation_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "scan_pass": {
+                "minimum": 1,
+                "type": "integer"
+              },
               "session_id": {
                 "maxLength": 200,
                 "minLength": 1,
@@ -2886,8 +3282,7 @@
             },
             "required": [
               "session_id",
-              "stream_id",
-              "sweep_id"
+              "stream_id"
             ],
             "type": "object"
           },
@@ -3315,6 +3710,13 @@
                   "null"
                 ]
               },
+              "source_observation_count": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "source_sweep_count": {
                 "minimum": 0,
                 "type": [
@@ -3361,6 +3763,92 @@
   "extension": "openradioinspector-runtime",
   "extension_version": 1,
   "paths": {
+    "/api/v1/archive/location": {
+      "get": {
+        "description": "Active node archive and its volume capacity. Selection is private to the stopped node.",
+        "operationId": "get_api_v1_archive_location",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/NodeArchiveLocation"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Active node archive and its volume capacity. Selection is private to the stopped node."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "archive_location"
+          ]
+        }
+      }
+    },
     "/api/v1/band-plan": {
       "get": {
         "description": "Offline, sourced frequency-band references. An overlapping allocation is a hypothesis, not transmitter identification.",
@@ -4515,6 +5003,208 @@
         }
       }
     },
+    "/api/v1/monitoring-projects/{project_id}/duty": {
+      "get": {
+        "description": "Read the local duty schedule and recent channel delivery status.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_duty",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/DutyStatus"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Read the local duty schedule and recent channel delivery status."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "monitoring_duty_schedule"
+          ]
+        }
+      },
+      "post": {
+        "description": "Activate a duty schedule. Guard startup uses the project preflight and confirmed baseline.",
+        "operationId": "post_api_v1_monitoring_projects_project_id_duty",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DutyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/DutyStatus"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Activate a duty schedule. Guard startup uses the project preflight and confirmed baseline."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "monitoring_duty_schedule"
+          ]
+        }
+      }
+    },
     "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/clip": {
       "get": {
         "description": "Export original mono PCM16 samples in [start_frame,end_frame). WAV includes an ori-space chunk with UTF-8 JSON provenance, source SHA-256/IDs and unchanged source context. No resampling or source mutation. WAV <=16 MiB, provenance <=64 KiB; unknown parameters rejected.",
@@ -5332,6 +6022,113 @@
         }
       }
     },
+    "/api/v1/monitoring-projects/{project_id}/notifications/test": {
+      "post": {
+        "description": "Queue a text-only test for the explicitly configured channel.",
+        "operationId": "post_api_v1_monitoring_projects_project_id_notifications_test",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DutyNotificationTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/DutyNotificationReceipt"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Queue a text-only test for the explicitly configured channel."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "monitoring_notification_channels"
+          ]
+        }
+      }
+    },
     "/api/v1/monitoring-projects/{project_id}/scan-plan": {
       "get": {
         "description": "Current immutable scan-plan revision, or null for the compatible implicit single-band profile.",
@@ -5819,6 +6616,113 @@
         }
       }
     },
+    "/api/v1/sessions/{id}/observations/{observation_id}": {
+      "get": {
+        "description": "Read one immutable archived receiver observation by its original ID within its session.",
+        "operationId": "get_api_v1_sessions_id_observations_observation_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "observation_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ReceiverObservation"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Read one immutable archived receiver observation by its original ID within its session."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "measurement_archive"
+          ]
+        }
+      }
+    },
     "/api/v1/sessions/{id}/streams": {
       "get": {
         "operationId": "get_api_v1_sessions_id_streams",
@@ -5882,6 +6786,265 @@
           "capabilities": [],
           "features": [
             "sessions"
+          ]
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama": {
+      "get": {
+        "description": "Peak-preserving bins of committed FM receiver observations in a sequential pass. Without pass, reads the latest pass.",
+        "operationId": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pass",
+            "required": false,
+            "schema": {
+              "format": "uint64",
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "default": 512,
+              "format": "uint64",
+              "maximum": 1024,
+              "minimum": 2,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ReceiverPanorama"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Peak-preserving bins of committed FM receiver observations in a sequential pass. Without pass, reads the latest pass."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "ardv1_receiver_panorama"
+          ]
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point": {
+      "get": {
+        "description": "Original receiver observation at the exact confirmed frequency and pass.",
+        "operationId": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pass",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "frequency_hz",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 1300000000,
+              "minimum": 100000,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ReceiverObservation"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Original receiver observation at the exact confirmed frequency and pass."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameter or request body."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource or measured point not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource state is incompatible with this operation."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "ardv1_receiver_panorama"
           ]
         }
       }
@@ -6516,8 +7679,11 @@
     "get_api_v1_sessions_id",
     "get_api_v1_sessions_id_frequency_bookmarks",
     "get_api_v1_sessions_id_observations",
+    "get_api_v1_sessions_id_observations_observation_id",
     "get_api_v1_sessions_id_streams",
     "get_api_v1_sessions_id_streams_stream_id",
+    "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",
+    "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",
     "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",
     "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",
     "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_point",
