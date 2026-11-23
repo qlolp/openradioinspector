@@ -124,6 +124,7 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
     return (
       <App
         transport={readyTransport}
+        readOnly={status?.access_scope === 'reader'}
         onConnectionSettings={() => setSettings(true)}
         connectionLabel={local ? t('Local Windows node') : connectedOrigin}
       />

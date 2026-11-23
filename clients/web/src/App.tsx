@@ -6,7 +6,8 @@ import { originalJSON, encodePathSegment } from './wire';
 import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
 import { RfExplorer, RfExplorerSettings } from './RfExplorer';
-import { rfExplorerReadback } from './rf-explorer';
+import { RfExplorerResearch } from './RfExplorerResearch';
+import { rfExplorerAvailable, rfExplorerReadback } from './rf-explorer';
 import { Research } from './Research';
 import { PairedRechecks } from './PairedRechecks';
 import { AudioEvidence } from './AudioEvidence';
@@ -330,24 +331,31 @@ export function App({
   transport,
   onConnectionSettings,
   connectionLabel,
+  readOnly = false,
 }: {
   transport: Connection;
+  readOnly?: boolean;
   onConnectionSettings?: () => void;
   connectionLabel?: string;
 }) {
   useLocale();
   const [requestedWorkspace, setWorkspace] = useState(() => remember('workspace', 'monitoring'));
   const [rfSelection, setRfSelection] = useState(() => remember('rf-explorer-session', ''));
-  const desk = useDesk(transport, requestedWorkspace === 'rf-explorer' ? rfSelection : undefined);
+  const desk = useDesk(
+    transport,
+    readOnly || requestedWorkspace === 'rf-explorer' ? rfSelection : undefined,
+    readOnly,
+  );
   const workspace =
     requestedWorkspace === 'rf-explorer' && !desk.rfActive ? 'monitoring' : requestedWorkspace;
-  const availableRf = desk.capabilities?.features.rf_explorer_3g_spectrum === true;
+  const availableRf = rfExplorerAvailable(desk.capabilities?.features);
   const [theme, setTheme] = useState(() => remember('theme', 'system'));
   const [scanBand, setScanBand] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<string>();
   const [wizard, setWizard] = useState(false),
     [event, setEvent] = useState<MonitoringEvent>(),
     [original, setOriginal] = useState<Sweep>();
+  const [originalPoint, setOriginalPoint] = useState<{ id: string; index: number }>();
   const [originalOffset, setOriginalOffset] = useState(0),
     [audioUrl, setAudioUrl] = useState(''),
     [audioError, setAudioError] = useState('');
@@ -373,6 +381,16 @@ export function App({
     planBand?.step_hz === 10000
       ? { low: Number(planBand.start_hz), high: Number(planBand.stop_hz) }
       : undefined;
+  const originalTable = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const table = originalTable.current;
+    const selected = table?.querySelector('tr[aria-current="true"]');
+    if (table && selected)
+      table.scrollTop +=
+        selected.getBoundingClientRect().top -
+        table.getBoundingClientRect().top -
+        table.clientHeight / 2;
+  }, [original, originalPoint, originalOffset]);
   const originalPlot = useMemo(() => {
     if (!original) return;
     try {
@@ -421,6 +439,7 @@ export function App({
     </>
   );
   const setScreen = (value: string) => {
+    if (readOnly) return;
     setWorkspace(value);
     save('workspace', value);
   };
@@ -625,7 +644,15 @@ export function App({
       ) : (
         <p className="muted">{t('Source frequency outside supported display range')}</p>
       )}
-      <div className="original-table">
+      {desk.rfActive && !readOnly && (
+        <RfExplorerResearch
+          key={original.id}
+          api={desk.api}
+          source={original}
+          features={desk.capabilities?.features ?? {}}
+        />
+      )}
+      <div className="original-table" ref={originalTable}>
         <table>
           <thead>
             <tr>
@@ -639,7 +666,14 @@ export function App({
           </thead>
           <tbody>
             {original.levels.slice(originalOffset, originalOffset + 100).map((level, i) => (
-              <tr key={i}>
+              <tr
+                key={i}
+                aria-current={
+                  originalPoint?.id === original.id && originalPoint.index === originalOffset + i
+                    ? true
+                    : undefined
+                }
+              >
                 <td>{originalOffset + i}</td>
                 <td>{original.frequencies_hz[originalOffset + i]}</td>
                 <td>{level}</td>
@@ -743,20 +777,24 @@ export function App({
           title={desk.rfActive ? undefined : t('Local view · global guard state')}
         >
           <nav aria-label={t('Workspace')}>
-            <button
-              aria-keyshortcuts="Alt+M"
-              aria-pressed={workspace === 'monitoring'}
-              onClick={() => setScreen('monitoring')}
-            >
-              {t('Monitoring')}
-            </button>
-            <button
-              aria-keyshortcuts="Alt+R"
-              aria-pressed={workspace === 'research'}
-              onClick={() => setScreen('research')}
-            >
-              {t('Research')}
-            </button>
+            {!readOnly && (
+              <>
+                <button
+                  aria-keyshortcuts="Alt+M"
+                  aria-pressed={workspace === 'monitoring'}
+                  onClick={() => setScreen('monitoring')}
+                >
+                  {t('Monitoring')}
+                </button>
+                <button
+                  aria-keyshortcuts="Alt+R"
+                  aria-pressed={workspace === 'research'}
+                  onClick={() => setScreen('research')}
+                >
+                  {t('Research')}
+                </button>
+              </>
+            )}
             {availableRf && (
               <button aria-pressed={desk.rfActive} onClick={() => setScreen('rf-explorer')}>
                 RF Explorer
@@ -771,20 +809,34 @@ export function App({
       </header>
     </>
   );
+  if (readOnly && !desk.rfActive)
+    return (
+      <div className="app-shell">
+        {header}
+        <main id="main">
+          <h1 data-testid="workspace-heading">{t('Archived RF Explorer measurements')}</h1>
+          <p className="muted">
+            {desk.capabilities ? t('RF Explorer archive unavailable') : t('Connecting')}
+          </p>
+        </main>
+      </div>
+    );
   if (desk.rfActive)
     return (
       <div className="app-shell">
         {header}
         <RfExplorer
           key={desk.connectionVersion}
+          readOnly={readOnly}
           desk={desk}
           actionStatus={actionStatus}
           select={(id) => {
             setRfSelection(id);
             save('rf-explorer-session', id);
           }}
-          openOriginal={(sweep) => {
-            setOriginalOffset(0);
+          openOriginal={(sweep, index) => {
+            setOriginalPoint(index === undefined ? undefined : { id: sweep.id, index });
+            setOriginalOffset(index === undefined ? 0 : Math.floor(index / 100) * 100);
             setOriginal(sweep);
           }}
         />

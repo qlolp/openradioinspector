@@ -1,5 +1,7 @@
 import {
   Float64,
+  decodeFrequencyBookmarkPage,
+  decodeFrequencyBookmarkSet,
   decodeReceiverObservation,
   decodeSession,
   decodeSweep,
@@ -14,6 +16,7 @@ import {
   type JSONObject,
   type Sweep as ContractSweep,
 } from '../../../contracts/generated/typescript/index.ts';
+import { decodeMarkerReading, decodePassResponse } from './rf-pass';
 import type { Observation, Sweep } from './types';
 import { decodePairedRecheckResult } from '../../../contracts/generated/typescript/runtime';
 export { stringifyJSON, encodePathSegment, normalizeUTC };
@@ -62,6 +65,39 @@ export function responseValue(path: string, raw: string | Uint8Array): unknown {
   if (!Object.hasOwn(envelope, 'data')) return envelope;
   const route = path.split('?')[0];
   let data = envelope.data;
+  if (/^\/api\/v1\/sessions\/[^/]+\/frequency-bookmarks$/.test(route)) {
+    const page = object(data);
+    return {
+      ...envelope,
+      data: Object.hasOwn(page, 'items')
+        ? decodeFrequencyBookmarkPage(page)
+        : decodeFrequencyBookmarkSet(page),
+    };
+  }
+  if (
+    /^\/api\/v1\/sessions\/[^/]+\/streams\/[^/]+\/rf-explorer\/passes\/[^/]+\/point$/.test(route)
+  ) {
+    const frequency = new URLSearchParams(path.split('?')[1]).get('frequency_hz');
+    return {
+      ...envelope,
+      data: decodeMarkerReading(data, frequency === null ? NaN : Number(frequency)),
+    };
+  }
+  const passRoute =
+    /^\/api\/v1\/sessions\/[^/]+\/streams\/[^/]+\/rf-explorer\/passes(?:\/([^/]+)(\/windows)?)?$/.exec(
+      route,
+    );
+  if (passRoute)
+    return {
+      ...envelope,
+      data: decodePassResponse(
+        data,
+        passRoute[1] && decodeURIComponent(passRoute[1]),
+        !!passRoute[2],
+      ),
+    };
+  if (/^\/api\/v1\/sessions\/[^/]+\/sweeps\/[^/]+$/.test(route))
+    return { ...envelope, data: sweepValue(data) };
   if (/^\/api\/v1\/sessions\/[^/]+\/sweeps$/.test(route))
     data = array(data).map((value) => sweepValue(value)) as unknown as JSONValue;
   else if (/^\/api\/v1\/sessions\/[^/]+\/observations$/.test(route))

@@ -2,6 +2,7 @@ import { Api } from './api';
 import type { Connection } from './transport';
 export interface SecurityStatus {
   mode: 'lan_tls' | 'legacy_loopback';
+  access_scope?: 'operator' | 'reader';
   pairing_required: boolean;
 }
 export function isLegacyLoopback(node: string): boolean {

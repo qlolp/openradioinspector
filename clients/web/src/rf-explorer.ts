@@ -1,9 +1,64 @@
-import type { Session } from './types';
+import type { Capabilities, Session } from './types';
 
 export const rfExplorerAdapter = 'rf-explorer-3g-serial';
-const surveyStepHz = 10_000;
+export const surveyStepHz = 10_000;
+export const surveyPoints = 112;
+export const boardProfiles = {
+  main: { label: 'Left SMA · WSUB1G', low: 240_000_000, high: 960_000_000 },
+  expansion: { label: 'Right SMA · WSUB3G', low: 15_000_000, high: 2_700_000_000 },
+};
+export const rfExplorerAvailable = (features?: Capabilities['features']) =>
+  features?.rf_explorer_3g_spectrum === true || features?.rf_explorer_survey_panorama === true;
+
+export type RfRangeEntry = { start?: string; stop?: string; center?: string; span?: string };
+export type RfBounds = { start_hz: number; stop_hz: number };
+
+function integerHz(value?: string) {
+  if (!value || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))
+    throw Error('Enter increasing frequencies in whole kHz');
+  return Number(value);
+}
+
+export function rangeEndpoints(entry: RfRangeEntry): RfBounds {
+  if (entry.center !== undefined || entry.span !== undefined) {
+    const center = integerHz(entry.center),
+      span = integerHz(entry.span);
+    return { start_hz: center - span / 2, stop_hz: center + span / 2 };
+  }
+  return { start_hz: integerHz(entry.start), stop_hz: integerHz(entry.stop) };
+}
+
+export function validateRfRange(entry: RfRangeEntry, survey: boolean): RfBounds {
+  const bounds = rangeEndpoints(entry);
+  const { start_hz: low, stop_hz: high } = bounds;
+  const span = high - low;
+  if (![low, high].every((v) => Number.isSafeInteger(v) && v > 0 && v % 1000 === 0) || span <= 0)
+    throw Error('Enter increasing frequencies in whole kHz');
+  const outside = low < boardProfiles.expansion.low || high > boardProfiles.expansion.high;
+  if (survey && (outside || span < (surveyPoints - 1) * surveyStepHz || span % surveyStepHz !== 0))
+    throw Error(
+      'Choose a range within 15–2700 MHz with a span of at least 1.11 MHz in 10 kHz steps',
+    );
+  if (!survey && (outside || span < 112_000 || span > 600_000_000))
+    throw Error('Choose a window within 15–2700 MHz with a span of 112 kHz to 600 MHz');
+  return bounds;
+}
+
+export function surveyCounts({ start_hz, stop_hz }: RfBounds) {
+  const points = (stop_hz - start_hz) / surveyStepHz + 1;
+  return { points, windows: Math.ceil(points / surveyPoints) };
+}
 
 export interface RfExplorerReadback {
+  confirmed: boolean;
+  active_board?: keyof typeof boardProfiles;
+  active_input?: 'left' | 'right';
+  board_min_hz?: number;
+  board_max_hz?: number;
+  board_max_span_hz?: number;
+  points?: number;
+  offset_db?: number;
+  simulated?: boolean;
   detector?: string;
   rbw_hz?: number;
   step_hz?: number;
@@ -45,8 +100,41 @@ export function rfExplorerReadback(
   settings?: Record<string, unknown>,
 ): RfExplorerReadback | undefined {
   if (settings?.adapter !== rfExplorerAdapter) return;
+  const confirmed =
+    settings.settings_readback === true && settings.settings_source === 'device_readback';
   const survey = surveyReadback(settings.survey);
+  const board =
+    settings.active_board === 'main' || settings.active_board === 'expansion'
+      ? settings.active_board
+      : undefined;
+  const input = board === 'main' ? 'left' : 'right';
+  const low = settings.board_min_hz,
+    high = settings.board_max_hz;
+  const validBoard =
+    confirmed &&
+    board !== undefined &&
+    settings.active_input === input &&
+    positiveInteger(low) &&
+    positiveInteger(high) &&
+    low >= boardProfiles[board].low &&
+    high <= boardProfiles[board].high &&
+    low < high;
   return {
+    confirmed,
+    active_board: validBoard ? board : undefined,
+    active_input: validBoard ? input : undefined,
+    board_min_hz: validBoard ? low : undefined,
+    board_max_hz: validBoard ? high : undefined,
+    board_max_span_hz:
+      validBoard && positiveInteger(settings.board_max_span_hz)
+        ? settings.board_max_span_hz
+        : undefined,
+    points: confirmed && positiveInteger(settings.points) ? settings.points : undefined,
+    offset_db:
+      typeof settings.offset_db === 'number' && Number.isFinite(settings.offset_db)
+        ? settings.offset_db
+        : undefined,
+    simulated: typeof settings.simulated === 'boolean' ? settings.simulated : undefined,
     detector:
       typeof settings.detector === 'string' && settings.detector.length <= 64
         ? settings.detector
@@ -70,33 +158,15 @@ export function standaloneRfExplorer(session: Session): boolean {
 export function rfExplorerSession(
   name: string,
   port: string,
-  options: { start?: string; stop?: string; survey?: boolean } = {},
+  options: RfRangeEntry & { survey?: boolean } = {},
 ) {
   const serialPort = port.trim();
   if (!name.trim() || !serialPort || serialPort.includes('://') || serialPort.includes('\0'))
     throw Error('Enter a session name and a serial port');
-  const bounds: { start_hz?: number; stop_hz?: number } = {};
-  if (options.start !== undefined || options.stop !== undefined) {
-    const start = Number(options.start);
-    const stop = Number(options.stop);
-    if (
-      ![start, stop].every((v) => Number.isSafeInteger(v) && v > 0 && v % 1000 === 0) ||
-      stop <= start
-    )
-      throw Error('Enter increasing frequencies in whole kHz');
-    if (
-      options.survey &&
-      (start < 15_000_000 ||
-        stop > 2_700_000_000 ||
-        stop - start < 111 * surveyStepHz ||
-        (stop - start) % surveyStepHz !== 0)
-    )
-      throw Error(
-        'Choose a range within 15–2700 MHz with a span of at least 1.11 MHz in 10 kHz steps',
-      );
-    bounds.start_hz = start;
-    bounds.stop_hz = stop;
-  }
+  const custom = [options.start, options.stop, options.center, options.span].some(
+    (v) => v !== undefined,
+  );
+  const bounds = custom ? validateRfRange(options, options.survey === true) : {};
   return {
     name: name.trim(),
     streams: [

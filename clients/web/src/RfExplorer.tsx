@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Spectrum, Waterfall } from './charts';
-import { hz, Modal, Panel, titleCase, utc } from './components';
+import { hz, Panel, titleCase, utc } from './components';
 import { t } from './i18n';
-import { rfExplorerSession, type RfExplorerReadback } from './rf-explorer';
+import { RfExplorerPass, SourceAge, type LocalHold } from './RfExplorerPass';
+import { readRfOriginal, type OpenRfOriginal } from './RfExplorerOriginals';
+import { RfExplorerNewSession, RfPlanPreview, ReportedBoard } from './RfExplorerSession';
+import { rfExplorerReadback, type RfExplorerReadback } from './rf-explorer';
 import { type Desk, message } from './useDesk';
-import type { Session, Sweep, WorkerStatus } from './types';
+import type { DisplaySweep, Session, Sweep, WorkerStatus } from './types';
 import { encodePathSegment } from './wire';
 
 export function RfExplorerSettings({
@@ -19,6 +22,12 @@ export function RfExplorerSettings({
   const survey = readback?.survey;
   return (
     <dl className="status-list">
+      {readback?.simulated && (
+        <div>
+          <dt>{t('Source')}</dt>
+          <dd>{t('Simulated')}</dd>
+        </div>
+      )}
       {survey && (
         <>
           <div>
@@ -45,12 +54,34 @@ export function RfExplorerSettings({
           )}
         </>
       )}
+      {readback?.active_board && (
+        <div>
+          <dt>{t('Reported input')}</dt>
+          <dd>
+            <ReportedBoard readback={readback} />
+          </dd>
+        </div>
+      )}
+      {readback?.board_min_hz && readback.board_max_hz && (
+        <div>
+          <dt>{t('Reported board limits')}</dt>
+          <dd>
+            {hz(readback.board_min_hz)} – {hz(readback.board_max_hz)}
+          </dd>
+        </div>
+      )}
+      {readback?.offset_db != null && (
+        <div>
+          <dt>{t(readback?.confirmed ? 'Reported amplitude offset' : 'Saved amplitude offset')}</dt>
+          <dd>{readback.offset_db} dB</dd>
+        </div>
+      )}
       <div>
-        <dt>{t('Reported detector')}</dt>
+        <dt>{t(readback?.confirmed ? 'Reported detector' : 'Saved detector')}</dt>
         <dd>{readback?.detector ?? t('Unavailable')}</dd>
       </div>
       <div>
-        <dt>{t('Reported RBW')}</dt>
+        <dt>{t(readback?.confirmed ? 'Reported RBW' : 'Saved RBW')}</dt>
         <dd>{hz(readback?.rbw_hz)}</dd>
       </div>
       <div>
@@ -61,165 +92,20 @@ export function RfExplorerSettings({
   );
 }
 
-function NewSession({
-  desk,
-  select,
-  close,
-}: {
-  desk: Desk;
-  select: (id: string) => void;
-  close: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [port, setPort] = useState('');
-  const [selection, setSelection] = useState('follow');
-  const [start, setStart] = useState('');
-  const [stop, setStop] = useState('');
-  const [error, setError] = useState('');
-  const supportsSurvey = desk.capabilities?.features.rf_explorer_10khz_survey === true;
-  const mode = supportsSurvey || selection === 'fixed' ? selection : 'follow';
-  const survey = mode === 'survey-module' || mode === 'survey-range';
-  const customWindow = mode === 'fixed' || mode === 'survey-range';
-  function chooseMode(next: string) {
-    setSelection(next);
-    setError('');
-  }
-  function create() {
-    try {
-      const body = rfExplorerSession(name, port, { survey, ...(customWindow && { start, stop }) });
-      setError('');
-      void desk.run(
-        'Create session',
-        async () => {
-          const session = await desk.api.post<Session>('/sessions', body);
-          select(session.id);
-          close();
-          await desk.reloadSessions();
-        },
-        [],
-      );
-    } catch (cause) {
-      setError(message(cause));
-    }
-  }
-  return (
-    <Modal label={t('New spectrum session')} close={close}>
-      <h2>{t('New spectrum session')}</h2>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          create();
-        }}
-      >
-        <label>
-          {t('Session name')}
-          <input required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          {t('RF Explorer serial port')}
-          <input
-            required
-            value={port}
-            placeholder="/dev/ttyUSB0, COM3"
-            onChange={(e) => setPort(e.target.value)}
-          />
-        </label>
-        {supportsSurvey ? (
-          <label>
-            {t('Acquisition mode')}
-            <select value={mode} onChange={(e) => chooseMode(e.target.value)}>
-              <option value="follow">{t('Follow analyzer window')}</option>
-              <option value="fixed">{t('Set a sweep window')}</option>
-              <option value="survey-module">{t('10 kHz survey · full active module')}</option>
-              <option value="survey-range">{t('10 kHz survey · selected range')}</option>
-            </select>
-          </label>
-        ) : (
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={customWindow}
-              onChange={(e) => chooseMode(e.target.checked ? 'fixed' : 'follow')}
-            />
-            {t('Set a sweep window')}
-          </label>
-        )}
-        {customWindow && (
-          <div className="form-grid">
-            <label>
-              {t('Start frequency (Hz)')}
-              <input
-                type="number"
-                required
-                min={1000}
-                step={1000}
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </label>
-            <label>
-              {t('Stop frequency (Hz)')}
-              <input
-                type="number"
-                required
-                min={1000}
-                step={1000}
-                value={stop}
-                onChange={(e) => setStop(e.target.value)}
-              />
-            </label>
-          </div>
-        )}
-        {mode === 'follow' && (
-          <p className="muted">{t('Acquisition follows the active window on the analyzer.')}</p>
-        )}
-        {mode === 'survey-module' && (
-          <p className="muted">
-            {t(
-              'The analyzer reports the active module’s limits. Each pass measures this range one segment at a time.',
-            )}
-          </p>
-        )}
-        {mode === 'survey-range' && (
-          <p className="muted">
-            {t(
-              'Both endpoints are included. Enter multiples of 1,000 Hz with a span of at least 1.11 MHz in 10 kHz steps.',
-            )}
-          </p>
-        )}
-        {error && (
-          <p className="error-text" role="alert">
-            {t(error)}
-          </p>
-        )}
-        {desk.action.state === 'Error' && (
-          <p className="error-text" role="alert">
-            {t(desk.action.text)}
-          </p>
-        )}
-        <div className="actions">
-          <button className="primary" disabled={desk.busy}>
-            {t('Create session')}
-          </button>
-          <button type="button" disabled={desk.busy} onClick={close}>
-            {t('Cancel')}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
 function Acquisition({
   desk,
   session,
+  readOnly,
   openOriginal,
 }: {
   desk: Desk;
   session: Session;
-  openOriginal: (sweep: Sweep) => void;
+  readOnly: boolean;
+  openOriginal: OpenRfOriginal;
 }) {
   const [stream] = session.streams;
+  const canAcquire = !readOnly && desk.capabilities?.features.rf_explorer_3g_spectrum === true;
+  const hasPanorama = desk.capabilities?.features.rf_explorer_survey_panorama === true;
   const surveyUnsupported =
     stream.settings?.survey_step_hz === 10_000 &&
     desk.capabilities?.features.rf_explorer_10khz_survey !== true;
@@ -228,9 +114,17 @@ function Acquisition({
   const [workerError, setWorkerError] = useState('');
   const [revision, setRevision] = useState(0);
   const [history, setHistory] = useState<Sweep[]>();
+  const [hold, setHold] = useState<LocalHold>({ since: '', visible: false });
+  const [view, setView] = useState<'window' | 'pass'>('window');
+  const [frozen, setFrozen] = useState<Pick<Desk['live'], 'rows' | 'presentation'>>();
+  const [cursor, setCursor] = useState<{ row: DisplaySweep; index: number }>();
+  const [sourceError, setSourceError] = useState('');
+  const sourceRead = useRef<AbortController | null>(null);
+  useEffect(() => () => sourceRead.current?.abort(), []);
   const historyRead = useRef<AbortController | null>(null);
   useEffect(() => () => historyRead.current?.abort(), []);
   useEffect(() => {
+    if (!canAcquire) return;
     const controller = new AbortController();
     let reading = false;
     async function read() {
@@ -257,7 +151,7 @@ function Acquisition({
       controller.abort();
       clearInterval(timer);
     };
-  }, [desk.api, path, stream.id, revision]);
+  }, [desk.api, path, stream.id, revision, canAcquire]);
 
   async function command(action: 'start' | 'stop' | 'finish') {
     const label =
@@ -305,15 +199,66 @@ function Acquisition({
       );
   }
 
+  const liveRows = frozen?.rows ?? desk.live.rows;
   const rows = useMemo(
     () =>
-      desk.live.rows.filter(
-        (sweep) => sweep.session_id === session.id && sweep.stream_id === stream.id,
-      ),
-    [desk.live.rows, session.id, stream.id],
+      liveRows.filter((sweep) => sweep.session_id === session.id && sweep.stream_id === stream.id),
+    [liveRows, session.id, stream.id],
   );
   const latest = rows.at(-1);
   const survey = latest?.rf_explorer?.survey;
+  const surveySession = stream.settings?.survey_step_hz === 10000 || !!survey;
+  const entire = hasPanorama && surveySession && view === 'pass';
+  const planned =
+    typeof stream.settings?.start_hz === 'number' && typeof stream.settings?.stop_hz === 'number'
+      ? { start_hz: stream.settings.start_hz, stop_hz: stream.settings.stop_hz }
+      : undefined;
+  const workerReadback = rfExplorerReadback(worker?.current);
+  const reported =
+    workerReadback?.confirmed && workerReadback.active_board
+      ? workerReadback
+      : rows.findLast((row) => row.rf_explorer?.confirmed && row.rf_explorer.active_board)
+          ?.rf_explorer;
+  const lastMeasured = useMemo(() => {
+    if (!cursor) return;
+    let last = cursor.row.interval.ended_at;
+    const frequency = cursor.row.frequencies_hz[cursor.index];
+    for (const row of desk.live.rows)
+      if (
+        row.session_id === session.id &&
+        row.stream_id === stream.id &&
+        row.interval.ended_at > last &&
+        row.frequencies_hz.includes(frequency)
+      )
+        last = row.interval.ended_at;
+    return last;
+  }, [cursor, desk.live.rows, session.id, stream.id]);
+  async function inspectCursor() {
+    if (!cursor) return;
+    sourceRead.current?.abort();
+    const controller = new AbortController();
+    sourceRead.current = controller;
+    setSourceError('');
+    try {
+      const sw = await readRfOriginal(
+        desk.api,
+        session.id,
+        stream.id,
+        cursor.row.id,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      const at = cursor.row.source_indices[cursor.index];
+      if (
+        Number(sw.frequencies_hz[at]) !== cursor.row.frequencies_hz[cursor.index] ||
+        sw.levels[at] !== cursor.row.levels[cursor.index]
+      )
+        throw Error('Source evidence mismatch');
+      openOriginal(sw, at);
+    } catch (cause) {
+      if (!controller.signal.aborted) setSourceError(message(cause));
+    }
+  }
   const acquisitionError = workerError || worker?.last_error;
   return (
     <>
@@ -329,6 +274,7 @@ function Acquisition({
             className="primary"
             disabled={
               desk.busy ||
+              !canAcquire ||
               surveyUnsupported ||
               !worker ||
               worker.alive ||
@@ -349,6 +295,12 @@ function Acquisition({
           </button>
         </div>
       </div>
+      {(surveySession || planned) && (
+        <details className="rf-draft-preview">
+          <summary>{t('Acquisition preview')}</summary>
+          <RfPlanPreview bounds={planned} survey={surveySession} readback={reported} />
+        </details>
+      )}
       {surveyUnsupported && (
         <p className="muted">
           {t('Starting this survey requires a core with 10 kHz survey support.')}
@@ -361,43 +313,133 @@ function Acquisition({
       )}
       <div className="live-grid">
         <Panel
-          title={t('Live spectrum')}
+          title={t(entire ? 'Survey panorama' : 'Live spectrum')}
           className="spectrum-panel"
-          aside={<span className="live-badge">{t(desk.live.state)}</span>}
+          aside={<span className="live-badge">{t(entire ? 'Archive' : desk.live.state)}</span>}
         >
-          {latest && (
-            <p className="muted">
-              {survey && t('Segment peak') + ' '}
-              {hz(latest.peak.frequency_hz)} · {latest.peak.level} {latest.level_unit} ·{' '}
-              {latest.original_point_count} {t('original points')}
-            </p>
-          )}
-          {latest && (
-            <RfExplorerSettings readback={latest.rf_explorer} frequencies={latest.frequencies_hz} />
-          )}
-          <Spectrum
-            sweep={latest}
-            liveSources={{ rows, presentation: desk.live.presentation }}
-            belowPlot={
-              <>
-                <h3>{t(survey ? 'Waterfall across the planned range' : 'Waterfall')}</h3>
-                {survey && (
-                  <p className="muted">
-                    {hz(survey.start_hz)} – {hz(survey.stop_hz)} ·{' '}
-                    {t('Unmeasured frequencies are black in each row.')}
-                  </p>
-                )}
-                <Waterfall
-                  rows={rows}
-                  band={survey && { low: survey.start_hz, high: survey.stop_hz }}
-                />
-              </>
-            }
-          />
-          <div className="source-footer" role="group" aria-label={t('Latest saved measurement')}>
-            <span data-testid="source-id">{latest?.id ?? t('Waiting for a committed sweep')}</span>
-            <span>{utc(latest?.interval.ended_at)}</span>
+          <div className="actions rf-view-controls">
+            {hasPanorama && surveySession && (
+              <div role="group" aria-label={t('Spectrum view')} className="rf-switch">
+                <button aria-pressed={!entire} onClick={() => setView('window')}>
+                  {t('Current window')}
+                </button>
+                <button aria-pressed={entire} onClick={() => setView('pass')}>
+                  {t('Entire pass')}
+                </button>
+              </div>
+            )}
+            <button
+              aria-pressed={!!frozen}
+              onClick={() =>
+                setFrozen(
+                  frozen
+                    ? undefined
+                    : { rows: desk.live.rows, presentation: desk.live.presentation },
+                )
+              }
+            >
+              {t(frozen ? 'Resume display' : 'Pause display')}
+            </button>
           </div>
+          {frozen && (
+            <p className="muted">{t('Display paused. Acquisition continues independently.')}</p>
+          )}
+          {entire ? (
+            <RfExplorerPass
+              hold={hold}
+              setHold={setHold}
+              api={desk.api}
+              session={session.id}
+              stream={stream.id}
+              running={session.state === 'running' && (readOnly || !worker || worker.alive)}
+              paused={!!frozen}
+              openOriginal={openOriginal}
+              readOnly={readOnly}
+              bookmarks={desk.capabilities?.features.frequency_bookmarks === true}
+            />
+          ) : (
+            <>
+              {latest && (
+                <p className="muted">
+                  {survey && t('Segment peak') + ' '}
+                  {hz(latest.peak.frequency_hz)} · {latest.peak.level} {latest.level_unit} ·{' '}
+                  {latest.original_point_count} {t('original points')}
+                </p>
+              )}
+              {latest && (
+                <RfExplorerSettings
+                  readback={latest.rf_explorer}
+                  frequencies={latest.frequencies_hz}
+                />
+              )}
+              <Spectrum
+                sweep={latest}
+                liveSources={frozen ? undefined : { rows, presentation: desk.live.presentation }}
+                onSelectPoint={(row, index) => {
+                  sourceRead.current?.abort();
+                  setSourceError('');
+                  setCursor({ row, index });
+                }}
+                belowPlot={
+                  <>
+                    <h3>{t(survey ? 'Waterfall across the planned range' : 'Waterfall')}</h3>
+                    {survey && (
+                      <p className="muted">
+                        {hz(survey.start_hz)} – {hz(survey.stop_hz)} ·{' '}
+                        {t('Unmeasured frequencies are black in each row.')}
+                      </p>
+                    )}
+                    <Waterfall
+                      rows={rows}
+                      band={survey && { low: survey.start_hz, high: survey.stop_hz }}
+                    />
+                  </>
+                }
+              />
+              <div
+                className="source-footer"
+                role="group"
+                aria-label={t('Latest saved measurement')}
+              >
+                <span data-testid="source-id">
+                  {latest?.id ?? t('Waiting for a committed sweep')}
+                </span>
+                <span>
+                  {utc(latest?.interval.ended_at)}
+                  {latest && (
+                    <>
+                      {' '}
+                      · {t('Source age')} <SourceAge at={latest.interval.ended_at} />
+                    </>
+                  )}
+                </span>
+              </div>
+              {cursor && (
+                <div className="rf-evidence">
+                  <strong>
+                    {hz(cursor.row.frequencies_hz[cursor.index])} ·{' '}
+                    {cursor.row.levels[cursor.index]} {cursor.row.level_unit}
+                  </strong>
+                  <p className="mono break">
+                    {cursor.row.id} · {t('Source index')} {cursor.row.source_indices[cursor.index]}
+                  </p>
+                  <p>
+                    {utc(cursor.row.interval.started_at)} → {utc(cursor.row.interval.ended_at)}
+                  </p>
+                  <p>
+                    {t('Selected frequency last measured')} · {utc(lastMeasured)} ·{' '}
+                    <SourceAge at={lastMeasured} />
+                  </p>
+                  <button onClick={() => void inspectCursor()}>{t('Open original sweep')}</button>
+                </div>
+              )}
+              {sourceError && (
+                <p className="error-text" role="alert">
+                  {t(sourceError)}
+                </p>
+              )}
+            </>
+          )}
         </Panel>
         <Panel title={t('Sweep history')} aside={<small>{t('Latest 32 saved sweeps')}</small>}>
           <button disabled={desk.busy} onClick={() => void loadHistory()}>
@@ -437,10 +479,12 @@ export function RfExplorer({
   select,
   openOriginal,
   actionStatus,
+  readOnly = false,
 }: {
+  readOnly?: boolean;
   desk: Desk;
   select: (id: string) => void;
-  openOriginal: (sweep: Sweep) => void;
+  openOriginal: OpenRfOriginal;
   actionStatus: ReactNode;
 }) {
   const [creating, setCreating] = useState(false);
@@ -448,11 +492,20 @@ export function RfExplorer({
     <main id="main">
       <div className="page-heading">
         <h1 data-testid="workspace-heading">RF Explorer 3G Combo</h1>
-        <button className="primary" disabled={desk.busy} onClick={() => setCreating(true)}>
-          {t('New spectrum session')}
-        </button>
+        {!readOnly && desk.capabilities?.features.rf_explorer_3g_spectrum === true && (
+          <button className="primary" disabled={desk.busy} onClick={() => setCreating(true)}>
+            {t('New spectrum session')}
+          </button>
+        )}
       </div>
-      <p className="muted">{t('Receive-only serial acquisition · hardware validation pending')}</p>
+      <p className="muted">
+        {t(
+          !readOnly && desk.capabilities?.features.rf_explorer_3g_spectrum === true
+            ? 'Receive-only serial acquisition · hardware validation pending'
+            : 'Archived RF Explorer measurements',
+        )}
+      </p>
+      {!desk.rfSessions.length && <p className="empty">{t('No RF Explorer sessions')}</p>}
       {desk.rfSessions.length > 0 && (
         <label>
           {t('Spectrum session')}
@@ -472,13 +525,16 @@ export function RfExplorer({
       {actionStatus}
       {desk.rfSession && (
         <Acquisition
-          key={desk.rfSession.id}
+          key={JSON.stringify([desk.rfSession.id, desk.rfSession.streams[0].id])}
           desk={desk}
           session={desk.rfSession}
+          readOnly={readOnly}
           openOriginal={openOriginal}
         />
       )}
-      {creating && <NewSession desk={desk} select={select} close={() => setCreating(false)} />}
+      {creating && (
+        <RfExplorerNewSession desk={desk} select={select} close={() => setCreating(false)} />
+      )}
     </main>
   );
 }

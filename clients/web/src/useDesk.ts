@@ -9,7 +9,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Api, ResourceScope } from './api';
-import { standaloneRfExplorer } from './rf-explorer';
+import { rfExplorerAvailable, standaloneRfExplorer } from './rf-explorer';
 import { LiveStore, type LiveCheckpoint } from './live';
 import { HealthReceipts, type HealthCheckpoint } from './health';
 import type { Connection } from './transport';
@@ -30,7 +30,13 @@ import type {
 } from './types';
 const checkpoints = new WeakMap<
   Connection,
-  { id: symbol; projectId: string; state: LiveCheckpoint; health?: HealthCheckpoint }
+  {
+    id: symbol;
+    projectId: string;
+    readOnly: boolean;
+    state: LiveCheckpoint;
+    health?: HealthCheckpoint;
+  }
 >();
 
 export function remember(key: string, fallback: string): string {
@@ -53,25 +59,29 @@ const readyAction = {
   text: 'Receive-only workspace · core owns devices and archive',
 };
 
-export function useDesk(transport: Connection, rfSessionId?: string) {
+export function useDesk(transport: Connection, rfSessionId?: string, readOnly = false) {
+  const restoredCheckpoint = useMemo(() => {
+    const saved = checkpoints.get(transport);
+    return saved?.readOnly === readOnly ? saved : undefined;
+  }, [transport, readOnly]);
   const api = useMemo(() => new Api(transport), [transport]);
   const healthReceipts = useMemo(
-    () => new HealthReceipts(checkpoints.get(transport)?.health),
-    [api, transport],
+    () => new HealthReceipts(restoredCheckpoint?.health),
+    [api, restoredCheckpoint],
   );
   const healthOwner = useRef(healthReceipts);
   healthOwner.current = healthReceipts;
   const restored = useMemo(() => {
-    const saved = checkpoints.get(transport);
+    const saved = restoredCheckpoint;
     const store = new LiveStore(transport);
     if (saved) store.restore(saved.state);
     return { store, projectId: saved?.projectId, checkpointId: saved?.id };
-  }, [transport]);
+  }, [transport, restoredCheckpoint]);
   const liveStore = restored.store;
   const live = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshot);
   const [projects, setProjects] = useState<Project[]>([]),
     [sessions, setSessions] = useState<Session[]>([]);
-  const [projectId, setProjectId] = useState(() => remember('project', ''));
+  const [projectId, setProjectId] = useState(() => (readOnly ? '' : remember('project', '')));
   const [guard, setGuard] = useState<GuardStatus>(),
     [preflight, setPreflight] = useState<Preflight>();
   const [storage, setStorage] = useState<StorageReport>();
@@ -99,8 +109,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
   const scopeProject = useRef(restored.projectId);
   const rfSessions = useMemo(() => sessions.filter(standaloneRfExplorer), [sessions]);
   const rfSession = rfSessions.find((s) => s.id === rfSessionId) ?? rfSessions.at(-1);
-  const rfActive =
-    rfSessionId !== undefined && capabilities?.features.rf_explorer_3g_spectrum === true;
+  const rfActive = rfSessionId !== undefined && rfExplorerAvailable(capabilities?.features);
   const rfMode = useRef(rfActive);
   rfMode.current = rfActive;
   const requestedRf = useRef(rfSessionId);
@@ -117,6 +126,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
 
   const loadProjects = useCallback(
     async (after = '', history: string[] = [], pin?: Project) => {
+      if (readOnly) return;
       const page = await api.get<Page<Project>>(
         '/monitoring-projects?' +
           new URLSearchParams({ limit: '100', ...(after ? { after } : {}) }),
@@ -134,7 +144,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
       if (pin) setProjectId(pin.id);
       else if (!selection.current && page.items[0]) setProjectId(page.items[0].id);
     },
-    [api],
+    [api, readOnly],
   );
 
   const refresh = useCallback(
@@ -143,7 +153,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
     ) => {
       const id = selection.current,
         ticket = currentScope.current;
-      if (rfMode.current || !id || !ticket || ticket.signal.aborted) return;
+      if (readOnly || rfMode.current || !id || !ticket || ticket.signal.aborted) return;
       const valid = () =>
         scope.current.current(ticket.generation) && selection.current === id && mounted.current;
       const calls: Promise<void>[] = [];
@@ -172,7 +182,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
       if (valid() && failed?.status === 'rejected' && failed.reason?.name !== 'AbortError')
         setAction({ state: 'Error', text: message(failed.reason) });
     },
-    [api],
+    [api, readOnly],
   );
 
   const resyncRunning = useRef(false),
@@ -315,8 +325,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
         setConnectionVersion((version) => version + 1);
         setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
       }
-      const wantsRf = () =>
-        requestedRf.current !== undefined && c.features.rf_explorer_3g_spectrum === true;
+      const wantsRf = () => requestedRf.current !== undefined && rfExplorerAvailable(c.features);
       if (wantsRf()) {
         const candidates = s.filter(standaloneRfExplorer);
         const selected =
@@ -324,7 +333,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
         if (selected) liveStore.scope(selected.id, selected.streams[0].id, '');
         else liveStore.selectProject(false);
       }
-      if (c.features.monitoring_projects === false) {
+      if (readOnly || c.features.monitoring_projects === false) {
         selection.current = '';
         setProjectId('');
         setProjects([]);
@@ -356,7 +365,7 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
     } catch (error) {
       if (connectionEpoch.current === epoch) throw error;
     }
-  }, [api, liveStore, loadProjects, healthReceipts]);
+  }, [api, liveStore, loadProjects, healthReceipts, readOnly]);
 
   useEffect(() => {
     mounted.current = true;
@@ -372,13 +381,14 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
       if (checkpoint)
         checkpoints.set(transport, {
           id: Symbol(),
+          readOnly,
           projectId: selection.current,
           state: checkpoint,
           health: healthReceipts.checkpoint(),
         });
       liveStore.dispose();
     };
-  }, [liveStore, transport, restored.checkpointId, healthReceipts]);
+  }, [liveStore, transport, restored.checkpointId, healthReceipts, readOnly]);
 
   useEffect(() => {
     if (connected)
@@ -409,9 +419,9 @@ export function useDesk(transport: Connection, rfSessionId?: string) {
     setEvents([]);
     setAllowed([]);
     setSearch(undefined);
-    save('project', projectId);
+    if (!readOnly) save('project', projectId);
     if (connected) void refresh();
-  }, [projectId, connectionVersion, connected, refresh, liveStore, rfActive]);
+  }, [projectId, connectionVersion, connected, refresh, liveStore, rfActive, readOnly]);
 
   useEffect(() => {
     if (!rfActive || !rfId || !rfStream || !liveStore.needsSeed()) return;

@@ -28,8 +28,15 @@ interface SpectrumProps {
   comparison?: Comparison;
   liveSources?: LiveSources;
   belowPlot?: ReactNode;
+  onSelectPoint?: (sweep: DisplaySweep, displayIndex: number) => void;
 }
-export function Spectrum({ sweep, comparison, liveSources, belowPlot }: SpectrumProps) {
+export function Spectrum({
+  sweep,
+  comparison,
+  liveSources,
+  belowPlot,
+  onSelectPoint,
+}: SpectrumProps) {
   const locale = useLocale();
   const plot = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
@@ -46,7 +53,16 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
   const desiredRange = changed ? full : clampRange(current.current.range, full);
   current.current = { sweep, comparison, liveSources, full, range: desiredRange };
   const dragging = useRef<
-    { id: number; x: number; width: number; range: FrequencyRange } | undefined
+    | {
+        id: number;
+        x: number;
+        y: number;
+        moved: boolean;
+        drawn?: DisplaySweep;
+        width: number;
+        range: FrequencyRange;
+      }
+    | undefined
   >(undefined);
   if (changed) dragging.current = undefined;
   const drawn =
@@ -165,7 +181,10 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
   const key = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!current.current.sweep) return;
     if (event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.key === 'ArrowLeft') pan(-1);
+    if (event.key === 'Enter' && onSelectPoint && displayedSweep) {
+      const peak = displayedSweep.source_indices.indexOf(displayedSweep.peak.index);
+      if (peak >= 0) onSelectPoint(displayedSweep, peak);
+    } else if (event.key === 'ArrowLeft') pan(-1);
     else if (event.key === 'ArrowRight') pan(1);
     else if (event.key === '+' || event.key === '=' || event.key === 'ArrowUp') zoom(0.8);
     else if (event.key === '-' || event.key === 'ArrowDown') zoom(1.25);
@@ -179,6 +198,9 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
     dragging.current = {
       id: event.pointerId,
       x: event.clientX,
+      y: event.clientY,
+      moved: false,
+      drawn: displayedSweep,
       width: Math.max(1, element.getBoundingClientRect().width - 60),
       range: current.current.range,
     };
@@ -188,6 +210,7 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const drag = dragging.current;
     if (!drag || drag.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 4) drag.moved = true;
     change(
       panRange(
         drag.range,
@@ -197,7 +220,20 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
     );
   };
   const up = (event: PointerEvent<HTMLDivElement>) => {
-    if (dragging.current?.id !== event.pointerId) return;
+    const drag = dragging.current;
+    if (drag?.id !== event.pointerId) return;
+    if (onSelectPoint && drag.drawn && !drag.moved && event.type === 'pointerup') {
+      const fraction =
+        (event.clientX - event.currentTarget.getBoundingClientRect().left - 48) / drag.width;
+      if (fraction >= 0 && fraction <= 1) {
+        const frequency = drag.range.low + fraction * (drag.range.high - drag.range.low);
+        const values = drag.drawn.frequencies_hz;
+        let index = 0;
+        for (let i = 1; i < values.length; i++)
+          if (Math.abs(values[i] - frequency) < Math.abs(values[index] - frequency)) index = i;
+        onSelectPoint(drag.drawn, index);
+      }
+    }
     dragging.current = undefined;
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -245,7 +281,9 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
         tabIndex={0}
         role="group"
         aria-label={t('Spectrum view controls')}
-        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown + - Home R"
+        aria-keyshortcuts={
+          (onSelectPoint ? 'Enter ' : '') + 'ArrowLeft ArrowRight ArrowUp ArrowDown + - Home R'
+        }
         onKeyDown={key}
         onPointerDown={down}
         onPointerMove={move}
@@ -355,6 +393,7 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
       )}
       <p className="spectrum-help">
         {t('View only · drag to pan, wheel or +/− to zoom, arrows to pan, Home to reset')}
+        {onSelectPoint && <> · {t('Click a point or press Enter for the source peak')}</>}
       </p>
       {!!drawn?.coalescedSources && (
         <p className="spectrum-help" data-testid="spectrum-coalesced">
