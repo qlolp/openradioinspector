@@ -114,9 +114,13 @@ retained source is unknown. `source_verifier` identifies the session NDJSON
 export for measurements or the artifact verification for audio.
 
 Each scheduled producer POST over direct numeric-loopback HTTP shares one deadline across
-TCP connection, request and response. The producer can replace up to three sockets whose
-handshake timed out before the first HTTP write. `producer_loopback_tcp` records request,
-attempt and timeout totals, plus up to 32 affected offer IDs with each dial’s budget,
+TCP connection, request and response. The producer can replace up to three sockets before
+the first HTTP write if the handshake times out or the OS reports insufficient socket
+buffers (ENOBUFS or Windows 10055). On a buffer error it closes the socket and waits out
+the current dial window before trying the next socket. Exhausted attempts still count
+as a failed original offer. Once the HTTP write starts, the request runs once.
+`producer_loopback_tcp` records request, attempt, timeout and `no_buffers` totals,
+plus up to 32 affected offer IDs with each dial’s budget,
 elapsed time, outcome and independent source verification. Two 60-second Windows x64
 runs at `99984e5` each recovered three such timeouts and verified all 600 original
 4,096-point sweeps, 600 observations and six WAVs. [Push run](https://github.com/qlolp/openradioinspector/actions/runs/44647450200) · [PR run](https://github.com/qlolp/openradioinspector/actions/runs/44647504208)
@@ -127,6 +131,13 @@ pages. The controller now applies the same pre-write dial budget to its direct l
 GETs. `background.loopback_tcp` counts original requests, socket attempts, timeouts
 and requests that failed to connect. Affected samples include the public
 route name and each dial’s timing. [Failed Windows push](https://github.com/qlolp/openradioinspector/actions/runs/44649053750/job/135999034448)
+
+In the 30-minute Windows run at `1e6f128e`, Winsock returned 10055 during the
+connection for observation 3403. The export contained 17,999 of the 18,000 offered
+observations. All 18,000 sweeps and 86,400,000 PCM frames were retained. The Linux ARM64
+leg completed the same schedule. The regression exercises a buffer error before an
+observation POST, checks one HTTP write and its exact SQLite payload, and covers
+persistent resource exhaustion before the first write. [Windows diagnostic](https://github.com/qlolp/openradioinspector/actions/runs/45083002677/job/137395149133)
 
 The separate accelerated source-time scenario is:
 

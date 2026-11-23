@@ -11,7 +11,7 @@ from .source import identifier
 class Ledger:
     def __init__(self,path,*,existing=False):
         self.transport_failure_samples = []
-        self.producer_connect_counts = dict(requests=0, attempts=0, connect_timeouts=0)
+        self.producer_connect_counts = dict(requests=0, attempts=0, connect_timeouts=0, no_buffers=0)
         self.producer_connect_samples = []
         if existing:
             check=sqlite3.connect(path.resolve().as_uri()+'?mode=ro&immutable=1',uri=True)
@@ -60,8 +60,10 @@ class Ledger:
             self.producer_connect_counts['requests'] += 1
             self.producer_connect_counts['attempts'] += len(attempts)
             timeouts = sum(attempt['outcome'] == 'timeout' for attempt in attempts)
+            no_buffers = sum(attempt['outcome'] == 'no_buffers' for attempt in attempts)
             self.producer_connect_counts['connect_timeouts'] += timeouts
-            if timeouts and len(self.producer_connect_samples) < 32:
+            self.producer_connect_counts['no_buffers'] += no_buffers
+            if (timeouts or no_buffers) and len(self.producer_connect_samples) < 32:
                 self.producer_connect_samples.append(dict(id=identifier, attempts=list(attempts)))
     def transport_report(self, *, ndjson_complete, audio_complete, samples=None):
         result = []

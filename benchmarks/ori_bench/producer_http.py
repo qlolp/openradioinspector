@@ -1,6 +1,7 @@
 """Bound a direct loopback TCP handshake before the original HTTP write."""
 from __future__ import annotations
 
+import errno
 from functools import partial
 from http.client import HTTPConnection
 import ipaddress
@@ -42,9 +43,11 @@ def connect_loopback(endpoint, timeout, source_address, *, family, deadline, att
     for window in _CONNECT_LIMITS_SECONDS:
         started = time.monotonic()
         budget = min(window if window is not None else timeout, remaining(deadline))
-        sock = RequestSocket(family, deadline)
+        sock = None
         outcome = 'failed'
+        error_codes = {}
         try:
+            sock = RequestSocket(family, deadline)
             if source_address is not None:
                 sock.bind(source_address)
             sock.settimeout(budget)
@@ -55,11 +58,23 @@ def connect_loopback(endpoint, timeout, source_address, *, family, deadline, att
             outcome = 'timeout'
             if window is None or time.monotonic() >= deadline:
                 raise
+        except OSError as error:
+            if error.errno not in (errno.ENOBUFS, 10055) and getattr(error, 'winerror', None) != 10055:
+                raise
+            outcome = 'no_buffers'
+            error_codes['errno'] = error.errno
+            if getattr(error, 'winerror', None) is not None:
+                error_codes['winerror'] = error.winerror
+            if window is None or started + window >= deadline:
+                raise
         finally:
-            if outcome != 'connected':
+            if sock is not None and outcome != 'connected':
                 sock.close()
             attempts.append(dict(outcome=outcome, timeout_ms=budget * 1000,
-                                 elapsed_ms=(time.monotonic() - started) * 1000))
+                                 elapsed_ms=(time.monotonic() - started) * 1000, **error_codes))
+        if outcome == 'no_buffers':
+            # Give the host the remainder of this dial window to free socket resources.
+            time.sleep(max(0., started + budget - time.monotonic()))
 
 
 class LoopbackHTTPHandler(HTTPHandler):

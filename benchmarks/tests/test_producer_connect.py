@@ -4,6 +4,8 @@ from __future__ import annotations
 from contextlib import contextmanager, ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import errno
+import json
 import socket
 import tempfile
 import threading
@@ -19,7 +21,7 @@ from benchmarks.ori_bench.config import Config
 from benchmarks.ori_bench.paged_history import PagedHistoryWork
 from benchmarks.ori_bench.producer_http import LoopbackHTTPHandler, RequestSocket
 from benchmarks.ori_bench.runner import run
-from benchmarks.ori_bench.source import identifier
+from benchmarks.ori_bench.source import identifier, observation
 from benchmarks.tests.test_benchmarks import http_fixture
 
 
@@ -36,6 +38,64 @@ def serving(handler):
 
 
 class ProducerConnectTests(unittest.TestCase):
+    def test_buffer_exhaustion_before_http_write_posts_original_observation_once(self):
+        connect = socket.socket.connect
+        sockets = []
+
+        def exhausted_once(sock, endpoint):
+            sockets.append(sock)
+            if len(sockets) == 1:
+                raise OSError(10055, 'WSAENOBUFS')
+            self.assertEqual(sockets[0].fileno(), -1)
+            return connect(sock, endpoint)
+
+        with tempfile.TemporaryDirectory() as folder, http_fixture(Path(folder) / 'peer') as (peer, url):
+            config = Config(url, Path(folder), run_id='original', request_timeout=2)
+            client = Client(config, producer=True)
+            original = observation(config, 3403)
+            route = client.session_path(config) + '/observations/batch'
+            with patch.object(socket.socket, 'connect', exhausted_once):
+                result = client.json(route, method='POST', payload={'items': [original]}, status=201)
+            self.assertEqual(peer.posts, [route])
+            stored, = peer.db.execute('SELECT payload FROM measurements')
+            self.assertEqual(json.loads(stored[0]), original)
+        self.assertEqual(result['items'], [original])
+        first, second = client.connect_attempts
+        self.assertEqual((first['outcome'], first['errno'], second['outcome']), ('no_buffers', 10055, 'connected'))
+        self.assertTrue(all(sock.fileno() == -1 for sock in sockets))
+
+    def test_persistent_allocation_failure_is_bounded_before_write(self):
+        with tempfile.TemporaryDirectory() as folder, http_fixture(Path(folder) / 'peer') as (peer, origin):
+            client = Client(Config(origin, Path(folder), request_timeout=3), producer=True)
+            now = 10.
+            def advance(seconds):
+                nonlocal now
+                now += seconds
+            clock = SimpleNamespace(monotonic=lambda: now, sleep=advance)
+            with patch('benchmarks.ori_bench.producer_http.time', clock), \
+                    patch('benchmarks.ori_bench.producer_http.RequestSocket',
+                          side_effect=OSError(errno.ENOBUFS, 'no socket buffers')) as sockets, \
+                    self.assertRaises(TransportFailure) as caught:
+                client.json('/api/v1/sessions', method='POST', payload={'id': 'original'}, status=201)
+            self.assertEqual(peer.posts, [])
+        self.assertEqual(sockets.call_count, 4)
+        self.assertEqual(caught.exception.details['phase'], 'tcp_connect')
+        self.assertFalse(caught.exception.details['request_write_completed'])
+        self.assertEqual([a['outcome'] for a in client.connect_attempts], ['no_buffers'] * 4)
+        self.assertGreater(now, 10.)
+        self.assertLess(now, 13.)
+
+    def test_connection_refusal_fails_on_the_first_socket(self):
+        with tempfile.TemporaryDirectory() as folder, http_fixture(Path(folder) / 'peer') as (peer, origin):
+            client = Client(Config(origin, Path(folder)), producer=True)
+            with patch.object(socket.socket, 'connect', side_effect=ConnectionRefusedError(errno.ECONNREFUSED, 'refused')) as dial, \
+                    self.assertRaises(TransportFailure) as caught:
+                client.json('/api/v1/sessions', method='POST', payload={'id': 'original'}, status=201)
+            self.assertEqual(peer.posts, [])
+        dial.assert_called_once()
+        self.assertEqual(caught.exception.details['phase'], 'tcp_connect')
+        self.assertEqual([a['outcome'] for a in client.connect_attempts], ['failed'])
+
     def test_stalled_connect_discards_original_socket_then_posts_exact_offers_once(self):
         # Make the peer accept the first real socket but withhold its connect
         # completion from http.client until the socket timeout. No HTTP bytes
