@@ -15,6 +15,7 @@ struct NativeGuardSignal: Identifiable {
     }
 
     var receiver: String {
+        if isReceiverPrimary { return "Основной источник AR-DV1" }
         let analysis = value["analysis"]
         let state = analysis["state"].text
         let title = receiverTitle(analysis, state: state)
@@ -73,6 +74,7 @@ struct NativeGuardSignal: Identifiable {
 
     var detectorKind: String {
         switch value["kind"].text {
+        case "new_signal": "Новый сигнал"
         case "persistent": "Устойчивое превышение"
         case "impulse": "Импульсное превышение"
         case "broadband_change": "Широкополосное изменение"
@@ -89,6 +91,26 @@ struct NativeGuardSignal: Identifiable {
         case "interrupted": "Прервано"
         default: "Состояние неизвестно"
         }
+    }
+
+    var observationSource: NativeReceiverOriginalLink? {
+        guard isReceiverPrimary else { return nil }
+        let candidates = [value["peak_source"]] + value["source_refs"].items.reversed()
+        for ref in candidates {
+            let session = ref["session_id"].text, stream = ref["stream_id"].text, id = ref["observation_id"].text
+            guard !id.isEmpty, !stream.isEmpty, !session.isEmpty,
+                  value["run_session_id"].text.isEmpty || PlatformExactID.same(session, value["run_session_id"].text),
+                  let n = ref["scan_pass"].integer, let pass = Int(exactly: n), pass > 0,
+                  let hz = ref["frequency_hz"].integer, (100_000...1_300_000_000).contains(hz) else { continue }
+            return .init(session: PlatformExactID(session), stream: PlatformExactID(stream),
+                         observation: PlatformExactID(id), pass: pass, frequencyHz: hz, archivedEvent: true)
+        }
+        return nil
+    }
+    var isReceiverPrimary: Bool { value["level_unit"].text == "s_meter_count" }
+    var peakReading: String { Self.level(value["peak_level"], unit: isReceiverPrimary ? "s_meter_count" : "dBm") }
+    var excessReading: String {
+        isReceiverPrimary ? Self.level(value["excess_counts"], unit: "отсч. S-метра") : Self.level(value["peak_excess_db"], unit: "дБ")
     }
 
     var receiverSource: NativeGuardSignalSource? {

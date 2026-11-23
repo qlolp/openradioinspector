@@ -46,7 +46,7 @@ struct NativeSignalsPage: View {
 
             switch section {
             case .events:
-                NativeGuardSignalsPane(workspace: workspace, openGuard: openGuard)
+                NativeGuardSignalsPane(workspace: workspace, openGuard: openGuard, remote: model)
             case .candidates:
                 NativeSignalCandidatesPane(model: model, openSpectrum: openSpectrum)
             case .catalog:

@@ -142,6 +142,9 @@ struct NativeContinuityBar: View {
     @State private var showBands = false
     private func coverage(verified: Bool) -> String {
         let value = workspace.project["coverage"].text.isEmpty ? workspace.coverage : workspace.project["coverage"].text
+        if model.receiver?.isCyclicARDV1 == true, model.coreReachable, verified, value == "wide" {
+            return "Последовательный обзор · AR-DV1"
+        }
         return NativeContinuityLabels.coverage(value, coreReachable: model.coreReachable,
             statusVerified: verified)
     }
@@ -192,7 +195,7 @@ struct NativeContinuityBar: View {
                         .accessibilityIdentifier("continuity.recording")
                     Text(archiveLabel)
                         .accessibilityIdentifier("continuity.archive")
-                    if !model.isStandaloneRFExplorer {
+                    if !model.isStandaloneRFExplorer || workspace.includesSession(model.selectedSessionID) {
                         Text(guardLabel(verified: verified))
                             .accessibilityIdentifier("continuity.guard")
                     }
@@ -200,18 +203,20 @@ struct NativeContinuityBar: View {
                     Button("Диагностика") { details.toggle() }.controlSize(.mini)
                         .popover(isPresented: $details) {
                             VStack(alignment: .leading, spacing: 8) {
-                                if !model.isStandaloneRFExplorer { Text(coverage(verified: verified)) }
+                                if !model.isStandaloneRFExplorer || workspace.includesSession(model.selectedSessionID) { Text(coverage(verified: verified)) }
                                 Text(model.eventStatus).textSelection(.enabled)
                                 if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
                             }.padding().frame(width: 380)
                         }
                 }.font(.caption).lineLimit(1)
                 HStack(spacing: 16) {
-                    Text((model.analyzer?.device ?? "Спектроанализатор") + " · " + activity(model.analyzer?.id))
-                        .accessibilityIdentifier("continuity.analyzer")
-                    if !model.isStandaloneRFExplorer {
-                        Text("AR-DV1: " + activity(model.receiver?.id))
-                            .accessibilityIdentifier("continuity.receiver")
+                    if let analyzer = model.analyzer {
+                        Text(analyzer.device + " · " + activity(analyzer.id)).accessibilityIdentifier("continuity.analyzer")
+                    }
+                    if !model.isStandaloneRFExplorer || workspace.includesSession(model.selectedSessionID) {
+                        if let receiver = model.receiver {
+                            Text("AR-DV1 · " + activity(receiver.id)).accessibilityIdentifier("continuity.receiver")
+                        }
                         Text(coverage(verified: verified)).help(coverage(verified: verified))
                             .accessibilityIdentifier("continuity.coverage")
                         Button("По полосам") { showBands.toggle() }
@@ -225,7 +230,9 @@ struct NativeContinuityBar: View {
                             }
                     }
                     Spacer(minLength: 0)
-                    if let time = model.acquisitionSweepTime {
+                    if model.receiver?.isCyclicARDV1 == true {
+                        Text(model.latestObservation.map { "Последняя точка · " + $0.interval.endedAt } ?? "Последняя точка · нет данных")
+                    } else if let time = model.acquisitionSweepTime {
                         let age = context.date.timeIntervalSince(time)
                         Text(age >= 0 ? "Последний свип: \(Int(min(age, Double(Int.max / 2)))) с назад" : "Последний свип: время в будущем")
                     } else {

@@ -36,9 +36,11 @@ struct ContentView: View {
     @State private var sourceSheet: PlatformSweep?
     @State private var prepareAfterSettings = false
 
+    private var showGuard: Bool { !model.isStandaloneRFExplorer || workspace.includesSession(model.selectedSessionID) }
+
     private var consoleContext: NativeConsoleContext {
         .init(server: model.client?.baseURL.root.absoluteString ?? "", project: workspace.selected,
-              session: model.selectedSessionID, stream: model.analyzer?.id ?? "")
+              session: model.selectedSessionID, stream: model.analyzer?.id ?? model.receiver?.id ?? "")
     }
 
     var body: some View {
@@ -74,19 +76,28 @@ struct ContentView: View {
             Divider()
             NativeOperatorHeader(model: model, setupExpanded: $setupExpanded, workspace: mode,
                                  openWorkspace: { navigation.destination.settings = .guardSettings })
-            if !model.isStandaloneRFExplorer {
-                NativeObservationActions(model: model, workspace: workspace,
-                    prepare: presentPreparation,
+            if showGuard {
+                NativeObservationActions(model: model, workspace: workspace, prepare: presentPreparation,
                     settings: { navigation.destination.settings = $0 })
+            } else {
+                Button("Подготовить дежурство…", action: presentPreparation).disabled(!model.connected)
+                    .accessibilityIdentifier("preparation.open")
             }
             Group {
                 switch navigation.destination.page {
                 case .observation:
                     HSplitView {
-                        RemoteUltraPane(model: model, research: true, scanBands: currentScanBands,
-                                        bandPlanWorkspace: model.isStandaloneRFExplorer ? nil : workspace, compact: true)
-                            .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
-                        if !model.isStandaloneRFExplorer {
+                        if let receiver = model.receiver, receiver.isCyclicARDV1, let client = model.client {
+                            NativeReceiverPanoramaPane(model: model, workspace: workspace, client: client,
+                                stream: receiver, session: model.selectedSessionID)
+                                .id([PlatformExactID(model.selectedSessionID), PlatformExactID(receiver.id), PlatformExactID(String(model.connectionGeneration))])
+                                .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            RemoteUltraPane(model: model, research: true, scanBands: currentScanBands,
+                                            bandPlanWorkspace: showGuard ? workspace : nil, compact: true)
+                                .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        if showGuard {
                             NativeGuardSignalsPane(workspace: workspace,
                                 openGuard: { navigation.destination.settings = .guardSettings }, compact: true, research: mode == .research,
                                 openReceiver: { navigation.destination.settings = .receiver }, remote: model)
@@ -96,7 +107,11 @@ struct ContentView: View {
                         }
                     }
                 case .archive:
-                    NativeArchivePage(model: model, openSpectrum: { navigation.destination.page = .observation })
+                    if let receiver = model.receiver, receiver.isCyclicARDV1, let client = model.client {
+                        NativeReceiverPanoramaPane(model: model, workspace: workspace, client: client, stream: receiver,
+                            session: model.selectedSessionID)
+                            .id([PlatformExactID(model.selectedSessionID), PlatformExactID(receiver.id), PlatformExactID(String(model.connectionGeneration))])
+                    } else { NativeArchivePage(model: model, openSpectrum: { navigation.destination.page = .observation }) }
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
@@ -108,7 +123,7 @@ struct ContentView: View {
             observe: { navigation.destination.page = .observation },
             archive: { navigation.destination.page = .archive },
             settings: { navigation.destination.settings = .connection },
-            prepare: model.isStandaloneRFExplorer ? nil : { if model.connected { presentPreparation() } else { navigation.destination.settings = .connection } }))
+            prepare: presentPreparation))
         .background(NativeMonitoringLifecycle(model: model, workspace: workspace))
         .task {
             await NativeConsoleServiceWatch.run(enabled: NativeLocalService.isPersonalRC,
@@ -134,7 +149,7 @@ struct ContentView: View {
         }
         .sheet(item: Binding(get: { navigation.destination.settings }, set: { navigation.destination.settings = $0 }),
                onDismiss: {
-                   if prepareAfterSettings { prepareAfterSettings = false; showRCPreparation = true }
+                   if prepareAfterSettings { prepareAfterSettings = false; showRCPreparation = model.connected }
                }) { section in
             NativeConsoleSettingsPane(model: model, workspace: workspace, workspaceMode: Binding(
                 get: { workspaceMode },
@@ -240,7 +255,9 @@ struct ContentView: View {
     }
 
     private func presentPreparation() {
-        if navigation.destination.settings != nil {
+        if !model.connected {
+            prepareAfterSettings = true; navigation.destination.settings = .connection
+        } else if navigation.destination.settings != nil {
             prepareAfterSettings = true; navigation.destination.settings = nil
         } else { showRCPreparation = true }
     }

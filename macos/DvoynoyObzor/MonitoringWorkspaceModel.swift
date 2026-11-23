@@ -122,6 +122,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     private var preparationSeeded = false
     @Published var operationsSettings: MonitoringValue = .null
     @Published var storage: MonitoringValue = .null
+    @Published private(set) var duty: MonitoringValue = .null
     @Published var alerts: [MonitoringValue] = []
     @Published var alertsNext = ""
     @Published var alertsLatest = true
@@ -158,6 +159,20 @@ final class MonitoringWorkspaceModel: ObservableObject {
     let receiverModes = ["AUTO", "FM", "AM", "DSTAR", "YSF", "ALINCO", "NXDN", "P25", "DPMR", "DMR"]
 
     var project: MonitoringValue { status["project"] }
+    func includesSession(_ session: String) -> Bool {
+        !session.isEmpty && (PlatformExactID.same(project["active_session_id"].text, session) ||
+            project["session_ids"].items.contains { PlatformExactID.same($0.text, session) })
+    }
+
+    func holdPrimaryReceiver(frequencyHz: Int64) async {
+        guard isArmed, projectStatusIsCurrent(), project["primary_source_kind"].text == "ardv1" else { return }
+        let context = revision
+        if leases["receiver"].map({ $0.expiresAt > Date() }) != true { await manual("acquire", role: "receiver") }
+        guard revision == context, leases["receiver"].map({ $0.expiresAt > Date() }) == true else { return }
+        await tuneManually(frequency: String(frequencyHz), mode: "FM")
+        if revision == context { await refreshStatus() }
+    }
+
     func projectStatusIsCurrent(at now: ContinuousClock.Instant = .now) -> Bool {
         guard !selected.isEmpty, PlatformExactID.same(project["id"].text, selected),
               let verified = projectStatusVerifiedAt else { return false }
@@ -169,8 +184,11 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
+    var schedulesAvailable: Bool { capabilities["features"]["monitoring_duty_schedule"].bool == true }
+    var notificationChannelsAvailable: Bool { capabilities["features"]["monitoring_notification_channels"].bool == true }
+    var dutyEnabled: Bool { duty["enabled"].bool == true }
     var isArmed: Bool { status["active"].bool == true || ["armed", "searching"].contains(project["state"].text) }
-    var canConfigure: Bool { !selected.isEmpty && status != .null && !isArmed && !pending && !researchPending.contains("control") && !operationsPending.contains("preparation") && !operationsPending.contains("settings") }
+    var canConfigure: Bool { !selected.isEmpty && status != .null && !isArmed && !dutyEnabled && !pending && !researchPending.contains("control") && !operationsPending.contains("preparation") && !operationsPending.contains("settings") }
     var configurationDirty: Bool {
         let savedMode = project["receiver_mode"].text.isEmpty ? "AUTO" : project["receiver_mode"].text
         if savedMode != receiverMode || (project["audio"] != .null) != audioEnabled { return true }
@@ -323,7 +341,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         antennaNotes = ""; receivePathConfirmed = false; locationConfirmed = false; preparationSeeded = false
         detectorMargin = "6"; detectorImpulse = "12"; detectorHysteresis = "3"
         detectorConfirmations = "3"; detectorWindow = "5"; detectorDwell = "10"
-        operationsSettings = .null; storage = .null; alerts = []; alertsNext = ""; alertsLatest = true
+        operationsSettings = .null; duty = .null; storage = .null; alerts = []; alertsNext = ""; alertsLatest = true
         alertsPageAfter = nil; soundState = MonitoringAlertSoundState(); operationsErrors = [:]; operationsNotice = ""
         autostart = false; archiveReserve = "268435456"; archiveRetention = "3600"
         webhookEnabled = false; webhookURL = ""; webhookSecret = ""; localSoundEnabled = false
@@ -506,6 +524,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
             // A failed/timeout command can still have reached the core; query its actual state.
             status = .null
             await refreshStatus(syncConfiguration: syncConfiguration && succeeded)
+            if resource == "disarm", schedulesAvailable { await refreshDuty() }
         }
     }
 
@@ -1114,6 +1133,41 @@ final class MonitoringWorkspaceModel: ObservableObject {
             operationsNotice = "Параметры детектора сохранены. Инженерные пороги не являются аппаратной калибровкой."
         }
         if current == revision, saved, !Task.isCancelled { await refreshStatus(); await checkPreflight() }
+    }
+
+    func refreshDuty() async {
+        guard schedulesAvailable else { return }
+        await operationsRequest("duty-status", request: { client, id in try await client.monitoringDuty(projectID: id) }) { duty = $0 }
+    }
+
+    func startDuty(schedule: MonitoringValue, resume: Bool) async {
+        guard canArm, preflightIsCurrent(), preflight["ready"].bool == true, schedulesAvailable else { return }
+        let context = revision
+        let saved = await operationsRequest("duty", request: { client, id in
+            try await client.monitoringDuty(projectID: id, body: ["schedule": schedule, "resume_after_restart": .boolean(resume)])
+        }) { duty = $0 }
+        guard revision == context, !Task.isCancelled else { return }
+        if !saved { await refreshDuty() }
+        await refreshStatus()
+    }
+
+    func setNotificationChannel(_ channel: String, settings: [String: MonitoringValue]) async {
+        guard notificationChannelsAvailable, ["telegram", "webhook"].contains(channel) else { return }
+        await operationsRequest("notification-settings", request: { client, id in
+            try await client.monitoringSettings(projectID: id, body: ["notifications": .object([channel: .object(settings)])])
+        }) { result in
+            operationsSettings = result
+            operationsNotice = "Настройки канала сохранены на узле."
+        }
+    }
+
+    func testNotification(_ channel: String) async {
+        guard notificationChannelsAvailable, operationsSettings["notifications"][channel]["enabled"].bool == true else { return }
+        let context = revision
+        await operationsRequest("notification-test", request: { client, id in try await client.testDutyNotification(projectID: id, channel: channel) }) {
+            operationsNotice = "Проверка поставлена в очередь · " + $0["notification_id"].text
+        }
+        if revision == context { await refreshDuty() }
     }
 
     func refreshStorage() async {

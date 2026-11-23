@@ -24,6 +24,18 @@ struct NativeLocalServicePane: View {
                 }.disabled(service.busy || service.phase == .inactive)
             }
             Text(service.message).font(.callout).foregroundStyle(service.phase == .failed ? Color.red : Color.secondary)
+            HStack {
+                Button("Папка архива…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.canCreateDirectories = true
+                    panel.allowsMultipleSelection = false
+                    panel.prompt = "Выбрать для архива"
+                    panel.message = "Выберите пустую папку на этом Mac. Служба проверит копию текущего архива перед переключением."
+                    if panel.runModal() == .OK, let destination = panel.url { Task { await service.chooseArchiveDirectory(destination) } }
+                }.disabled(service.busy || service.phase != .stopped)
+                Text("Папку можно изменить после остановки службы.").font(.caption)
+            }
+            if !service.archiveLocationMessage.isEmpty { Text(service.archiveLocationMessage).font(.callout).textSelection(.enabled) }
             if service.phase == .approval {
                 Button("Открыть настройки фоновых служб") { SMAppService.openSystemSettingsLoginItems() }
             }

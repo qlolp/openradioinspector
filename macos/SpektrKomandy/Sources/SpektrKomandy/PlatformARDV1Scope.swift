@@ -1,12 +1,14 @@
 import Foundation
 
-/// One pass of separate FM receiver observations from the core archive.
+/// Grid of separate FM receiver observations, including a possibly shorter final step.
 public struct PlatformARDV1ScopeConfiguration: Equatable, Sendable {
     public let startHz: Int
     public let stopHz: Int
     public let stepHz: Int
 
-    public init(startHz: Int, stopHz: Int, stepHz: Int) throws {
+    public let cyclic: Bool
+
+    public init(startHz: Int, stopHz: Int, stepHz: Int, cyclic: Bool = false) throws {
         let receiverRange = 100_000...1_300_000_000
         guard receiverRange.contains(startHz), receiverRange.contains(stopHz),
               startHz < stopHz, (10...1_300_000_000).contains(stepHz),
@@ -16,8 +18,10 @@ public struct PlatformARDV1ScopeConfiguration: Equatable, Sendable {
         self.startHz = startHz
         self.stopHz = stopHz
         self.stepHz = stepHz
-        guard pointCount <= 1000 else {
-            throw PlatformError.invalidCommand("Увеличьте шаг или сузьте диапазон до 1000 точек.")
+        self.cyclic = cyclic
+        let limit = cyclic ? 129_991 : 1000
+        guard pointCount <= limit else {
+            throw PlatformError.invalidCommand("Увеличьте шаг или сузьте диапазон до \(limit) точек.")
         }
     }
 

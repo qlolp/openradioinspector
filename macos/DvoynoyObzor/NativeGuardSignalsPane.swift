@@ -10,6 +10,7 @@ struct NativeGuardSignalsPane: View {
     var openReceiver: (() -> Void)?
     var remote: RemoteDualModel?
     @State private var confirming = false
+    @State private var observationLink: NativeReceiverOriginalLink?
 
     private struct DetailScope: Equatable {
         let context: Int
@@ -67,21 +68,28 @@ struct NativeGuardSignalsPane: View {
         .task(id: detailScope) {
             if let id = detailScope.eventID { await workspace.loadSignalEvent(id) }
         }
-        .onChange(of: detailScope) { _, _ in confirming = false }
+        .onChange(of: detailScope) { _, _ in confirming = false; observationLink = nil }
         .sheet(isPresented: $confirming) {
             if let id = workspace.signalQueue.selectedID {
                 NativeKnownSignalEditor(workspace: workspace, eventID: id)
             }
         }
 
+        .sheet(item: $observationLink) { link in
+            if let client = remote?.client { NativeReceiverOriginalPane(client: client, source: link) }
+        }
+    }
+
+    private var hasOriginal: Bool { detail?.source != nil || (detail?.observationSource != nil && remote?.client != nil) }
+    private func openOriginal() {
+        guard let detail else { return }
+        if let ref = detail.observationSource { observationLink = ref }
+        else if let source = detail.source { workspace.perform { await workspace.openSignalOriginal(eventID: detail.id, source: source) } }
     }
 
     private var compactActions: some View {
         HStack {
-            Button("Открыть исходник") {
-                guard let detail, let source = detail.source else { return }
-                workspace.perform { await workspace.openSignalOriginal(eventID: detail.id, source: source) }
-            }.disabled(detail?.source == nil || workspace.signalPending.contains(.original))
+            Button("Открыть исходник", action: openOriginal).disabled(!hasOriginal || workspace.signalPending.contains(.original))
                 .accessibilityIdentifier("observation.open-source")
             Menu("Ещё") {
                 Button("Обновить события") { workspace.perform { await workspace.refreshSignalPage() } }
@@ -140,11 +148,8 @@ struct NativeGuardSignalsPane: View {
             Button(workspace.signalQueue.isLatest ? "Обновить события" : "Обновить страницу") {
                 workspace.perform { await workspace.refreshSignalPage() }
             }.disabled(workspace.signalPending.contains(workspace.signalQueue.isLatest ? .inbox : .inboxPage))
-            Button("Исходный свип…") {
-                guard let detail, let source = detail.source else { return }
-                workspace.perform { await workspace.openSignalOriginal(eventID: detail.id, source: source) }
-            }
-            .disabled(detail?.source == nil || workspace.signalPending.contains(.original))
+            Button("Исходная запись…", action: openOriginal)
+                .disabled(!hasOriginal || workspace.signalPending.contains(.original))
             .help(detail?.source.map { "Свип \($0.sweepID.rawValue)" } ?? "Выберите событие с архивной ссылкой")
             if workspace.signalCatalogAvailable {
                 Button("Сохранить в каталог…") {
@@ -199,9 +204,9 @@ struct NativeGuardSignalsPane: View {
             .width(min: 145, ideal: 170)
             TableColumn("Частота, МГц") { Text(NativeGuardSignal.frequency($0.value["center_frequency_hz"])).monospacedDigit() }
                 .width(min: 115, ideal: 130)
-            TableColumn("Пик") { Text(NativeGuardSignal.level($0.value["peak_level"], unit: "дБм")).monospacedDigit() }
+            TableColumn("Пик") { Text($0.peakReading).monospacedDigit() }
                 .width(min: 75, ideal: 95)
-            TableColumn("Превышение") { Text(NativeGuardSignal.level($0.value["peak_excess_db"], unit: "дБ")).monospacedDigit() }
+            TableColumn("Превышение") { Text($0.excessReading).monospacedDigit() }
                 .width(min: 90, ideal: 110)
             TableColumn("Приёмник") { Text($0.receiver) }
                 .width(min: 160, ideal: 210)
@@ -277,9 +282,9 @@ private struct NativeGuardSignalEvidence: View {
     private var evidenceDetails: some View {
         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 5) {
             GridRow {
-                Text("Исходные свипы tinySA").foregroundStyle(.secondary)
+                Text(signal.isReceiverPrimary ? "Исходные наблюдения AR-DV1" : "Исходные свипы анализатора").foregroundStyle(.secondary)
                 VStack(alignment: .leading) {
-                    Text("Связано \(value["source_count"].scalar) · пик \(NativeGuardSignal.level(value["peak_level"], unit: "дБм"))")
+                    Text("Связано \(value["source_count"].scalar) · пик \(signal.peakReading)")
                     if let detail, let source = detail.source {
                         let label = if detail.receiverSource != nil { "Свип сопоставления с AR-DV1" }
                                     else if detail.peakSource != nil { "Свип пика события" }
@@ -300,9 +305,9 @@ private struct NativeGuardSignalEvidence: View {
             GridRow {
                 Text("Порог детектора").foregroundStyle(.secondary)
                 VStack(alignment: .leading) {
-                    Text("Превышение над адаптированным фоном \(NativeGuardSignal.level(value["peak_excess_db"], unit: "дБ"))")
+                    Text("Превышение над адаптированным фоном \(signal.excessReading)")
                     let parameters = value["detector_parameters"]
-                    if parameters != .null {
+                    if parameters != .null, !signal.isReceiverPrimary {
                         Text("Запас \(NativeGuardSignal.level(parameters["margin_db"], unit: "дБ")) · импульсный порог \(NativeGuardSignal.level(parameters["impulse_db"], unit: "дБ")) · подтверждения \(parameters["confirmations"].scalar) из \(parameters["window_sweeps"].scalar)")
                     }
                 }
