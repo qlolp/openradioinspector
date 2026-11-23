@@ -88,14 +88,15 @@ struct NativeRCPreparationPane: View {
         .padding(20).frame(minWidth: 740, idealWidth: 800, minHeight: 600, idealHeight: 720)
         .task(id: model.connectionGeneration) {
             if let initialDraft { flow.draft = initialDraft }
-            flow.configure(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil, workspace: workspace, sessionID: model.selectedSessionID)
+            flow.configure(server: model.operatorClient == nil ? "" : model.serverURL, client: model.operatorClient, workspace: workspace, sessionID: model.selectedSessionID)
             ports = []; portError = ""; nodePortsAvailable = false
-            await refreshPorts()
             startMHz = NativeAnalyzerDraft.mhz(Int64(flow.draft.startHz) ?? 88_000_000)
             stopMHz = NativeAnalyzerDraft.mhz(Int64(flow.draft.stopHz) ?? 108_000_000)
             if ownsProject { stage = (workspace.isArmed || workspace.dutyEnabled) ? 4 : 2 }
             else if initialDraft != nil { stage = 1 }
-            await flow.readLocation()
+            async let location: Void = flow.readLocation()
+            await refreshPorts()
+            await location
             while !Task.isCancelled, model.connected {
                 if ownsProject {
                     await workspace.refreshStatus()
@@ -252,14 +253,14 @@ struct NativeRCPreparationPane: View {
         HStack {
             Text(name).frame(width: 120, alignment: .leading)
             TextField("Порт на узле ядра", text: selection).accessibilityIdentifier(identifier)
-            if localNode || nodePortsAvailable { Menu("Порты узла") {
+            if localNode || nodePortsAvailable || !portError.isEmpty { Menu("Порты узла") {
                 ForEach(ports, id: \.self) { path in Button(path) { selection.wrappedValue = path } }
                 Button("Обновить список") { Task { await refreshPorts() } }
             } }
         }
     }
     @MainActor private func refreshPorts() async {
-        guard initialDraft == nil, NativeAcceptanceTrace.shared?.profile.phase != "ui-test", let client = model.client, model.connected else { return }
+        guard initialDraft == nil, NativeAcceptanceTrace.shared?.profile.phase != "ui-test", let client = model.operatorClient else { return }
         let generation = model.connectionGeneration
         do {
             let advertised = try await client.coreCapabilities()["features"]["serial_port_candidates"].bool == true
@@ -298,6 +299,17 @@ struct NativeRCPreparationPane: View {
         GroupBox("3 · Архив на узле и пробный приём") {
             VStack(alignment: .leading, spacing: 8) {
                 nodeStorage
+                if workspace.canCorrectDraftPorts {
+                    DisclosureGroup("Исправить порты проекта") {
+                        ForEach(["analyzer", "receiver"], id: \.self) { role in
+                            let stream = workspace.project["profile"][role]
+                            if stream["settings"]["adapter"].text.hasSuffix("-serial") {
+                                NativeDraftPortField(workspace: workspace, role: role, port: stream["port"].text, candidates: ports)
+                                    .id([workspace.selected, role, stream["port"].text].map { PlatformExactID($0) })
+                            }
+                        }
+                    }
+                }
                 TextField("Антенна, кабель, тракт и расположение", text: $workspace.antennaNotes, axis: .vertical).lineLimit(2...4).disabled(!workspace.canEditPreparation)
                 Toggle("Антенна и приёмный тракт проверены мною", isOn: $workspace.receivePathConfirmed).disabled(!workspace.canEditPreparation)
                 Toggle("Расположение и обычная обстановка подтверждены мною", isOn: $workspace.locationConfirmed).disabled(!workspace.canEditPreparation)
@@ -378,6 +390,9 @@ struct NativeRCPreparationPane: View {
                 if workspace.storageForecastAvailable {
                     Text("Том " + storage["storage_id"].text + " · горизонт " + storage["forecast_seconds"].scalar + " с")
                     Text("Нужно " + storage["required_free_bytes"].scalar + " Б · доступно " + storage["available_bytes"].scalar + " Б · дефицит " + storage["shortfall_bytes"].scalar + " Б")
+                    if storage["shortfall_bytes"] == .null, (storage["minimum_shortfall_bytes"].integer ?? 0) > 0 {
+                        Text("Не хватает не менее " + storage["minimum_shortfall_bytes"].scalar + " Б")
+                    }
                     Text("Копия " + storage["backup_reserve_bytes"].scalar + " Б · проверка восстановления " + storage["restore_reserve_bytes"].scalar + " Б")
                     Text("Размещено в БД " + storage["database_allocated_bytes"].scalar + " Б · WAL " + storage["wal_allocated_bytes"].scalar + " Б")
                 }
@@ -416,5 +431,27 @@ struct NativeRCPreparationPane: View {
                 if !workspace.operationsNotice.isEmpty { Text(workspace.operationsNotice).font(.caption) }
             }
         }
+    }
+}
+
+
+private struct NativeDraftPortField: View {
+    @ObservedObject var workspace: MonitoringWorkspaceModel
+    let role, port: String
+    let candidates: [String]
+    @State private var edit: String?
+
+    var body: some View {
+        HStack {
+            Text(role == "analyzer" ? "Анализатор" : "AR-DV1")
+            TextField("Порт на узле", text: Binding(get: { edit ?? port }, set: { edit = $0 }))
+            if !candidates.isEmpty {
+                Menu("Порты узла") { ForEach(candidates, id: \.self) { path in Button(path) { edit = path } } }
+            }
+            Button("Сохранить порт") {
+                let value = (edit ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                workspace.perform { await workspace.correctDraftPort(role: role, from: port, to: value) }
+            }.disabled(!workspace.preparationInputValid || (edit ?? "").isEmpty || edit == port)
+        }.textFieldStyle(.roundedBorder)
     }
 }

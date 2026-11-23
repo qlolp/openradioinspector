@@ -47,12 +47,7 @@ struct NativeDutyControls: View {
                 if !delivery["error"].text.isEmpty { Text(delivery["error"].text).font(.caption).foregroundStyle(.orange) }
             }
         }
-        .task(id: workspace.signalContext) {
-            while !Task.isCancelled {
-                await workspace.refreshDuty()
-                do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            }
-        }
+        .task(id: workspace.signalContext) { await workspace.refreshDuty() }
         .onChange(of: channel, initial: true) { _, _ in clearChannel() }
         .onChange(of: stored["enabled"].bool) { _, value in enabled = value ?? false }
         .onDisappear { address = ""; secret = "" }
@@ -120,7 +115,7 @@ struct NativeDutyControls: View {
                 SecureField(channel == "telegram" ? "Токен бота" : "Секрет webhook", text: $secret)
                 if let testID = workspace.notificationTests[channel] {
                     let result = workspace.duty["deliveries"].items.first { PlatformExactID.same($0["id"].text, testID) && $0["channel"].text == channel }
-                    Text("Проверка " + testID + " · " + (result?["state"].text ?? "ожидается результат"))
+                    Text("Проверка " + testID + " · " + (result?["state"].text ?? workspace.notificationTestStates[channel] ?? "ожидается результат"))
                         .font(.caption).textSelection(.enabled)
                     if let detail = result?["error"].text, !detail.isEmpty { ErrorLine(text: detail) }
                 }
@@ -132,11 +127,11 @@ struct NativeDutyControls: View {
                         if !address.isEmpty { fields[name == "telegram" ? "chat_id" : "url"] = .string(address) }
                         secret = ""; address = ""
                         workspace.perform { await workspace.setNotificationChannel(name, settings: fields) }
-                    }.disabled(configuring || stored == .null)
+                    }.disabled(configuring || stored == .null || enabled && stored["configured"].bool != true && (address.isEmpty || secret.isEmpty))
                     Button("Отправить тест") {
                         let name = channel
                         workspace.perform { await workspace.testNotification(name) }
-                    }.disabled(stored["enabled"].bool != true || configuring || workspace.operationsPending.contains("notification-test"))
+                    }.disabled(stored["enabled"].bool != true || stored["configured"].bool != true || configuring || workspace.operationsPending.contains("notification-test"))
                 }
             }.textFieldStyle(.roundedBorder)
         }

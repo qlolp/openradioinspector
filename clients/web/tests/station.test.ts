@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest';
-import { formatBytes, measuredRate, recoveryNotices } from '../src/station';
+import {
+  estimatedBaselineSeconds,
+  formatBytes,
+  measuredRate,
+  recoveryNotices,
+} from '../src/station';
 import { gridPointCount } from '../src/scan-plan';
 import { waterfallPixels } from '../src/spectrum-view';
 import type { DisplaySweep, GuardStatus, WorkerStatus } from '../src/types';
@@ -125,4 +130,31 @@ it('offers paired recipes only for matched tinySA and AR-DV1 profiles or their s
   expect(supportsPairedRechecks(desk('tinysa-sim', 'ardv1-sim'))).toBe(true);
   expect(supportsPairedRechecks(desk('rf-explorer-3g-serial', 'ardv1-serial'))).toBe(false);
   expect(supportsPairedRechecks(desk('tinysa-serial', 'ardv1-sim'))).toBe(false);
+});
+
+it('estimates remaining receiver or single-band baseline work from measured visits', () => {
+  const progress = {
+    ready: false,
+    points: 21,
+    passes: 5,
+    minimum_passes: 20,
+    elapsed_seconds: 40,
+    minimum_seconds: 60,
+  };
+  expect(estimatedBaselineSeconds(progress, 21, 10)).toBe(32);
+  expect(estimatedBaselineSeconds(progress, 21, undefined)).toBeUndefined();
+  const band = {
+    band_id: 'one',
+    name: 'Bench',
+    sweeps: 10,
+    elapsed_seconds: 56,
+    minimum_sweeps: 20,
+    minimum_seconds: 60,
+    window_count: 4,
+    eligible_windows: 3,
+    ready: false,
+    baseline_id: null,
+  };
+  expect(estimatedBaselineSeconds({ ...progress, bands: [band] }, 4, 2)).toBe(20);
+  expect(estimatedBaselineSeconds({ ...progress, bands: [band, band] }, 8, 2)).toBeUndefined();
 });

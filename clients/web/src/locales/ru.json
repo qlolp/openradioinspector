@@ -986,5 +986,14 @@
   "Choose a horizon from one minute to one year.": "Укажите период от минуты до года.",
   "SMA readback unavailable": "Вход SMA не подтверждён прибором",
   "Detector unavailable": "Режим детектора неизвестен",
-  "AR-DV1 can check events. Comparing paired archived visits requires tinySA and AR-DV1.": "AR-DV1 может проверять события. Метод сравнения парных архивных визитов использует tinySA и AR-DV1."
+  "AR-DV1 can check events. Comparing paired archived visits requires tinySA and AR-DV1.": "AR-DV1 может проверять события. Метод сравнения парных архивных визитов использует tinySA и AR-DV1.",
+  "At least {amount}": "Не менее {amount}",
+  "Archive space confirmed": "Узел подтвердил запас места",
+  "The selected volume needs more space": "На выбранном томе недостаточно места",
+  "The archive size limit has been reached": "Достигнут лимит размера архива",
+  "The forecast exceeds the supported size": "Прогноз превышает поддерживаемый объём",
+  "Awaiting the recording rate": "Ожидание измерения скорости записи",
+  "Measuring disk allocation": "Измеряется занятое место на томе",
+  "The archive volume is unavailable": "Том архива недоступен",
+  "Insufficient coverage history for a time estimate": "Для оценки времени недостаточно истории покрытия"
 }

@@ -423,6 +423,13 @@ final class NativeNodeConnectionTests: XCTestCase {
 
 extension NativeNodeConnectionTests {
     @MainActor
+    func testAReceiverWithoutWorkerStatusHasNoOperatorControlsUntilConnected() {
+        let model = RemoteDualModel()
+        XCTAssertNil(model.operatorClient)
+        XCTAssertEqual(model.analyzerReceptionLabel, "Состояние приёма неизвестно")
+    }
+
+    @MainActor
     func testPairedReaderOpensRunningSurveyAndRecallsItsSourceWithoutOperatorRoutes() async throws {
         let store = MemoryStore()
         try await store.save(.init(token: "fixture-reader"), for: PlatformBaseURL(server))

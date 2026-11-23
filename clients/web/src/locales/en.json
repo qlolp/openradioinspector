@@ -986,5 +986,14 @@
   "Choose a horizon from one minute to one year.": "Choose a horizon from one minute to one year.",
   "SMA readback unavailable": "SMA readback unavailable",
   "Detector unavailable": "Detector unavailable",
-  "AR-DV1 can check events. Comparing paired archived visits requires tinySA and AR-DV1.": "AR-DV1 can check events. Comparing paired archived visits requires tinySA and AR-DV1."
+  "AR-DV1 can check events. Comparing paired archived visits requires tinySA and AR-DV1.": "AR-DV1 can check events. Comparing paired archived visits requires tinySA and AR-DV1.",
+  "At least {amount}": "At least {amount}",
+  "Archive space confirmed": "Archive space confirmed",
+  "The selected volume needs more space": "The selected volume needs more space",
+  "The archive size limit has been reached": "The archive size limit has been reached",
+  "The forecast exceeds the supported size": "The forecast exceeds the supported size",
+  "Awaiting the recording rate": "Awaiting the recording rate",
+  "Measuring disk allocation": "Measuring disk allocation",
+  "The archive volume is unavailable": "The archive volume is unavailable",
+  "Insufficient coverage history for a time estimate": "Insufficient coverage history for a time estimate"
 }

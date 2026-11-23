@@ -29,6 +29,32 @@ export function measuredRate(worker?: WorkerStatus): number | undefined {
     return (worker.measurements * 1000) / elapsed;
 }
 
+export function estimatedBaselineSeconds(
+  progress: Preflight['baseline_collection'] | undefined,
+  visitsPerPass: number | undefined,
+  rate: number | undefined,
+): number | undefined {
+  if (!progress || !rate || !Number.isFinite(rate) || rate <= 0) return;
+  if (progress.ready) return 0;
+  let remainingVisits: number;
+  let minimumSeconds = progress.minimum_seconds ?? 60,
+    elapsed = progress.elapsed_seconds ?? 0;
+  if (progress.bands?.length) {
+    // A single configured band has one repeatable itinerary. Custom multiple-band priorities can differ.
+    if (progress.bands.length !== 1) return;
+    const band = progress.bands[0];
+    if (!(band.eligible_windows ?? 1)) return;
+    remainingVisits = (band.minimum_sweeps - band.sweeps) * (band.window_count ?? 1);
+    elapsed = band.elapsed_seconds;
+    minimumSeconds = band.minimum_seconds;
+  } else if (progress.minimum_passes != null && progress.passes != null && visitsPerPass) {
+    remainingVisits = (progress.minimum_passes - progress.passes) * visitsPerPass;
+  } else if (progress.minimum_sweeps != null && progress.sweeps != null) {
+    remainingVisits = progress.minimum_sweeps - progress.sweeps;
+  } else return;
+  return Math.ceil(Math.max(0, minimumSeconds - elapsed, remainingVisits / rate));
+}
+
 export interface RecoveryNotice {
   kind: 'archive' | 'analyzer' | 'receiver' | 'pause';
   title: string;

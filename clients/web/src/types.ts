@@ -138,12 +138,14 @@ export interface StorageReport {
   };
   storage_id?: string;
   forecast_seconds?: number;
+  forecast_status?: string;
   database_allocated_bytes?: number | null;
   wal_allocated_bytes?: number | null;
   recording_bytes_per_second?: number | null;
   required_free_bytes?: number | null;
   restore_reserve_bytes?: number | null;
   shortfall_bytes?: number | null;
+  minimum_shortfall_bytes?: number | null;
   ready?: boolean;
   write_probe?: boolean | null;
   available_bytes?: number | null;

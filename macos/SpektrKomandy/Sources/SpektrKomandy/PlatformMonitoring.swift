@@ -511,14 +511,22 @@ extension PlatformClient {
         return try await get("/monitoring-projects/\(Self.segment(projectID))/storage")
     }
 
-    public func monitoringSavePreparation(projectID: String, antennaNotes: String, receivePathConfirmed: Bool, locationConfirmed: Bool) async throws -> MonitoringValue {
+    public func monitoringSavePreparation(projectID: String, antennaNotes: String, receivePathConfirmed: Bool, locationConfirmed: Bool,
+                                          correctingPort: (role: String, from: String, to: String)? = nil) async throws -> MonitoringValue {
         let notes = antennaNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !projectID.isEmpty, !notes.isEmpty, notes.unicodeScalars.count <= 1000 else {
             throw PlatformError.invalidCommand("Выберите проект и опишите антенну/тракт: 1…1000 символов")
         }
-        let body: [String: MonitoringValue] = [
+        var body: [String: MonitoringValue] = [
             "antenna_notes": .string(notes), "receive_path_confirmed": .boolean(receivePathConfirmed),
             "location_confirmed": .boolean(locationConfirmed)]
+        if let correction = correctingPort {
+            guard ["analyzer", "receiver"].contains(correction.role), !correction.to.isEmpty,
+                  correction.to.utf8.count <= 1024, !correction.to.contains("://") else {
+                throw PlatformError.invalidCommand("Укажите физический порт прибора на узле.")
+            }
+            body["port_corrections"] = .object([correction.role: .object(["from": .string(correction.from), "to": .string(correction.to)])])
+        }
         return try await post("/monitoring-projects/\(Self.segment(projectID))/preparation", body: body)
     }
 

@@ -9,7 +9,13 @@ import {
 import { hz, Modal, utc } from './components';
 import { boardProfiles, rfExplorerReadback, surveyCounts } from './rf-explorer';
 import { t } from './i18n';
-import { formatBytes, formatQuantity, measuredRate, preparationReady } from './station';
+import {
+  estimatedBaselineSeconds,
+  formatBytes,
+  formatQuantity,
+  measuredRate,
+  preparationReady,
+} from './station';
 import { useArchiveRead } from './RfExplorerOriginals';
 import { encodePathSegment, originalJSON, originalObservationJSON } from './wire';
 import { message, type Desk } from './useDesk';
@@ -306,7 +312,9 @@ export function DutySetup({
     [receiverPort, setReceiverPort] = useState('');
   const [low, setLow] = useState(firstRanges[kind][0]),
     [high, setHigh] = useState(firstRanges[kind][1]),
-    [spacing, setSpacing] = useState('10');
+    [spacing, setSpacing] = useState(
+      desk.capabilities?.features.scan_plan_grid_10khz === true || kind !== 'tinysa' ? '10' : '100',
+    );
   const [board, setBoard] = useState<keyof typeof boardProfiles>('expansion'),
     [storage, setStorage] = useState('');
   const [checks, setChecks] = useState<PathChecks>({
@@ -321,6 +329,8 @@ export function DutySetup({
     createdProject = useRef<Project | undefined>(resume),
     planSaved = useRef(false);
   const features = desk.capabilities?.features ?? {};
+  const firstSpacing = (source: DutySource) =>
+    source === 'tinysa' && features.scan_plan_grid_10khz !== true ? '100' : '10';
   const existing = desk.sessions.find((s) => s.id === sessionId),
     selected = sourceOf(existing) ?? kind;
   const p = desk.project?.id === prepared?.id ? desk.project : prepared;
@@ -402,6 +412,9 @@ export function DutySetup({
   const restore = restoreEdit ?? p?.archive?.reserve_restore ?? true;
   const w = desk.guard?.workers.find((worker) => worker.stream_id === primary),
     rate = measuredRate(w);
+  const collectionError =
+    p?.last_error ||
+    (p && desk.guard?.project.id === p.id ? w?.last_error || desk.guard.error : undefined);
   let invalid = '',
     count: number | undefined,
     windows: number | undefined;
@@ -558,31 +571,12 @@ export function DutySetup({
       acct?.baseline_collection?.windows ??
       (acct?.baseline_collection?.bands?.length
         ? acct.baseline_collection.bands.reduce(
-            (total, band) => total + (band.eligible_windows ?? 1),
+            (total, band) => total + (band.window_count ?? band.eligible_windows ?? 1),
             0,
           )
         : 1));
   const progress = acct?.baseline_collection;
-  const remainingPasses =
-    progress?.minimum_passes != null && progress.passes != null
-      ? Math.max(0, progress.minimum_passes - progress.passes)
-      : undefined;
-  const remainingSweeps =
-    progress?.minimum_sweeps != null && progress.sweeps != null
-      ? Math.max(0, progress.minimum_sweeps - progress.sweeps)
-      : undefined;
-  const remainingVisits =
-    remainingPasses != null && visitsPerPass ? remainingPasses * visitsPerPass : remainingSweeps;
-  const estimatedBackground =
-    progress && rate && remainingVisits != null
-      ? Math.ceil(
-          Math.max(
-            0,
-            (progress.minimum_seconds ?? 60) - (progress.elapsed_seconds ?? 0),
-            remainingVisits / rate,
-          ),
-        )
-      : undefined;
+  const estimatedBackground = estimatedBaselineSeconds(progress, visitsPerPass, rate);
   const locked = !!createdSession.current || !!createdProject.current;
   return (
     <Modal
@@ -666,7 +660,7 @@ export function DutySetup({
                       setKind(source);
                       setLow(firstRanges[source][0]);
                       setHigh(firstRanges[source][1]);
-                      setSpacing('10');
+                      setSpacing(firstSpacing(source));
                       setSimulate(false);
                     }}
                   >
@@ -794,7 +788,7 @@ export function DutySetup({
                   onClick={() => {
                     setLow(firstRanges[kind][0]);
                     setHigh(firstRanges[kind][1]);
-                    setSpacing('10');
+                    setSpacing(firstSpacing(kind));
                   }}
                 >
                   {t('Short first range')}
@@ -980,7 +974,7 @@ export function DutySetup({
                         setKind(source);
                         setLow(firstRanges[source][0]);
                         setHigh(firstRanges[source][1]);
-                        setSpacing('10');
+                        setSpacing(firstSpacing(source));
                         setAnalyzerPort(p.profile?.analyzer?.port ?? '');
                         setReceiverPort(p.profile?.receiver?.port ?? '');
                         setChecker(!!p.profile?.receiver && source !== 'ardv1');
@@ -1003,6 +997,7 @@ export function DutySetup({
                   </p>
                 </>
               )}
+            {collectionError && <p role="alert">{t(collectionError)}</p>}
             {sampleRead?.error && <p role="alert">{t(sampleRead.error)}</p>}
           </>
         )}
@@ -1025,7 +1020,11 @@ export function DutySetup({
               <p>
                 {t('Estimated time to baseline')} ·{' '}
                 {estimatedBackground == null
-                  ? t('Awaiting measured rate')
+                  ? t(
+                      rate
+                        ? 'Insufficient coverage history for a time estimate'
+                        : 'Awaiting measured rate',
+                    )
                   : formatQuantity(estimatedBackground) + ' ' + t('s')}
               </p>
             )}

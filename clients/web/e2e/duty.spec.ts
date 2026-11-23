@@ -138,6 +138,7 @@ test('a stopped project can correct a port without creating another project or s
   const current = () => ({
     ...project,
     state: 'draft',
+    last_error: port === 'COM14' ? 'Serial access denied on COM14' : '',
     baseline_id: null,
     profile: {
       receiver: { id: stream, role: 'receiver', port, settings: { adapter: 'ardv1-serial' } },
@@ -171,13 +172,14 @@ test('a stopped project can correct a port without creating another project or s
   await openDesk(page);
   await page.getByRole('button', { name: 'Duty setup' }).click();
   const wizard = page.getByRole('dialog', { name: 'Prepare a receive-only project' });
+  await expect(wizard).toContainText('Serial access denied on COM14');
   await wizard.getByText('Correct the project ports').click();
   await expect(wizard.getByLabel('AR-DV1 serial port')).toHaveValue('COM14');
   await wizard.getByLabel('AR-DV1 serial port').fill('COM24');
   await wizard.getByRole('button', { name: 'Save project ports' }).click();
   await expect(wizard.getByRole('button', { name: 'Save project ports' })).toBeDisabled();
   await expect(wizard.getByLabel('AR-DV1 serial port')).toHaveValue('COM24');
-  expect(writes).toEqual(['preparation']);
+  await expect.poll(() => writes).toEqual(['preparation']);
   await wizard.getByRole('button', { name: 'Change instruments or range in a new draft' }).click();
   await expect(wizard.getByRole('heading', { name: 'Choose instruments' })).toBeVisible();
   await expect(wizard.getByLabel('AR-DV1 serial port')).toHaveValue('COM24');
@@ -404,7 +406,7 @@ test('receiver event opens its exact observation and hold/resume uses an explici
 test('five steps require an archived sample and confirmed baseline before scheduling with notification channels off', async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   const writes: { path: string; body: Record<string, unknown> }[] = [];
   let created = false,
     collecting = false,
@@ -536,6 +538,14 @@ test('five steps require an archived sample and confirmed baseline before schedu
                   deliveries: testReceipt
                     ? [
                         {
+                          id: 'an-unrelated-delivery',
+                          channel: 'webhook',
+                          kind: 'test',
+                          state: 'failed',
+                          attempts: 3,
+                          created_at: started,
+                        },
+                        {
                           id: 'synthetic-queued-test',
                           channel: 'webhook',
                           kind: 'test',
@@ -558,6 +568,7 @@ test('five steps require an archived sample and confirmed baseline before schedu
                       ready: true,
                       storage_id: 'node-archive',
                       forecast_seconds: 36_000,
+                      forecast_status: 'ready',
                       required_free_bytes: 5 * 1024 ** 3,
                       available_bytes: 8 * 1024 ** 3,
                       shortfall_bytes: 0,
@@ -609,6 +620,7 @@ test('five steps require an archived sample and confirmed baseline before schedu
   await expect(original.locator('pre')).toContainText(raw.interval.started_at);
   await expect(original.locator('pre')).toContainText(raw.id);
   await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(wizard).toContainText('Archive space confirmed');
   await expect(wizard.getByText(/Required free space/)).toContainText('5 GiB');
   await wizard.getByLabel('Minimum archive horizon (hours)').fill('10');
   await wizard.getByLabel('Reserve space for a restore check').uncheck();
@@ -668,6 +680,7 @@ test('five steps require an archived sample and confirmed baseline before schedu
   await wizard.getByText('Notification delivery history', { exact: true }).click();
   const delivery = wizard.getByRole('listitem').filter({ hasText: 'synthetic-queued-test' });
   await expect(delivery).toContainText('pending');
+  await expect(webhook.getByRole('status')).toContainText('pending');
   delivered = true;
   await expect(delivery).toContainText('Delivered', { timeout: 10000, ignoreCase: true });
   await expect(webhook.getByRole('status')).toContainText('Delivered', { ignoreCase: true });

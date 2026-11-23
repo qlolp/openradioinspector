@@ -7,11 +7,23 @@ import { useArchiveRead } from './RfExplorerOriginals';
 import { encodePathSegment } from './wire';
 import type { Desk } from './useDesk';
 
+const forecastReasons: Record<string, string> = {
+  ready: 'Archive space confirmed',
+  insufficient_space: 'The selected volume needs more space',
+  archive_quota: 'The archive size limit has been reached',
+  forecast_overflow: 'The forecast exceeds the supported size',
+  source_rate_unavailable: 'Awaiting the recording rate',
+  measuring_allocation: 'Measuring disk allocation',
+  volume_unavailable: 'The archive volume is unavailable',
+};
 export function ArchiveForecast({ report }: { report?: StorageReport }) {
   return (
     <div className="baseline-status">
       <strong>
         {t('Archive budget on the recording node')} · {report?.storage_id ?? '—'}
+        {report?.forecast_status && (
+          <> · {t(forecastReasons[report.forecast_status] ?? report.forecast_status)}</>
+        )}
       </strong>
       <span>
         {t('Forecast horizon')} ·{' '}
@@ -22,7 +34,9 @@ export function ArchiveForecast({ report }: { report?: StorageReport }) {
       <span>
         {t('Required free space')} · {formatBytes(report?.required_free_bytes)} · {t('Available')} ·{' '}
         {formatBytes(report?.available_bytes)} · {t('Shortfall')} ·{' '}
-        {formatBytes(report?.shortfall_bytes)}
+        {report?.shortfall_bytes == null && (report?.minimum_shortfall_bytes ?? 0) > 0
+          ? t('At least {amount}', { amount: formatBytes(report?.minimum_shortfall_bytes) })
+          : formatBytes(report?.shortfall_bytes)}
       </span>
       <span>
         {t('Allocated database and WAL')} · {formatBytes(report?.database_allocated_bytes)} /{' '}

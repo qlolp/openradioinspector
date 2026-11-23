@@ -630,6 +630,24 @@ final class MonitoringTests: XCTestCase {
         }
     }
 
+    func testPortSelectionReadsTheRecordingNodeAndCorrectsOnlyTheExpectedPort() async throws {
+        let client = try makeClient { request in
+            if request.url!.path.hasSuffix("/serial-ports") {
+                XCTAssertEqual(request.httpMethod, "GET")
+                return (self.response(request), self.envelope(#"{"ports":["COM24"]}"#))
+            }
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/monitoring-projects/p%2F1/preparation"))
+            let body = try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody))
+            XCTAssertEqual(body["port_corrections"], .object(["receiver": .object(["from": .string("COM14"), "to": .string("COM24")])]))
+            return (self.response(request), self.envelope(#"{"id":"p/1"}"#))
+        }
+        let names = try await client.nodeSerialPorts()
+        XCTAssertEqual(names, ["COM24"])
+        _ = try await client.monitoringSavePreparation(projectID: "p/1", antennaNotes: "RX", receivePathConfirmed: true,
+            locationConfirmed: true, correctingPort: ("receiver", "COM14", "COM24"))
+    }
+
     func testPreparationSavesScopedOperatorDeclarationsIncludingFalseFlags() async throws {
         let client = try makeClient { request in
             XCTAssertEqual(request.httpMethod, "POST")
