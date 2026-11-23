@@ -171,6 +171,7 @@ impl GuardService {
             .err()
             .map(|_| "recovery_archive_error".into());
         recovered?;
+        self.spawn_duty_channels()?;
         startup.started = true;
         let weak = Arc::downgrade(self);
         let wake = self.wake.clone();
@@ -182,6 +183,10 @@ impl GuardService {
                     };
                     if guard.closed.load(Ordering::Acquire) {
                         return Ok(());
+                    }
+                    if guard.duty_tick().await.is_err() {
+                        guard.startup.lock().await.delivery_error =
+                            Some("duty_schedule_error".into());
                     }
                     let ids = guard
                         .runtime
@@ -241,6 +246,8 @@ impl GuardService {
             }
             for original in &projects {
                 let id = s(original, "id")?.to_owned();
+                self.duty_runtime
+                    .channels(&id, &original["notification_channels"])?;
                 let should_resume = {
                     let _life = self.lock_project(&id).await?;
                     self.ensure_open()?;
@@ -305,9 +312,15 @@ impl GuardService {
                                 .put_monitoring("project", current.clone())
                                 .await?;
                             current["autostart"] == true
+                                && current["duty"]["enabled"] != true
+                                && current["manual_primary_hold"] != true
                         }
                     }
                 };
+                if original["duty"]["enabled"] == true {
+                    self.reconcile_duty(&id, crate::DutyTrigger::Restart)
+                        .await?;
+                }
                 if should_resume && self.arm(&id, json!({})).await.is_err() {
                     let _tx = self.coordinator.lock().await;
                     let mut p = self.project(&id).await?;

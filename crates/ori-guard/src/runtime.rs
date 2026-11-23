@@ -65,6 +65,8 @@ pub(crate) enum JobKind {
     Receiver,
     Restore,
     Supervisor,
+    Telegram,
+    Webhook,
 }
 pub(crate) type Jobs =
     BTreeMap<(String, JobKind), std::sync::Arc<tokio::sync::Mutex<Option<JoinHandle<Result<()>>>>>>;
@@ -623,6 +625,7 @@ impl GuardService {
                 "Требуются подтверждённый эталон и успешная подготовка",
             ));
         }
+        self.require_duty_window(&original)?;
         let context = self.guard_acquisition_context(&original).await?;
         let old = s(&original, "active_session_id")?.to_owned();
         self.ensure_session_unclaimed(id, &old, true)?;
@@ -712,6 +715,11 @@ impl GuardService {
             all.projects.insert(id.into(), runtime.clone());
             self.sync_ownership(id, &runtime)?;
         }
+        if let Err(expired) = self.require_duty_window(&p) {
+            drop(_life);
+            self.disarm_runtime(id).await?;
+            return Err(expired);
+        }
         match self
             .control
             .start_session(&decode::<Session>(&session)?, self.permit(id, &runtime))
@@ -748,6 +756,24 @@ impl GuardService {
     }
     pub async fn disarm(&self, id: &str, payload: Value) -> Result<Value> {
         fields(&payload, &[], true)?;
+        let _operation = self.lock_project(&format!("duty/{id}")).await?;
+        let cancelled = self.cancel_duty(id).await;
+        let stopped = self.disarm_runtime(id).await;
+        cancelled?;
+        let stopped = stopped?;
+        if stopped["manual_primary_hold"] == true {
+            let _life = self.lock_project(id).await?;
+            let _tx = self.coordinator.lock().await;
+            let mut p = self.project(id).await?;
+            p.as_object_mut()
+                .expect("project")
+                .remove("manual_primary_hold");
+            self.archive.put_monitoring("project", p.clone()).await?;
+            return Ok(p);
+        }
+        Ok(stopped)
+    }
+    pub(crate) async fn disarm_runtime(&self, id: &str) -> Result<Value> {
         self.ensure_open()?;
         if self.runtime_snapshot(id)?.is_some() {
             self.update_runtime(id, |r| {
@@ -764,16 +790,20 @@ impl GuardService {
             })?;
         }
         self.wake.notify_waiters();
-        {
+        let persisted = async {
             let _life = self.lock_project(id).await?;
             let _tx = self.coordinator.lock().await;
             self.ensure_open()?;
             let mut p = self.project(id).await?;
             p["resume_requested"] = json!(false);
             self.archive.put_monitoring("project", p).await?;
+            Ok::<(), GuardError>(())
         }
+        .await;
         self.wake.notify_waiters();
-        self.cleanup_project(id, false).await
+        let cleaned = self.cleanup_project(id, false).await;
+        persisted?;
+        cleaned
     }
     pub(crate) async fn cleanup_project(&self, id: &str, preserve_intent: bool) -> Result<Value> {
         let r = self.runtime_snapshot(id)?;

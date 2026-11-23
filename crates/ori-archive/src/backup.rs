@@ -760,6 +760,7 @@ fn portable(source: &Connection, destination: &Path, timeout: Duration) -> Resul
         let tx = db.transaction()?;
         crate::panorama_events::materialize_copy(&tx)?;
         tx.execute("DELETE FROM monitoring_webhooks", [])?;
+        crate::duty_outbox::make_portable(&tx)?;
         let mut after = 0_i64;
         loop {
             let values=tx.prepare("SELECT rowid,id,payload FROM monitoring_records WHERE kind='project' AND rowid>? ORDER BY rowid LIMIT 100")?.query_map([after],|row|Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?)))?.collect::<std::result::Result<Vec<_>,_>>()?;
@@ -772,6 +773,13 @@ fn portable(source: &Connection, destination: &Path, timeout: Duration) -> Resul
                 project["resume_requested"] = json!(false);
                 project["webhook_enabled"] = json!(false);
                 project["coverage"] = json!("stopped");
+                if let Some(duty)=project.get_mut("duty").filter(|v|v.is_object()) {
+                    duty["enabled"]=json!(false);
+                    duty["resume_after_restart"]=json!(false);
+                    duty["status"]=json!("disarmed");
+                    duty["last_error"]=Value::Null;
+                }
+                if let Some(object)=project.as_object_mut() {object.remove("notification_channels");}
                 if ["armed", "searching", "degraded", "collecting"]
                     .contains(&project["state"].as_str().unwrap_or(""))
                 {

@@ -180,6 +180,7 @@ pub(crate) fn writer(
     tx.execute_batch(include_str!("schema_v6.sql"))?;
     crate::queries::install_scan_window_scope(&tx)?;
     crate::bookmarks::install(&tx)?;
+    crate::duty_outbox::install(&tx)?;
     let mut columns = tx.prepare("PRAGMA table_info(investigations)")?;
     let listening = columns
         .query_map([], |r| r.get::<_, String>(1))?

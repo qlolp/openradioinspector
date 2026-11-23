@@ -1,5 +1,8 @@
 //! Thin domain/effect binding. Domain crates own business transactions; Core
 //! alone owns device actors, filesystem probes, HTTP and research processes.
+mod outbound;
+#[cfg(test)]
+mod outbound_tests;
 use crate::{
     Core, CoreError,
     devices::{DeviceError, ExecutionGate, Target, TuneOutcome},
@@ -631,49 +634,41 @@ impl InstrumentControl for Effects {
             .map_err(|_| ControlError::Unavailable("storage_probe_failed"))
         })
     }
+    fn outbound_channels_available(&self) -> bool {
+        true
+    }
+    fn configure_notifications<'a>(
+        &'a self,
+        project: &'a str,
+        patch: Value,
+    ) -> ControlFuture<'a, Value> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            outbound::configure(&core, project, patch).await
+        })
+    }
+    fn deliver_duty<'a>(
+        &'a self,
+        channel: ori_archive::DutyChannel,
+        claim: &'a ori_archive::ClaimedDutyDelivery,
+    ) -> ControlFuture<'a, ori_guard::DutyDeliveryReceipt> {
+        Box::pin(async move {
+            let core = self.core.upgrade().ok_or_else(unavailable)?;
+            outbound::deliver(&core, channel, claim).await
+        })
+    }
     fn deliver_webhook<'a>(
         &'a self,
         request: ori_guard::WebhookRequest,
     ) -> ControlFuture<'a, ori_guard::DeliveryReceipt> {
         Box::pin(async move {
-            use hmac::{Hmac, KeyInit, Mac};
-            use sha2::Sha256;
             let core = self.core.upgrade().ok_or_else(unavailable)?;
             let _admitted = core
                 .webhook_slots
                 .clone()
                 .try_acquire_owned()
                 .map_err(|_| ControlError::Unavailable("notification_busy"))?;
-            let url = url::Url::parse(&request.url)
-                .map_err(|_| ControlError::Failed("invalid webhook URL".into()))?;
-            if !matches!(url.scheme(), "http" | "https")
-                || !url.username().is_empty()
-                || url.password().is_some()
-            {
-                return Err(ControlError::Failed("invalid webhook URL".into()));
-            }
-            let mut signature = Hmac::<Sha256>::new_from_slice(request.secret.as_bytes())
-                .map_err(|_| ControlError::Failed("invalid webhook key".into()))?;
-            signature.update(&request.body);
-            let signature = signature
-                .finalize()
-                .into_bytes()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
-            let response = core
-                .webhook_client
-                .post(url)
-                .header("Content-Type", "application/json")
-                .header(
-                    "X-OpenRadioInspector-Notification-ID",
-                    request.notification_id,
-                )
-                .header(
-                    "X-OpenRadioInspector-Signature",
-                    format!("sha256={signature}"),
-                )
-                .body(request.body)
+            let response = outbound::signed_request(&core.webhook_client, request)?
                 .send()
                 .await
                 .map_err(|_| ControlError::Failed("network_error".into()))?;

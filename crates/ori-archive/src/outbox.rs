@@ -63,7 +63,9 @@ pub(crate) enum OutboxOperation {
         now: String,
         lease_until: String,
     },
+    DutyClaim { channel:crate::DutyChannel, now:String, lease_until:String },
     Finish {
+        duty: bool,
         id: String,
         attempts: u32,
         lease_until: String,
@@ -77,11 +79,12 @@ pub(crate) enum OutboxOperation {
 }
 pub(crate) enum OutboxReply {
     Claim(NotificationClaim),
+    DutyClaim(Option<Box<crate::ClaimedDutyDelivery>>),
     Changed(bool),
 }
-struct StoredNotification {
-    row: NotificationRow,
-    body: Vec<u8>,
+pub(crate) struct StoredNotification {
+    pub(crate) row: NotificationRow,
+    pub(crate) body: Vec<u8>,
 }
 
 fn nonempty(value: &str, field: &str) -> Result<()> {
@@ -122,7 +125,7 @@ pub(crate) fn validate_notification(row: &mut NotificationRow) -> Result<()> {
 }
 pub(crate) fn validate_operation(operation: &mut OutboxOperation) -> Result<()> {
     match operation {
-        OutboxOperation::Claim { now, lease_until } => {
+        OutboxOperation::Claim { now, lease_until } | OutboxOperation::DutyClaim {now,lease_until,..} => {
             *now = validate::utc(now)?;
             *lease_until = validate::utc(lease_until)?;
             if lease_until <= now {
@@ -151,7 +154,7 @@ pub(crate) fn validate_operation(operation: &mut OutboxOperation) -> Result<()> 
     Ok(())
 }
 
-fn decode(row: &Row<'_>, maximum: usize) -> Result<StoredNotification> {
+pub(crate) fn decode(row: &Row<'_>, maximum: usize) -> Result<StoredNotification> {
     let raw: String = row.get("payload")?;
     if raw.len() > maximum {
         return Err(ArchiveError::QueryBudget);
@@ -238,6 +241,7 @@ pub(crate) fn apply_operation(
 ) -> Result<OutboxReply> {
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let reply = match operation {
+        OutboxOperation::DutyClaim {channel,now,lease_until} => OutboxReply::DutyClaim(crate::duty_outbox::claim(&tx,channel,&now,&lease_until,maximum)?.map(Box::new)),
         OutboxOperation::Claim { now, lease_until } => {
             tx.execute("UPDATE monitoring_notifications SET state='failed',error='last_attempt_interrupted',lease_until=NULL WHERE state='delivering' AND attempts>=5 AND lease_until<=?", [&now])?;
             let source = tx.query_row("SELECT id,project_id,attempts FROM monitoring_notifications WHERE attempts<5 AND ((state='pending' AND next_at<=?) OR (state='delivering' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1",
@@ -292,6 +296,7 @@ pub(crate) fn apply_operation(
             }
         }
         OutboxOperation::Finish {
+            duty,
             id,
             attempts,
             lease_until,
@@ -304,7 +309,13 @@ pub(crate) fn apply_operation(
                 }
                 NotificationCompletion::Failed { error } => ("failed", None, Some(error)),
             };
-            let changed = tx.execute("UPDATE monitoring_notifications SET state=?,next_at=?,error=?,lease_until=NULL WHERE id=? AND attempts=? AND state='delivering' AND lease_until=?", params![state,next_at,error,id,attempts,lease_until])?;
+            let table = if duty { "ori_duty_deliveries" } else { "monitoring_notifications" };
+            let changed = tx.execute(&format!("UPDATE {table} SET state=?,next_at=?,error=?,lease_until=NULL WHERE id=? AND attempts=? AND state='delivering' AND lease_until=?"), params![state,next_at,error,id,attempts,lease_until])?;
+            if duty && changed == 1 && error.as_deref()==Some("HTTP 429") && let Some(deadline)=next_at {
+                tx.execute("INSERT INTO ori_duty_cooldowns(project_id,channel,until_at)
+                    SELECT project_id,channel,? FROM ori_duty_deliveries WHERE id=?
+                    ON CONFLICT(project_id,channel) DO UPDATE SET until_at=max(until_at,excluded.until_at)",params![deadline,id])?;
+            }
             OutboxReply::Changed(changed == 1)
         }
         OutboxOperation::Acknowledge { project, id, at } => {
@@ -390,6 +401,7 @@ impl Archive {
         match self
             .inner
             .outbox(OutboxOperation::Finish {
+                duty:false,
                 id: id.into(),
                 attempts,
                 lease_until: lease_until.into(),

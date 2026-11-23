@@ -53,6 +53,7 @@ pub struct FakeControl {
     pub calls: Mutex<Vec<String>>,
     pub workers: Mutex<Vec<WorkerStatus>>,
     pub ready: Mutex<Option<bool>>,
+    pub preflight_gate: Mutex<Option<Arc<TuneGate>>>,
     pub storage: Mutex<StorageProbe>,
     pub permits: Mutex<Vec<(ControlTarget, ControlPermit)>>,
     pub acknowledged: Mutex<Option<bool>>,
@@ -89,6 +90,7 @@ impl FakeControl {
             calls: Mutex::new(vec![]),
             workers: Mutex::new(vec![]),
             ready: Mutex::new(Some(true)),
+            preflight_gate: Mutex::new(None),
             storage: Mutex::new(StorageProbe {
                 filesystem_free_bytes: Some(1_000_000_000_000),
                 writable: Some(true),
@@ -145,6 +147,11 @@ impl FakeControl {
 impl InstrumentControl for FakeControl {
     fn preflight<'a>(&'a self, _: &'a Session) -> ControlFuture<'a, InstrumentPreflight> {
         Box::pin(async {
+            let gate=self.preflight_gate.lock().unwrap().clone();
+            if let Some(gate)=gate {
+                gate.entered.notify_one();
+                gate.release.notified().await;
+            }
             Ok(InstrumentPreflight {
                 ready: *self.ready.lock().unwrap(),
                 checks: vec![],

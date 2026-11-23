@@ -626,6 +626,28 @@ impl GuardService {
                     project["state"].as_str(),
                     Some("armed" | "searching" | "degraded")
                 ) {
+                    let sustained = (region.first_bin..=region.last_bin).any(|bin| {
+                        detector
+                            .state()
+                            .window
+                            .iter()
+                            .rev()
+                            .take(5)
+                            .filter(|row| row[bin])
+                            .count()
+                            >= 3
+                    });
+                    let occurrence = if sustained {
+                        "sustained"
+                    } else if found.is_some() {
+                        "repeat"
+                    } else {
+                        "impulse"
+                    };
+                    mutations.push(
+                        self.duty_detection(&project, &mut event, occurrence, &sweep.id)
+                            .await?,
+                    );
                     mutations.push(ori_archive::Mutation::EnqueueNotification(
                         self.event_notification(&project, &event)?,
                     ));

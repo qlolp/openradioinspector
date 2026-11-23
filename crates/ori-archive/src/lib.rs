@@ -5,6 +5,8 @@ mod bookmarks;
 mod candidate_precision;
 mod checkpoint;
 mod domains;
+mod duty_outbox;
+pub use duty_outbox::{DutyChannel, DutyKind, DutyOccurrence, ClaimedDutyDelivery};
 mod error;
 mod export_indexes;
 mod json;

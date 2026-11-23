@@ -634,8 +634,14 @@ impl GuardService {
                 );
             }
         }
+        let recording_failed = p["audio"].is_object() && analysis["audio_error"].is_string();
         current["analysis"] = analysis;
-        self.archive.put_monitoring("event", current).await?;
+        let mut changes = vec![];
+        if recording_failed {
+            changes.push(self.recording_fault(&p, &current)?);
+        }
+        changes.push(Self::mutation("event", current));
+        self.archive.apply(changes).await?;
         self.finish_receiver_job(id, &r.token, true)
     }
     pub async fn event_audio(&self, id: &str, event: &str) -> Result<Artifact> {

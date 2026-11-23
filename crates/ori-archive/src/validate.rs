@@ -590,6 +590,14 @@ pub(crate) fn mutations(values: &mut [Mutation]) -> Result<()> {
                     return Err(invalid("error"));
                 }
             }
+            Mutation::DutyOccurrence(item)
+            | Mutation::TestDutyChannel {
+                occurrence: item, ..
+            } => item.validate()?,
+            Mutation::DisableDutyChannel { project_id, .. } if project_id.is_empty() => {
+                return Err(invalid("duty project"));
+            }
+            Mutation::DisableDutyChannel { .. } => {}
             Mutation::EnqueueNotification(value) => crate::outbox::validate_notification(value)?,
         }
         match mutation {

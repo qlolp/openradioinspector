@@ -183,6 +183,11 @@ fn recognition(event: &Value, known: &[Value], detailed: bool, eligible: bool) -
 }
 
 impl GuardService {
+    pub(crate) async fn duty_matches_known(&self, project:&str, event:&Value)->Result<bool> {
+        let targets:Vec<_>=signal_target(event).into_iter().collect();
+        let known=self.archive.matching_known_signals(project,&targets).await?;
+        Ok(recognition(event,&known,false,true)["state"]!="new")
+    }
     pub async fn recognized_events(&self, id: &str, after: &str, limit: usize) -> Result<Value> {
         if !(1..=200).contains(&limit) {
             return Err(invalid("Допустимо от 1 до 200 событий на страницу"));
