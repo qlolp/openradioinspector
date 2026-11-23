@@ -13,6 +13,40 @@ from tests import test_monitoring_guard as guard_tests
 from tests.test_monitoring_detector import sweep
 
 
+class WebhookStartupTests(unittest.TestCase):
+    def test_transport_initialization_failure_affects_only_a_due_delivery(self):
+        factory = 'radioinspector.monitoring.operations.urllib.request.build_opener'
+        with patch(factory, side_effect=OSError('trust store unavailable')) as build:
+            guard_tests.GuardTests.setUp(self)
+            project_id = self.project['id']
+            event = dict(id='disabled', kind='impulse', center_frequency_hz=100000000)
+            self.service.notify_event(self.project, event)
+            self.assertFalse(self.service.deliver_one())
+            self.service.update_settings(project_id, dict(webhook=dict(
+                enabled=True, url='https://example.invalid/hook', secret='fixture-secret')))
+            self.assertFalse(self.service.deliver_one())
+            build.assert_not_called()
+
+            alert_id = self.service.notify_event(self.service.project(project_id), dict(event, id='enabled'))
+
+            def delivery():
+                return next(item['delivery'] for item in self.service.alerts(project_id, {})['items']
+                            if item['id'] == alert_id)
+
+            now = utc_now()
+            self.assertTrue(self.service.deliver_one(now))
+            build.assert_called_once()
+            pending = delivery()
+            self.assertEqual((pending['state'], pending['attempts'], pending['last_error']),
+                             ('pending', 1, 'network_error'))
+            build.side_effect = None
+            build.return_value.open.return_value.__enter__.return_value.status = 204
+            self.assertTrue(self.service.deliver_one(now + timedelta(minutes=1)))
+            self.assertEqual(build.call_count, 2)
+            sent = delivery()
+            self.assertEqual((sent['state'], sent['attempts']), ('sent', 2))
+
+
 class OperationalTests(unittest.TestCase):
     setUp=guard_tests.GuardTests.setUp
 
@@ -195,8 +229,9 @@ class OperationalTests(unittest.TestCase):
         identifier=self.service.notify_event(self.service.project(self.project['id']),dict(id='last',kind='impulse',center_frequency_hz=100000000))
         with self.service.store.transaction():
             self.service.store.db.execute("UPDATE monitoring_notifications SET state='delivering',attempts=5,lease_until='2000-01-01T00:00:00.000000Z' WHERE id=?",(identifier,))
-        with patch.object(self.service._delivery_opener,'open') as opened:
-            self.service.deliver_one();opened.assert_not_called()
+        with patch.object(self.service, '_delivery_opener') as opener:
+            self.service.deliver_one()
+            opener.open.assert_not_called()
         alert=self.service.alerts(self.project['id'],{})['items'][0]
         self.assertEqual(alert['delivery']['state'],'failed');self.assertEqual(alert['delivery']['attempts'],5)
         self.assertEqual(alert['delivery']['last_error'],'last_attempt_interrupted')
@@ -217,10 +252,12 @@ class OperationalTests(unittest.TestCase):
                 entered.set();release.wait(3);raise urllib.error.HTTPError('private-url',503,'fixture',{},None)
             return Response()
         now=utc_now()
-        with patch.object(self.service._delivery_opener,'open',side_effect=open_request):
+        with patch('radioinspector.monitoring.operations.urllib.request.build_opener') as build:
+            build.return_value.open.side_effect = open_request
             first=threading.Thread(target=lambda:self.service.deliver_one(now));first.start();self.assertTrue(entered.wait(2))
             self.assertTrue(self.service.deliver_one(now+timedelta(seconds=31)))
             release.set();first.join(3)
+            build.assert_called_once()
         alert=self.service.alerts(self.project['id'],{})['items'][0]
         self.assertEqual(alert['delivery']['state'],'sent');self.assertEqual(alert['delivery']['attempts'],5)
 
