@@ -612,7 +612,12 @@ impl InstrumentControl for Effects {
             if *core.shutdown.borrow() {
                 return Err(unavailable());
             }
-            let directory = core.config.data_directory.clone();
+            let directory = core
+                .config
+                .database
+                .parent()
+                .ok_or_else(unavailable)?
+                .to_path_buf();
             let admitted = core
                 .effect_io
                 .clone()

@@ -452,6 +452,13 @@ fn copy_snapshot(
     Ok(())
 }
 
+/// Offline relocation holds the node and storage writer leases before taking this snapshot.
+pub fn backup_stopped_archive(source: &Path, destination: &Path) -> Result<Value> {
+    let db = db_open(source)?;
+    db.execute_batch("BEGIN")?;
+    make_backup(&db, destination, Duration::from_secs(24 * 60 * 60))
+}
+
 fn make_backup(source: &Connection, destination: &Path, timeout: Duration) -> Result<Value> {
     absent(destination)?;
     let parent = parent(destination)?;

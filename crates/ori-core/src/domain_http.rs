@@ -355,6 +355,12 @@ async fn guard_get(core: &Core, tail: &[&str], query: &Query) -> ApiResult<Respo
         [id] => guard.project(id).await?,
         [id, "preflight"] => guard.preflight(id, false).await?,
         [id, "settings"] => guard.settings(id).await?,
+        [id, "duty"] => {
+            if !query.is_empty() {
+                return Err(ApiError::invalid("Duty status accepts no parameters"));
+            }
+            guard.duty(id).await?
+        }
         [id, "scan-plan"] => guard.scan_plan(id).await?,
         [id, "storage"] => guard.storage_report(id, true).await?,
         [id, "alerts"] => {
@@ -561,6 +567,11 @@ async fn guard_post(core: &Core, tail: &[&str], payload: Value) -> ApiResult<Res
         }
         [id, "preparation", "stop"] => (StatusCode::OK, guard.stop_preparation(id, payload).await?),
         [id, "settings"] => (StatusCode::OK, guard.update_settings(id, payload).await?),
+        [id, "duty"] => (StatusCode::OK, guard.arm_duty(id, payload).await?),
+        [id, "notifications", "test"] => (
+            StatusCode::ACCEPTED,
+            guard.test_notification(id, payload).await?,
+        ),
         [id, "configure"] => (StatusCode::OK, guard.configure(id, payload).await?),
         [id, "scan-plan"] => {
             let updated = guard.configure(id, json!({"scan_plan":payload})).await?;

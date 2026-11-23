@@ -225,6 +225,7 @@ pub struct InstanceLease {
 }
 pub struct WriterLease {
     _lease: Lease,
+    storage: Option<Lease>,
 }
 impl InstanceLease {
     pub fn acquire(data: &Path) -> Result<Self> {
@@ -234,9 +235,17 @@ impl InstanceLease {
     }
 }
 impl WriterLease {
+    /// Reserve a relocated store while retaining the node lease used by the supervisor.
+    pub fn reserve_storage(&mut self, directory: &Path) -> Result<()> {
+        self.storage = Some(Lease::acquire(
+            &state_directory(directory)?.join("writer.lock"),
+        )?);
+        Ok(())
+    }
     pub fn acquire(data: &Path) -> Result<Self> {
         Ok(Self {
             _lease: Lease::acquire(&state_directory(data)?.join("writer.lock"))?,
+            storage: None,
         })
     }
 }

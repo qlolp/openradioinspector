@@ -115,9 +115,14 @@ fn configuration(data: &Path, installation: &Path) -> Result<ServiceConfig> {
     })
 }
 
+pub(crate) fn ensure_archive_directory(path: &Path) -> Result<()> {
+    pipe::ensure_data_directory(path)
+}
+
 async fn initialize_archive(config: &ServiceConfig) -> Result<()> {
     let _writer = WriterLease::acquire(&config.data_directory)?;
-    let database = config.data_directory.join("sessions.sqlite3");
+    let database =
+        crate::archive_location::directory(&config.data_directory)?.join("sessions.sqlite3");
     if database.try_exists()? {
         return Ok(());
     }

@@ -1839,6 +1839,8 @@ def create_server(
             raise RuntimeBridgeError(500, 'runtime_requires_owned_archive')
         if bridge is not None:
             owner = bridge
+            if bridge.database_path is not None:
+                session_database = str(bridge.database_path)
         elif sessions is None:
             archive_owner = archive_writer_owner(session_database)
             if archive_owner is not None:

@@ -1485,3 +1485,32 @@ async fn database_preflight_does_not_claim_that_a_listener_is_serving_yet() {
     assert!(!status.ready);
     core.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn operator_can_inspect_the_active_archive_without_exposing_a_filesystem_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut server = Server::start(CoreConfig::replay(directory.path())).await;
+    let (status, body) = server
+        .request("GET", "/api/v1/archive/location", None)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let location = &body["data"];
+    assert_eq!(location["storage_id"], "node-archive");
+    assert_eq!(location["database"], "sessions.sqlite3");
+    assert_eq!(location["relocation"], "local-supervisor");
+    assert!(location["available_bytes"].as_u64().is_some());
+    assert!(
+        !body
+            .to_string()
+            .contains(directory.path().to_str().unwrap())
+    );
+    let (status, _) = server
+        .request(
+            "POST",
+            "/api/v1/archive/location",
+            Some(&json!({"directory":"/tmp"})),
+        )
+        .await;
+    assert!(matches!(status, 404 | 405));
+    server.stop().await;
+}
