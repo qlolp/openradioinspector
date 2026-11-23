@@ -7,14 +7,20 @@ import android.net.Uri
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.graphics.Rect
 import android.location.Location
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.ViewRootForTest
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getAllSemanticsNodes
+import androidx.compose.ui.semantics.getOrNull
+import androidx.core.view.descendants
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -90,10 +96,10 @@ class OperatorScreenTest {
                 store.finish(null)
                 chosen
             }
-            ActivityScenario.launch(MainActivity::class.java).use {
+            ActivityScenario.launch(MainActivity::class.java).use { activity ->
                 click("Архив")
                 awaitNode(session)
-                tapFrequency("100")
+                tapFrequency("100", activity)
                 awaitNode(original, scroll = true)
                 instrument.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
                 awaitNode(singleFixChart, scroll = true)
@@ -105,26 +111,49 @@ class OperatorScreenTest {
 
     private val singleFixChart = "Уровни по треку GPS, север сверху. Точек на экране 1"
 
-    private fun tapFrequency(frequency: String) {
+    private fun tapFrequency(frequency: String, activity: ActivityScenario<MainActivity>) {
         val edit = awaitNode("Частота на треке", scroll = true) { it.isEditable }
         val value = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, frequency) }
         assertTrue(edit.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, value))
         awaitNode(frequency) { it.isEditable && it.text?.contains(frequency) == true }
         click("Применить")
-        val chart = singleFixChart
-        awaitNode(chart, scroll = true).performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
-        instrument.uiAutomation.waitForIdle(250, 5_000)
-        val rect = Rect()
-        awaitNode(chart).getBoundsInScreen(rect)
+        val chart = awaitNode(singleFixChart, scroll = true)
+        chart.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+        val point = renderedFixCenter(activity)
         val down = SystemClock.uptimeMillis()
         for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
-            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, rect.exactCenterX(), rect.exactCenterY(), 0)
+            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, point.x, point.y, 0)
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try { instrument.sendPointerSync(event) } finally { event.recycle() }
         }
     }
 
-    private fun withPickedFile(bytes: ByteArray, inspect: () -> Unit) {
+    private fun renderedFixCenter(activity: ActivityScenario<MainActivity>): Offset {
+        // Android reports clipped accessibility bounds while scrolling. The single fix is drawn
+        // at the center of the full Canvas. Wait for that point to be visible and stationary.
+        var previous: Offset? = null
+        val until = SystemClock.uptimeMillis() + 5_000
+        do {
+            var screen: Offset? = null
+            activity.onActivity { host ->
+                val root = (host.window.decorView as ViewGroup).descendants.filterIsInstance<ViewRootForTest>().single()
+                val chart = root.semanticsOwner.getAllSemanticsNodes(mergingEnabled = false).single {
+                    singleFixChart in it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty()
+                }
+                val coordinates = chart.layoutInfo.coordinates
+                val center = Offset(chart.size.width / 2f, chart.size.height / 2f)
+                if (chart.boundsInWindow.contains(coordinates.localToWindow(center))) {
+                    screen = coordinates.localToScreen(center)
+                }
+            }
+            screen?.let { if (it == previous) return it }
+            previous = screen
+            SystemClock.sleep(50)
+        } while (SystemClock.uptimeMillis() < until)
+        throw AssertionError("Маркер трека не появился в видимой области")
+    }
+
+    private fun withPickedFile(bytes: ByteArray, inspect: (ActivityScenario<MainActivity>) -> Unit) {
         val file = File.createTempFile("portable-route-", ".orifield", instrument.targetContext.cacheDir)
         try {
             file.writeBytes(bytes)
@@ -135,10 +164,10 @@ class OperatorScreenTest {
             val result = Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(file)))
             val monitor = instrument.addMonitor(filter, result, true)
             try {
-                ActivityScenario.launch(MainActivity::class.java).use {
+                ActivityScenario.launch(MainActivity::class.java).use { activity ->
                     click("Архив")
                     click("Открыть .orifield…")
-                    inspect()
+                    inspect(activity)
                 }
                 assertArrayEquals(bytes, file.readBytes())
             } finally {
@@ -151,9 +180,9 @@ class OperatorScreenTest {
 
     @Test fun filePickerOpensPortableFixtureAndTappingItsMapResolvesTheOriginal() {
         val bytes = checkNotNull(javaClass.getResourceAsStream("/field-archive-v1.orifield")).use { it.readBytes() }
-        withPickedFile(bytes) {
+        withPickedFile(bytes) { activity ->
             awaitNode("fixture-сессия", scroll = true)
-            tapFrequency("100,000002")
+            tapFrequency("100,000002", activity)
             awaitNode("fixture-sweep-α", scroll = true)
         }
     }
