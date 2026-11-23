@@ -37,6 +37,23 @@ final class SpectrumPresentationTests: XCTestCase {
         view.togglePause(); XCTAssertEqual(view.sweeps.last?.id, "new"); XCTAssertEqual(view.scale, original)
         XCTAssertEqual(view.clippedCount, 3)
     }
+    func testPausedSurveyWindowSurvivesRetuningUntilExplicitResume() throws {
+        var first = try raw()[0]
+        first["settings"] = ["adapter": "rf-explorer-3g-serial", "survey": ["pass_id": "run-1", "tile": 1]] as [String: Any]
+        var next = first
+        next["id"] = "next-window"; next["frequencies_hz"] = [81_120_000, 81_130_000, 81_140_000]
+        next["settings"] = ["adapter": "rf-explorer-3g-serial", "survey": ["pass_id": "run-1", "tile": 2]] as [String: Any]
+        let old = try sweep(first), new = try sweep(next)
+        var display = PlatformSpectrumPresentation()
+        display.update(scope: scope, sweeps: [old]); display.togglePause()
+        display.update(scope: scope, sweeps: [old, new])
+        XCTAssertTrue(display.paused)
+        XCTAssertEqual(display.sweeps, [old])
+        display.togglePause()
+        XCTAssertFalse(display.paused)
+        XCTAssertEqual(display.sweeps, [new])
+    }
+
     func testManualRejectsMalformedAndKeepsRange() throws {
         var view = PlatformSpectrumPresentation(); view.update(scope: scope, sweeps: try raw().map(sweep)); let scale = view.scale
         for value in ["", " ", "NaN", "Infinity", "0x1p2", "-inf", "1e999", "\u{00a0}2", "2\u{feff}"] {

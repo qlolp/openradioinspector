@@ -18,6 +18,7 @@ final class NativeSpectrumViewMemory {
         let lastReview: UUID?
     }
     var snapshot: Snapshot?
+    var surveyHoldSince: [[PlatformExactID]: String] = [:]
 }
 
 /// Both panels use identical frequency coordinates, saved sweep IDs and UTC intervals.
@@ -31,11 +32,14 @@ struct NativeSpectrumInspector: View {
     var streamID = ""
     var hasTinySAControls = false
     var rfExplorer = false
+    var openRFExplorerWindow: ((PlatformSweep, Int?) -> Void)? = nil
+    var analyzeRFExplorerSweep: ((PlatformSweep) -> Void)? = nil
     var liveReceiving = true
     var measurementsStale = false
     var presentationPaused = false
     var setPresentationPaused: (@MainActor (Bool) -> Void)? = nil
     var reviewedSweep: PlatformSweep? = nil
+    var reviewedPointIndex: Int? = nil
     var reviewRequest = UUID()
     var onFollowFrequency: ((Int64) -> Void)?
     var bandPlanWorkspace: MonitoringWorkspaceModel?
@@ -155,6 +159,15 @@ struct NativeSpectrumInspector: View {
                             }.disabled(markers.isEmpty && cursor == nil)
                         }.disabled(client == nil || tuning || !liveReceiving || holdingPresentation)
                     }
+                }
+                if let selected, survey != nil, let openRFExplorerWindow {
+                    Button("Исходные окна") {
+                        let index = cursor.flatMap { $0.sweep.exactID == selected.exactID ? $0.bin : nil }
+                        openRFExplorerWindow(selected, index)
+                    }
+                }
+                if let selected, let analyzeRFExplorerSweep {
+                    Button("Анализ свипа") { analyzeRFExplorerSweep(selected) }
                 }
                 Spacer(minLength: 0)
                 Text(presentationStatus).foregroundStyle(!holdingPresentation && liveReceiving ? Color.green : Color.orange)
@@ -350,7 +363,9 @@ struct NativeSpectrumInspector: View {
         archiveTask?.cancel(); archive.reset(); historySweeps = []
         frozen = [reviewedSweep]; selectedID = reviewedSweep.exactID
         timeEnd = NativeSpectrumTimeline.date(reviewedSweep.interval.endedAt)
-        cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(reviewedSweep.levels)
+        cursor = reviewedPointIndex.flatMap { reviewedSweep.levels.indices.contains($0) ? NativeSpectrumSample(sweep: reviewedSweep, bin: $0) : nil }
+        markers = cursor.map { [$0] } ?? []
+        zoom = nil; inspectionScale = PlatformSpectrumScale.fit(reviewedSweep.levels)
     }
 
     private func measureRange(_ target: ClosedRange<Double>) {
@@ -550,15 +565,11 @@ struct NativeSpectrumRangeHeader: View {
             default: detector = "не указан"
             }
             let rbw: String
-            if case .number(let hz) = settings["rbw_hz"], hz > 0 { rbw = String(format: "%.0f Гц по данным прибора", hz) }
+            if settings["settings_readback"] == .boolean(true), settings["settings_source"] == .string("device_readback"),
+               case .number(let hz) = settings["rbw_hz"], hz > 0 { rbw = String(format: "%.0f Гц", hz) }
             else { rbw = "не подтверждена" }
-            let input: String
-            switch settings["active_input"] {
-            case .string("left"): input = " · левый вход SMA"
-            case .string("right"): input = " · правый вход SMA"
-            default: input = ""
-            }
-            return "Детектор \(detector) · RBW \(rbw)\(input)"
+            let module = NativeRFExplorerReadback(settings)?.label ?? "плата, SMA и пределы не подтверждены"
+            return "Детектор прибора \(detector) · RBW \(rbw) · \(module)"
         }
         // Raw settings retain whether a value was requested or actually read back.
         if case .number(let value) = settings["rbw_applied_hz"] { return String(format: "RBW %.0f Гц (данные ядра)", value) }

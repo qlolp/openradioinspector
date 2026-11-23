@@ -25,22 +25,47 @@ app identity, signing, Info.plist generation, and app bundle packaging.
 With the bundled Rust development core, first open **Подключение → Локальное
 ядро на этом Mac → Запустить локальное ядро**. Once connected, open
 **Подключить приборы…** next to the core status.
-Select **RF Explorer 3G Combo**. For an automatic survey with 10 kHz between bins:
+Select **RF Explorer 3G Combo** to configure an automatic survey with 10 kHz between bins.
 
 1. Choose **Автообзор 10 кГц**.
 2. Keep **Весь активный вход** to scan the full range reported by the active SMA
-   input. To survey **100–400 MHz**, choose **Свои границы** and enter **100**
-   and **400**. Both endpoints are included. The core calculates the windows.
+   input. The **80–120 МГц** and **100–400 МГц** buttons fill both inclusive endpoints.
+   Under **Свои границы**, enter Start / Stop or Center / Span in MHz. Changing
+   input style preserves whole Hz. **Сохранить диапазон** keeps a named preset on
+   this Mac. The on-screen plan uses the 112-point survey profile. The committed
+   pass reports the actual window count and the instrument readback supplies the
+   board, SMA input and module limits.
 3. Enter the RF Explorer port on the computer running the core. For a local core,
    **Выбрать порт → Обновить список** refreshes the Mac's port list after plugging
    in the analyzer. Multiple USB serial names can refer to the same device.
 4. Click **Начать автообзор 10 кГц**. Each window is recorded as a separate sweep.
    The core repeats the survey until you click **Завершить приём**.
 
-The spectrum header shows the planned range, pass number and window number,
-followed by the frequencies from the selected window. The detector and RBW come
-from the instrument readback. **Normal** shows current levels and **Max Hold**
-shows retained maxima. A 10 kHz bin spacing can have a different RBW.
+**Текущее окно** shows the individual source sweep, its detector and recorded RBW.
+**Весь проход** shows the saved coverage, holes, UTC age, completed duration and
+measured revisit interval when the core reports them. Each trace column retains
+the source of its strongest measured value. Select **Программный Max Hold** to
+overlay compatible passes. **Сбросить Hold** sets the cutoff for this client and
+stream. The instrument detector remains visible beside the RBW.
+
+Click a peak and **Открыть исходный свип** for its original point index, integer
+Hz, dBm and UTC interval. **Предыдущее окно**, **Следующее окно** and
+**Воспроизвести по UTC** navigate the committed originals in their recorded
+timing. **Пауза показа** freezes the display while the core keeps acquiring.
+**Маркеры** places up to four named frequencies on the graph. When the core
+advertises frequency bookmarks, a set can be saved in the session and opened
+on another client. Recalling a marker queries its exact frequency, including
+when the display column has a stronger neighbouring peak. Read-only clients
+can recall saved sets. Saving sets and submitting scientific calculations
+require operator access.
+
+**Анализ свипа** and **Анализ исходника** run the analyses offered by the core.
+For a tolerance envelope, select an archived reference, set independent upper
+and lower deviations in dB, and inspect the classified target bins and gaps.
+For band power, enter two measured frequencies of one original window. The
+result shows the selected span, source indices, recorded RBW and estimated dBm.
+The result identifies the uncalibrated ENBW and reports the available
+uncertainty. These workflows have synthetic tests.
 
 For repeated measurements in one window, choose **Окно прибора** to follow the
 current instrument settings or **Задать окно** to enter the endpoints in MHz

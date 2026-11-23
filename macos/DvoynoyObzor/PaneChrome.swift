@@ -567,25 +567,6 @@ func workflowFrequency(_ hertz: Int64) -> String {
 }
 
 
-struct NativeRFExplorerDraft {
-    enum Mode { case instrument, window, survey }
-    var mode = Mode.instrument
-    var port = ""
-    var customSurveyRange = false
-    var startMHz = ""
-    var stopMHz = ""
-
-    var usesBounds: Bool { mode == .window || (mode == .survey && customSurveyRange) }
-    var needsPort: Bool { port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-    func configuration() throws -> PlatformRFExplorerConfiguration {
-        try PlatformRFExplorerConfiguration(port: port,
-            startHz: usesBounds ? Int(try NativeHistoryFrequencyInput.hz(startMHz)) : nil,
-            stopHz: usesBounds ? Int(try NativeHistoryFrequencyInput.hz(stopMHz)) : nil,
-            surveyStepHz: mode == .survey ? PlatformRFExplorerConfiguration.surveySpacingHz : nil)
-    }
-}
-
 struct RemoteSerialSessionPane: View {
     @Bindable var model: RemoteDualModel
     var onRFExplorerConnected: () -> Void = {}
@@ -678,19 +659,12 @@ struct RemoteSerialSessionPane: View {
         } else if draft.mode == .instrument {
             Text("Частотное окно будет считано с прибора.").font(.caption).foregroundStyle(.secondary)
         }
-        if draft.usesBounds {
-            HStack {
-                LabeledContent("Начало, МГц") {
-                    TextField("100", text: $draft.startMHz).accessibilityIdentifier("rf-explorer.start-mhz")
-                }
-                LabeledContent("Конец, МГц") {
-                    TextField(draft.mode == .survey ? "400" : "101,110", text: $draft.stopMHz)
-                        .accessibilityIdentifier("rf-explorer.stop-mhz")
-                }
-            }.textFieldStyle(.roundedBorder).disabled(model.busy)
-            Text(draft.mode == .survey
-                 ? "Введите границы обзора включительно, например 100 и 400 МГц. Ядро само рассчитает окна внутри активного входа."
-                 : "Обе границы задаются с точностью до 1 кГц в пределах активного входа.")
+        NativeRFExplorerRangeFields(draft: $draft).disabled(model.busy)
+        if !draft.needsPort, model.analyzer?.isRFExplorer3G == true, model.analyzer?.port == draft.port,
+           let source = model.displayInspectorSweeps.last, let readback = NativeRFExplorerReadback(source.settings) {
+            Text("Последний свип этого порта · \(readback.label)").font(.caption)
+        } else {
+            Text("Плата, вход SMA и пределы активного модуля будут известны после чтения с прибора.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         LabeledContent("Порт RF Explorer") {

@@ -757,6 +757,14 @@ public struct PlatformRFExplorerConfiguration: Equatable, Sendable {
         guard !path.isEmpty, !path.contains("://"), !path.contains("\0") else {
             throw PlatformError.invalidCommand("Выберите физический последовательный порт RF Explorer.")
         }
+        try Self.validateBounds(startHz: startHz, stopHz: stopHz, surveyStepHz: surveyStepHz)
+        self.port = path
+        self.startHz = startHz
+        self.stopHz = stopHz
+        self.surveyStepHz = surveyStepHz
+    }
+
+    public static func validateBounds(startHz: Int?, stopHz: Int?, surveyStepHz: Int?) throws {
         if let surveyStepHz, surveyStepHz != Self.surveySpacingHz {
             throw PlatformError.invalidCommand("Для автообзора RF Explorer доступен шаг 10 кГц.")
         }
@@ -775,10 +783,6 @@ public struct PlatformRFExplorerConfiguration: Equatable, Sendable {
         default:
             throw PlatformError.invalidCommand("Введите обе границы в пределах 15…2700 МГц с точностью до 1 кГц. Конец должен быть выше начала.")
         }
-        self.port = path
-        self.startHz = startHz
-        self.stopHz = stopHz
-        self.surveyStepHz = surveyStepHz
     }
 
     public static func supportIssue(in features: Set<String>, survey: Bool) -> String? {

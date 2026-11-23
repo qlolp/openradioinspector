@@ -135,6 +135,24 @@ struct RemoteUltraPane: View {
     var compact = false
     @State private var detailsExpanded = false
 
+    private func inspector(openRaw: ((PlatformSweep, Int?) -> Void)? = nil,
+                           analyze: ((PlatformSweep) -> Void)? = nil) -> some View {
+        NativeSpectrumInspector(sweeps: model.displayInspectorSweeps,
+                                    scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
+                                    client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
+                                    hasTinySAControls: model.tinySAAnalyzer != nil, rfExplorer: model.analyzer?.isRFExplorer3G == true,
+                                    openRFExplorerWindow: openRaw, analyzeRFExplorerSweep: analyze,
+                                    liveReceiving: model.worker(for: model.analyzer?.id)?.alive == true && model.coreReachable && !model.measurementsStale,
+                                    measurementsStale: model.measurementsStale,
+                                    presentationPaused: model.spectrumPresentation.paused,
+                                    setPresentationPaused: { model.setSpectrumPaused($0) },
+                                    reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
+                                    onFollowFrequency: { model.followFrequency($0) },
+                                    bandPlanWorkspace: bandPlanWorkspace,
+                                    viewMemory: model.spectrumViewMemory,
+                                    viewMemoryScope: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? "", model.selectedScanBand].map { PlatformExactID($0) })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -170,19 +188,16 @@ struct RemoteUltraPane: View {
                     }
                 }.controlSize(.small).disabled(!model.coreReachable)
             }
-            NativeSpectrumInspector(sweeps: model.displayInspectorSweeps,
-                                    scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
-                                    client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
-                                    hasTinySAControls: model.tinySAAnalyzer != nil, rfExplorer: model.analyzer?.isRFExplorer3G == true,
-                                    liveReceiving: model.worker(for: model.analyzer?.id)?.alive == true && model.coreReachable && !model.measurementsStale,
-                                    measurementsStale: model.measurementsStale,
-                                    presentationPaused: model.spectrumPresentation.paused,
-                                    setPresentationPaused: { model.setSpectrumPaused($0) },
-                                    reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
-                                    onFollowFrequency: { model.followFrequency($0) },
-                                    bandPlanWorkspace: bandPlanWorkspace,
-                                    viewMemory: model.spectrumViewMemory,
-                                    viewMemoryScope: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? "", model.selectedScanBand].map { PlatformExactID($0) })
+            Group {
+                if let client = model.client, let analyzer = model.analyzer, analyzer.isRFExplorer3G {
+                    NativeRFExplorerWorkbench(client: client, session: model.selectedSessionID, stream: analyzer.id,
+                        survey: analyzer.rfExplorerSurveyStepHz != nil || model.displayInspectorSweeps.last?.settings?["survey"] != nil,
+                        currentWindow: model.displayInspectorSweeps.last, live: model.worker(for: analyzer.id)?.alive == true && model.coreReachable,
+                        paused: model.spectrumPresentation.paused, setPaused: { model.setSpectrumPaused($0) },
+                        memory: model.spectrumViewMemory) { openRaw, analyze in inspector(openRaw: openRaw, analyze: analyze) }
+                        .id(ObjectIdentifier(client))
+                } else { inspector() }
+            }
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID),
                      PlatformExactID(model.analyzer?.id ?? ""), PlatformExactID(model.selectedScanBand)])
                 .frame(minHeight: compact ? 320 : 370).layoutPriority(1)

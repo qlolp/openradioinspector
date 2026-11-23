@@ -230,4 +230,27 @@ final class SecurityClientTests: XCTestCase {
         catch { XCTAssertTrue(error is PlatformError) }
         XCTAssertEqual(requests.map(\.scheme), ["https"])
     }
+
+    func testRFReaderCanRecallMarkersButCannotRunScientificPOSTsOrSaveMarkers() async throws {
+        let credential = try PlatformBearerCredential(token: "fixture")
+        let client = try api(credential: credential)
+        for scope in ["reader", "operator"] {
+            Stub.handle = { stub, request in
+                XCTAssertEqual(request.httpMethod, "GET")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture")
+                switch request.url?.path {
+                case "/api/v1/security/status":
+                    try stub.reply(["mode": "lan_tls", "pairing_required": false, "access_scope": scope])
+                case "/api/v1/capabilities":
+                    try stub.reply(["features": ["rf_explorer_survey_panorama": true, "frequency_bookmarks": true,
+                        "rf_explorer_band_power": true, "sweep_tolerance_envelope": true]])
+                default: XCTFail("Unexpected request"); try stub.reply([:], status: 404)
+                }
+            }
+            let access = try await client.rfExplorerWorkbenchAccess()
+            XCTAssertTrue(access.features.contains("frequency_bookmarks"))
+            XCTAssertTrue(access.features.contains("rf_explorer_survey_panorama"))
+            XCTAssertEqual(access.operatorActions, scope == "operator")
+        }
+    }
 }
