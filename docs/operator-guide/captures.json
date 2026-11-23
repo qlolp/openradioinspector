@@ -322,6 +322,27 @@
           "scenario": "Offline synthetic field session with a four-point spectrum, receiver observation in s_meter_count, GPS, note and receiver gap."
         }
       ]
+    },
+    {
+      "client": "WebUI · standalone receiver duty",
+      "host": "Debian GNU/Linux 13, x86-64",
+      "browser": "Chromium 156.0.8078.79, Playwright 1.65.0",
+      "source": "clients/web/e2e/duty.spec.ts: synthetic receiver fixture, six stored passes",
+      "capture": "Playwright screenshot of running WebUI in Russian, no image editing",
+      "source_revision": "e49ea3a73b8a58165c78b68785816d1e28e19632",
+      "captures": [
+        {
+          "file": "images/three-source-duty-web.png",
+          "sha256": "a835ab116c48d77f72c3465f8b0e49661c768d4d1e0fe576f6b12d7b34f55d66",
+          "pixels": [
+            1440,
+            1000
+          ],
+          "device_scale_factor": 1,
+          "theme": "system",
+          "scenario": "Six synthetic receiver passes, seven measured of nine frequencies, two exact coverage gaps"
+        }
+      ]
     }
   ]
 }
