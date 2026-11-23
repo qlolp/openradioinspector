@@ -82,6 +82,7 @@ class LinuxKernel:
     def session(self, sid):
         result = []
         scanned = 0
+        host_proc = self.proc_root == Path("/proc")
         for entry in self.proc_root.iterdir():
             if not entry.name.isdecimal():
                 continue
@@ -89,9 +90,20 @@ class LinuxKernel:
             if scanned > MAX_PROCESSES:
                 raise OwnershipError("Numeric process budget exceeded")
             # PID1 cannot belong to the newly created private session.
-            if int(entry.name) <= 1:
+            pid = int(entry.name)
+            if pid <= 1:
                 continue
-            identity = self.identity(int(entry.name))
+            if host_proc:
+                # Most host processes belong to other sessions. Only a full
+                # identity, rechecked after this hint, can establish ownership.
+                try:
+                    if os.getsid(pid) != sid:
+                        continue
+                except ProcessLookupError:
+                    continue
+                except PermissionError:
+                    pass
+            identity = self.identity(pid)
             if identity is not None and identity.sid == sid:
                 result.append(identity)
         return result
