@@ -562,9 +562,12 @@ impl GuardService {
         }
         let n = sweeps.len();
         let mut performance = json!({"sweeps":n,"mean_sweep_seconds":if n>0{Some(durations.iter().sum::<f64>()/n as f64)}else{None},"mean_sweep_bytes":if n>0{Some(bytes as f64/n as f64)}else{None}});
-        if p.get("archive").is_some_and(|archive| {
-            archive.get("reserve_backup").is_some() || archive.get("reserve_restore").is_some()
-        }) {
+        let storage = self.storage_report(id, true).await?;
+        if storage["forecast_basis"] == "duty_window"
+            || p.get("archive").is_some_and(|archive| {
+                archive.get("reserve_backup").is_some() || archive.get("reserve_restore").is_some()
+            })
+        {
             let cycle = if n > 1 {
                 let span = elapsed(
                     s(&sweeps[0]["interval"], "started_at")?,
@@ -593,7 +596,6 @@ impl GuardService {
                 }
             }
         }
-        let storage = self.storage_report(id, true).await?;
         check(
             "storage_budget",
             storage["ready"] == true,

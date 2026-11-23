@@ -148,6 +148,10 @@ async fn forecast_accounts_for_wal_growth_while_a_real_reader_holds_its_snapshot
 async fn forecast_prices_the_next_weekly_window_and_retains_its_measured_startup_rate() {
     let h = Harness::new().await;
     let id = h.prepared().await;
+    // The next recorded sweep makes the observed start-to-start mean 16 seconds.
+    let mut later = fixture()["sweeps"][20].clone();
+    later["interval"] = json!({"started_at":"2026-11-11T12:05:20.123456Z","ended_at":"2026-11-11T12:05:21.123456Z"});
+    h.archive.append_sweeps(vec![later]).await.unwrap();
     *h.sources.now.lock().unwrap() = "2026-10-31T01:00:00Z".parse().unwrap();
     let duty = json!({"schedule":{"mode":"weekly","timezone":"America/New_York",
         "weekdays":[6],"start_local":"23:00","end_local":"03:00"}});
@@ -168,6 +172,13 @@ async fn forecast_prices_the_next_weekly_window_and_retains_its_measured_startup
     assert_eq!(started["forecast_seconds"], 16_200);
     assert_eq!(started["ready"], true);
     assert_eq!(started["rate_source"], "validated_preflight_startup");
+    h.sources.advance(31);
+    let warming = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(warming["rate_source"], "validated_preflight_startup");
+    h.sources.advance(11);
+    let expired = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(expired["ready"], false);
+    assert_eq!(expired["forecast_status"], "source_rate_unavailable");
     h.close().await;
 }
 
@@ -200,6 +211,8 @@ async fn forecast_uses_remaining_wall_time_for_an_enabled_finite_duty() {
     *h.sources.now.lock().unwrap() = "2026-11-11T13:00:00.000000Z".parse().unwrap();
     let first = h.service.storage_report(&id, true).await.unwrap();
     assert_eq!(first["forecast_seconds"], 28_800);
+    let preflight = h.service.preflight(&id, false).await.unwrap();
+    assert_eq!(preflight["performance"]["mean_observed_cycle_seconds"], 4.0);
     *h.sources.now.lock().unwrap() = "2026-11-11T20:59:30.001000Z".parse().unwrap();
     let final_report = h.service.storage_report(&id, true).await.unwrap();
     assert_eq!(final_report["forecast_seconds"], 30);
