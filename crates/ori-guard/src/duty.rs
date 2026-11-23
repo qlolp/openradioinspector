@@ -118,9 +118,11 @@ impl Schedule {
                 }
                 let mut active = Window::Closed;
                 let mut next_duration = None;
+                // A spring-forward gap can erase the next shift entirely.
+                // Include the following week when looking for the next real interval.
                 let days = today.yesterday().ok().into_iter().chain(
                     std::iter::successors(Some(today), |day| day.tomorrow().ok())
-                        .take(if include_next { 8 } else { 1 }),
+                        .take(if include_next { 15 } else { 1 }),
                 );
                 for day in days {
                     if !weekdays.contains(&(day.weekday().to_monday_one_offset() as u8)) {

@@ -172,6 +172,23 @@ async fn forecast_prices_the_next_weekly_window_and_retains_its_measured_startup
 }
 
 #[tokio::test]
+async fn forecast_skips_a_weekly_shift_whose_end_precedes_the_dst_adjusted_start() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    let mut project = h.service.project(&id).await.unwrap();
+    project["duty"] = json!({"enabled":true,"schedule":{
+        "mode":"weekly","timezone":"America/New_York","weekdays":[7],
+        "start_local":"02:55","end_local":"03:05"
+    }});
+    h.archive.put_monitoring("project", project).await.unwrap();
+    // On March 8, 02:55 advances to 03:55. The next real shift is March 15.
+    *h.sources.now.lock().unwrap() = "2026-03-02T12:00:00Z".parse().unwrap();
+    let report = h.service.storage_report(&id, true).await.unwrap();
+    assert_eq!(report["forecast_seconds"], 600);
+    h.close().await;
+}
+
+#[tokio::test]
 async fn forecast_uses_remaining_wall_time_for_an_enabled_finite_duty() {
     let h = Harness::new().await;
     let id = h.prepared().await;
