@@ -62,6 +62,9 @@ from .measurement_results import (
 )
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .spectral_mask import calculate_sweep_mask
+from .sweep_research import (
+    band_power_request, calculate_band_power, calculate_tolerance_envelope, tolerance_request,
+)
 from .sweep_comparison import compare_sweeps
 from .sweep_context import (
     calculate_sweep_context, select_context_neighbours, validate_context_request,
@@ -228,6 +231,8 @@ class SessionService:
                 "sweep_context": True,
                 "sweep_occupancy": True,
                 "spectral_mask_analysis": True,
+                "sweep_tolerance_envelope": True,
+                "rf_explorer_band_power": True,
                 "averaged_sweep_reference": True,
                 "averaged_sweep_change_detection": True,
                 "named_sweep_references": True,
@@ -714,6 +719,20 @@ class SessionService:
             self._get_locked(session_id)
             sweep = self._get_sweep_locked(session_id, sweep_id)
             return calculate_sweep_mask(session_id, sweep, mask_json=payload["mask_json"])
+
+    def sweep_tolerance_envelope(self, session_id: str, payload: dict) -> dict[str, Any]:
+        reference_id, target_id, upper, lower = tolerance_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            reference = self._get_sweep_locked(session_id, reference_id)
+            target = reference if target_id == reference_id else self._get_sweep_locked(session_id, target_id)
+            return calculate_tolerance_envelope(session_id, reference, target, upper, lower)
+
+    def rf_explorer_band_power(self, session_id: str, payload: dict) -> dict[str, Any]:
+        sweep_id, start_hz, stop_hz = band_power_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            return calculate_band_power(self._get_sweep_locked(session_id, sweep_id), start_hz, stop_hz)
 
     def frequency_rounding(self, session_id: str, payload: dict) -> dict[str, Any]:
         """Round archived candidate frequencies by an imported table, without writes."""

@@ -69,6 +69,7 @@ from ..audio_segments import AudioSegmentConflict
 from ..runtime_bridge import RuntimeBridge, RuntimeBridgeError
 from ..writer_ownership import archive_writer_owner
 from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES, AverageReferenceIncompatibleError
+from ..sweep_research import BandPowerUnavailable, MAX_RESEARCH_REQUEST_BYTES
 from ..spectral_mask import MAX_MASK_REQUEST_BYTES, MaskIncompatibleError, strict_json_loads
 from ..sweep_comparison import ComparisonIncompatibleError
 from ..sweep_context import MAX_CONTEXT_REQUEST_BYTES, ContextIncompatibleError
@@ -783,6 +784,7 @@ class Handler(BaseHTTPRequestHandler):
             allow_empty = False
         elif (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in (
+                    "sweep-tolerance-envelope", "rf-explorer-band-power",
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection", "sweep-context", "sweep-occupancy",
                     "candidate-frequency-rounding", "frequency-rounding", "frequency-counter",
@@ -793,6 +795,8 @@ class Handler(BaseHTTPRequestHandler):
                 "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
                 "sweep-average-change-detection": MAX_AVERAGE_REQUEST_BYTES,
                 "sweep-mask-analysis": MAX_MASK_REQUEST_BYTES,
+                "sweep-tolerance-envelope": MAX_RESEARCH_REQUEST_BYTES,
+                "rf-explorer-band-power": MAX_RESEARCH_REQUEST_BYTES,
                 "sweep-three-thresholds": MAX_THREE_THRESHOLDS_REQUEST_BYTES,
                 "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
                 "sweep-occupancy": MAX_CONTEXT_REQUEST_BYTES,
@@ -1378,6 +1382,13 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 self._send_json(api_payload(self.sessions.frequency_rounding(parts[3], payload)))
                 return
+            if len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]:
+                if parts[4] == "sweep-tolerance-envelope":
+                    self._send_json(api_payload(self.sessions.sweep_tolerance_envelope(parts[3], payload)))
+                    return
+                if parts[4] == "rf-explorer-band-power":
+                    self._send_json(api_payload(self.sessions.rf_explorer_band_power(parts[3], payload)))
+                    return
             if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                     and parts[4] == "field-strength-rms-v2"):
                 self._send_json(api_payload(self.sessions.field_strength_rms_v2(parts[3], payload)))
@@ -1643,6 +1654,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "quality_incompatible", str(exc))
         except CounterIncompatibleError as exc:
             self._send_api_error(409, "counter_incompatible", str(exc))
+        except BandPowerUnavailable as exc:
+            self._send_api_error(409, "band_power_unavailable", str(exc))
         except FieldStrengthUnavailable as exc:
             self._send_api_error(409, "field_strength_unavailable", str(exc))
         except DvbEvaluationError as exc:

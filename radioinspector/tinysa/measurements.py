@@ -2,7 +2,7 @@
 import math
 import numpy as np
 from ..trace import Trace
-from ..measurements import occupied_bandwidth_beta2,bandwidth_at_level,center_frequency_centroid
+from ..measurements import occupied_bandwidth_beta2,bandwidth_at_level,center_frequency_centroid,channel_power_dbm
 
 
 def analyze(data,method,*,rbw_hz):
@@ -16,12 +16,7 @@ def analyze(data,method,*,rbw_hz):
     if method=='peak':
         i=int(np.argmax(levels));result=dict(name='Sampled peak frequency',value=int(hz[i]),unit='Hz',uncertainty=uncertainty,details=dict(level_dbm=float(levels[i])))
     elif method=='channel_power':
-        # Integrate a PSD estimate over each actual interval. Bin sum would
-        # depend on point count and double-count overlapping RBW filters.
-        reference=float(np.max(levels))
-        linear=np.power(10.0,(levels-reference)/10)
-        total=float(np.sum((linear[:-1]+linear[1:])*.5*np.diff(hz))/rbw_hz)
-        result=dict(name='Channel power estimate',value=reference+10*math.log10(total),unit='dBm',uncertainty=None,
+        result=dict(name='Channel power estimate',value=channel_power_dbm(hz,levels,rbw_hz),unit='dBm',uncertainty=None,
                     details=dict(rbw_hz=rbw_hz,integration='trapezoid_over_actual_grid',enbw_correction='not_calibrated'))
     elif method=='occupied_bandwidth':result=occupied_bandwidth_beta2(trace,frequency_uncertainty_hz=uncertainty).as_dict()
     elif method=='bandwidth_3db':result=bandwidth_at_level(trace,n_db=3,frequency_uncertainty_hz=uncertainty).as_dict()
