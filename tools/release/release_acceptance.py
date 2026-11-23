@@ -5,6 +5,7 @@ import re
 import subprocess
 import tempfile
 
+from . import hardware_runs
 from .release_artifacts import DEBIAN_VERSIONS, LINUX_AMD64, LINUX_CI, TARGETS, keys, require, sha
 
 
@@ -105,11 +106,14 @@ def validate_installation(record, artifact_hash, *, linux):
         require(record['artifact_sha256'] == artifact_hash, 'offline lifecycle used another Debian package')
 
 
-def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_id, *, native_ci=None):
+def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_id, *, native_ci=None, historical=False):
+    version = row.get('schema_version') if isinstance(row, dict) else None
+    require(type(version) is int and (version == 2 or historical and version == 1),
+            'new releases require a version 2 receipt with five physical configurations')
     keys(row, ['schema_version', 'platform', 'target', 'source_revision', 'artifact_sha256', 'manifest_sha256',
                'build_run_id', 'software_runs', 'installation', 'loads', 'hardware', 'scan', 'storage', 'protocol_report_sha256',
-               'protocol_passed'], 'platform acceptance')
-    require(type(row['schema_version']) is int and row['schema_version'] == 1 and row['platform'] == platform
+               'protocol_passed'] + (['hardware_runs'] if version == 2 else []), 'platform acceptance')
+    require(row['platform'] == platform
             and row['target'] == TARGETS[platform] and sha(revision, 40) and row['source_revision'] == revision
             and integer(row['build_run_id'], 1) and row['build_run_id'] == run_id
             and row['artifact_sha256'] == artifact_hash and sha(artifact_hash)
@@ -145,9 +149,12 @@ def validate_receipt(row, platform, revision, artifact_hash, manifest_hash, run_
             'physical two-device acceptance incomplete')
     hashes = [*(install['report_sha256'] for install in installations), hardware['report_sha256'], row['protocol_report_sha256'],
               *(entry['report_sha256'] for section in (loads, row['scan'], row['storage']) for entry in section.values())]
+    if version == 2:
+        hashes.extend(hardware_runs.validate(row['hardware_runs'], hardware))
     if linux:
-        hashes.extend([hardware['coverage_sha256'], loads['three-clients']['producer_report_sha256'],
-                       loads['three-clients']['history_report_sha256']])
+        if version == 1:
+            hashes.append(hardware['coverage_sha256'])
+        hashes.extend([loads['three-clients']['producer_report_sha256'], loads['three-clients']['history_report_sha256']])
     require(row['protocol_passed'] is True and all(sha(h) for h in hashes) and len(set(hashes)) == len(hashes),
             'distinct successful acceptance reports required')
 

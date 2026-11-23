@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from . import release_acceptance as gate
+from . import hardware_runs, release_acceptance as gate
 from .macos_rc_package import digest, read_json
 from .release_artifacts import ARTIFACTS, DEBIAN_VERSIONS, LINUX_AMD64, LINUX_CI, TARGETS, check_manifest, require, verify_sums
 
@@ -35,7 +35,7 @@ def template(platform, revision, artifact_hash, manifest_hash, run_id, *, native
         install = {version: dict(install, artifact_sha256=None) for version in DEBIAN_VERSIONS}
         hardware.update(blank('os_id os_version architecture artifact_sha256 coverage_sha256'))
         loads['three-clients'].update(blank('producer_report_sha256 history_report_sha256'))
-    return dict(schema_version=1, platform=platform, target=TARGETS[platform], source_revision=revision,
+    return dict(schema_version=2, hardware_runs=hardware_runs.template(), platform=platform, target=TARGETS[platform], source_revision=revision,
                 artifact_sha256=artifact_hash, manifest_sha256=manifest_hash, build_run_id=run_id,
                 software_runs=workflows,
                 protocol_passed=None, protocol_report_sha256=None,
@@ -161,6 +161,7 @@ def main():
         form.add_argument('--receipt', type=Path, required=True)
         if name == 'check':
             form.add_argument('--private-reports', type=Path)
+            form.add_argument('--historical', action='store_true', help='Also read version 1 evidence for historical inspection')
     operations.add_parser('displays').add_argument('--ledger', type=Path, required=True)
     args = parser.parse_args()
     if args.operation == 'displays':
@@ -179,10 +180,10 @@ def main():
             out.write('\n')
         return
     form = read_json(args.receipt)
-    gate.validate_receipt(form, *identity, native_ci=row.get('native_ci'))
+    gate.validate_receipt(form, *identity, native_ci=row.get('native_ci'), historical=args.historical)
     if args.private_reports:
         compare_private(form, row, args.private_reports)
-    print('Validated receipt SHA-256', digest(args.receipt))
+    print(f'Validated version {form["schema_version"]} receipt SHA-256', digest(args.receipt))
 
 
 if __name__ == '__main__':
