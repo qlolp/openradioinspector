@@ -5,7 +5,7 @@ import XCTest
 @testable import Field
 
 final class FieldTests: XCTestCase {
-    func testRegisteredViewerReopensBothPortableFixtures() throws {
+    func testRegisteredViewerReopensBothPortableFixtures() async throws {
         let types = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleDocumentTypes") as? [[String: Any]])
         XCTAssertEqual(types.first?["CFBundleTypeRole"] as? String, "Viewer")
         XCTAssertEqual(UTType(filenameExtension: "orifield")?.identifier, UTType.oriField.identifier)
@@ -15,7 +15,7 @@ final class FieldTests: XCTestCase {
         ] {
             let url = try XCTUnwrap(source.url(forResource: name, withExtension: "orifield"))
             let original = try Data(contentsOf: url)
-            let file = try FieldFile(url: url)
+            let file = try await FieldFile.open(url)
             let note = try XCTUnwrap(file.document.rows.first { $0.id.kind == .note })
             let key = try XCTUnwrap(note.link)
             guard case .sweep(let sweep, _) = try file.document.detail(for: key) else { return XCTFail("Expected a sweep") }
@@ -28,6 +28,21 @@ final class FieldTests: XCTestCase {
             XCTAssertEqual(fix.longitude, 0.125)
             XCTAssertEqual(try Data(contentsOf: url), original)
         }
+    }
+
+    func testCancelledFilesRequestCanBeReplacedByAWorkingArchive() async throws {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "field-archive-v1", withExtension: "orifield"))
+        let discarded = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return try await FieldFile.open(url)
+        }
+        discarded.cancel()
+        do {
+            _ = try await discarded.value
+            XCTFail("A superseded file request returned a document")
+        } catch is CancellationError {}
+        let replacement = try await FieldFile.open(url)
+        XCTAssertEqual(replacement.document.sweepCount, 1)
     }
 
     func testReaderAgainstLocalRustTLSArchive() async throws {

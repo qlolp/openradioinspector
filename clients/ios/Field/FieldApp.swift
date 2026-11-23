@@ -12,35 +12,67 @@ struct FieldApp: App {
     var body: some Scene { WindowGroup { FieldHome() } }
 }
 
-/// Keep the Files provider's read lease until the last view releases its document.
-final class FieldFile: Sendable {
-    let document: PlatformFieldDocument
+/// Foundation allows cancellation of a pending coordination from another thread.
+private final class FieldReadCoordinator: @unchecked Sendable {
+    let coordinator = NSFileCoordinator()
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.withLock { cancelled = true }
+        coordinator.cancel()
+    }
+
+    func checkCancellation() throws {
+        if lock.withLock({ cancelled }) { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+}
+
+private final class FieldFileAccess: Sendable {
     private let url: URL
     private let scoped: Bool
 
-    init(url: URL) throws {
-        guard url.isFileURL, url.pathExtension.lowercased() == "orifield" else {
-            throw CocoaError(.fileReadUnsupportedScheme)
-        }
+    init(_ url: URL) {
         self.url = url
-        let access = url.startAccessingSecurityScopedResource()
-        self.scoped = access
-        do {
-            var coordinationError: NSError?
-            var result: Result<PlatformFieldDocument, Error>?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinationError) { source in
-                result = Result { try PlatformFieldDocument(opening: source) }
-            }
-            if let coordinationError { throw coordinationError }
-            guard let result else { throw CocoaError(.fileReadUnknown) }
-            document = try result.get()
-        } catch {
-            if access { url.stopAccessingSecurityScopedResource() }
-            throw error
-        }
+        scoped = url.startAccessingSecurityScopedResource()
     }
 
     deinit { if scoped { url.stopAccessingSecurityScopedResource() } }
+}
+
+final class FieldFile: Sendable {
+    let document: PlatformFieldDocument
+    private let access: FieldFileAccess
+
+    static func open(_ url: URL) async throws -> FieldFile {
+        let read = FieldReadCoordinator()
+        return try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: FieldFile.self) { group in
+                group.addTask(priority: .userInitiated) { try FieldFile(url: url, read: read) }
+                guard let result = try await group.next() else { throw CancellationError() }
+                try Task.checkCancellation()
+                return result
+            }
+        } onCancel: { read.cancel() }
+    }
+
+    private init(url: URL, read: FieldReadCoordinator) throws {
+        try read.checkCancellation()
+        guard url.isFileURL, url.pathExtension.lowercased() == "orifield" else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        access = FieldFileAccess(url)
+        var coordinationError: NSError?
+        var result: Result<PlatformFieldDocument, Error>?
+        read.coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinationError) { source in
+            result = Result { try PlatformFieldDocument(opening: source, checkCancellation: read.checkCancellation) }
+        }
+        try read.checkCancellation()
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw CocoaError(.fileReadUnknown) }
+        document = try result.get()
+    }
 }
 
 private struct ArchiveRequest: Identifiable {
@@ -110,13 +142,13 @@ struct FieldHome: View {
         .onOpenURL { open($0, demo: false) }
         .task(id: request?.id) {
             guard let requested = request else { return }
-            let loading = Task.detached(priority: .userInitiated) { try FieldFile(url: requested.url) }
             do {
-                let verified = try await loading.value
+                let verified = try await FieldFile.open(requested.url)
                 try Task.checkCancellation()
+                guard request?.id == requested.id else { return }
                 file = verified
             } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
+                if !Task.isCancelled, request?.id == requested.id { self.error = error.localizedDescription }
             }
         }
     }
