@@ -918,6 +918,22 @@ test('paired reader sees a newly committed raw window and its original with oper
       board_max_hz: 960000000,
     },
   };
+  const lastBoardReadback = {
+    ...source,
+    id: 'reader-archived-main-board',
+    interval: {
+      started_at: '2026-11-22T00:00:02.000000Z',
+      ended_at: '2026-11-22T00:00:03.000000Z',
+    },
+    frequencies_hz: source.frequencies_hz.map((f) => f + 160000000),
+    settings: {
+      ...source.settings,
+      active_board: 'main',
+      active_input: 'left',
+      board_min_hz: 240000000,
+      board_max_hz: 960000000,
+    },
+  };
   const envelope = (data: unknown) => ({
     contract: 'openradioinspector-platform',
     contract_version: 1,
@@ -925,6 +941,8 @@ test('paired reader sees a newly committed raw window and its original with oper
   });
   let release!: () => void,
     nextWindow!: () => void,
+    lastEvent = 0,
+    wrongInterval = true,
     subscribed = false;
   const nextReady = new Promise<void>((r) => {
     nextWindow = r;
@@ -974,10 +992,19 @@ test('paired reader sees a newly committed raw window and its original with oper
           json: envelope({ status: 'ok', last_event_id: 10, sessions: 1, running_sessions: 1 }),
         });
       if (p === '/api/v1/sessions') return route.fulfill({ json: envelope([session]) });
-      if (p.endsWith('/sweeps')) return route.fulfill({ json: envelope([]) });
-      if (p.endsWith('/sweeps/' + source.id)) return route.fulfill({ json: envelope(source) });
+      if (p.endsWith('/sweeps'))
+        return route.fulfill({
+          json: envelope(
+            url.searchParams.get('limit') === '32' ? [source, lastBoardReadback, later] : [],
+          ),
+        });
+      if (p.endsWith('/sweeps/' + source.id))
+        return route.fulfill({
+          json: envelope(wrongInterval ? { ...source, interval: later.interval } : source),
+        });
       if (p === '/api/v1/events') {
         subscribed = true;
+        lastEvent = Number(url.searchParams.get('after'));
         const sequence = Number(url.searchParams.get('after')) + 1;
         if (sequence > 12)
           return route.fulfill({ contentType: 'text/event-stream', body: ': heartbeat\n\n' });
@@ -1020,13 +1047,26 @@ test('paired reader sees a newly committed raw window and its original with oper
   await expect(page.locator('canvas.spectrum:visible')).toHaveAttribute('data-sweep-id', source.id);
   await page.getByRole('group', { name: 'Spectrum view controls' }).press('Enter');
   await expect(page.locator('.rf-evidence')).toContainText(source.id);
+  await page.getByRole('button', { name: 'Pause display' }).click();
   nextWindow();
+  await expect.poll(() => lastEvent, { timeout: 15000 }).toBe(12);
+  await expect(page.getByTestId('source-id')).toHaveText(source.id);
+  await expect(page.locator('.rf-evidence')).not.toContainText('00:00:05.000000 UTC');
+  await page.getByRole('button', { name: 'Resume display' }).click();
   await expect(page.getByTestId('source-id')).toHaveText(later.id);
   await expect(page.locator('.rf-evidence')).toContainText(source.id);
   await expect(page.locator('.rf-evidence')).toContainText('00:00:05.000000 UTC');
   await page.getByText('Acquisition preview', { exact: true }).click();
-  await expect(page.locator('.rf-draft-preview')).toContainText('Last simulated input');
-  await expect(page.locator('.rf-draft-preview')).toContainText('Right SMA · WSUB3G');
+  const inputReadback = page
+    .locator('.rf-draft-preview dt')
+    .filter({ hasText: 'Last simulated input' })
+    .locator('+ dd');
+  await expect(inputReadback).toHaveText('Right SMA · WSUB3G');
+  await page.getByRole('button', { name: 'Load history' }).click();
+  await expect(inputReadback).toHaveText('Left SMA · WSUB1G');
+  await page.getByRole('button', { name: 'Open original sweep' }).click();
+  await expect(page.getByText('Source evidence mismatch', { exact: true })).toBeVisible();
+  wrongInterval = false;
   await page.getByRole('button', { name: 'Open original sweep' }).click();
   const original = page.getByRole('dialog', { name: 'Original sweep' });
   await expect(original.getByRole('row', { name: '1 80010000 -42' })).toHaveAttribute(

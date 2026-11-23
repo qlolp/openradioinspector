@@ -5,7 +5,7 @@ import { t } from './i18n';
 import { RfExplorerPass, SourceAge, type LocalHold } from './RfExplorerPass';
 import { readRfOriginal, type OpenRfOriginal } from './RfExplorerOriginals';
 import { RfExplorerNewSession, RfPlanPreview, ReportedBoard } from './RfExplorerSession';
-import { rfExplorerReadback, type RfExplorerReadback } from './rf-explorer';
+import { latestRfReadback, rfExplorerReadback, type RfExplorerReadback } from './rf-explorer';
 import { type Desk, message } from './useDesk';
 import type { DisplaySweep, Session, Sweep, WorkerStatus } from './types';
 import { encodePathSegment } from './wire';
@@ -214,25 +214,36 @@ function Acquisition({
       ? { start_hz: stream.settings.start_hz, stop_hz: stream.settings.stop_hz }
       : undefined;
   const workerReadback = rfExplorerReadback(worker?.current);
+  const previousReadback = useRef<ReturnType<typeof latestRfReadback>>(undefined);
+  const savedReadback = useMemo(
+    () =>
+      latestRfReadback(
+        [...(history ?? []), ...rows],
+        session.id,
+        stream.id,
+        previousReadback.current,
+      ),
+    [history, rows, session.id, stream.id],
+  );
+  useEffect(() => {
+    previousReadback.current = savedReadback;
+  }, [savedReadback]);
   const reported =
-    workerReadback?.confirmed && workerReadback.active_board
+    workerReadback?.confirmed &&
+    workerReadback.active_board &&
+    (!savedReadback ||
+      (worker?.last_measurement_at && worker.last_measurement_at >= savedReadback.at))
       ? workerReadback
-      : rows.findLast((row) => row.rf_explorer?.confirmed && row.rf_explorer.active_board)
-          ?.rf_explorer;
+      : savedReadback?.readback;
   const lastMeasured = useMemo(() => {
     if (!cursor) return;
     let last = cursor.row.interval.ended_at;
     const frequency = cursor.row.frequencies_hz[cursor.index];
-    for (const row of desk.live.rows)
-      if (
-        row.session_id === session.id &&
-        row.stream_id === stream.id &&
-        row.interval.ended_at > last &&
-        row.frequencies_hz.includes(frequency)
-      )
+    for (const row of rows)
+      if (row.interval.ended_at > last && row.frequencies_hz.includes(frequency))
         last = row.interval.ended_at;
     return last;
-  }, [cursor, desk.live.rows, session.id, stream.id]);
+  }, [cursor, rows]);
   async function inspectCursor() {
     if (!cursor) return;
     sourceRead.current?.abort();
@@ -251,7 +262,9 @@ function Acquisition({
       const at = cursor.row.source_indices[cursor.index];
       if (
         Number(sw.frequencies_hz[at]) !== cursor.row.frequencies_hz[cursor.index] ||
-        sw.levels[at] !== cursor.row.levels[cursor.index]
+        sw.levels[at] !== cursor.row.levels[cursor.index] ||
+        sw.interval.started_at !== cursor.row.interval.started_at ||
+        sw.interval.ended_at !== cursor.row.interval.ended_at
       )
         throw Error('Source evidence mismatch');
       openOriginal(sw, at);
@@ -424,7 +437,8 @@ function Acquisition({
                     {cursor.row.id} · {t('Source index')} {cursor.row.source_indices[cursor.index]}
                   </p>
                   <p>
-                    {utc(cursor.row.interval.started_at)} → {utc(cursor.row.interval.ended_at)}
+                    {utc(cursor.row.interval.started_at)} → {utc(cursor.row.interval.ended_at)} ·{' '}
+                    {t('Source age')} <SourceAge at={cursor.row.interval.ended_at} />
                   </p>
                   <p>
                     {t('Selected frequency last measured')} · {utc(lastMeasured)} ·{' '}

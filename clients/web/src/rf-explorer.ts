@@ -1,4 +1,4 @@
-import type { Capabilities, Session } from './types';
+import type { Capabilities, DisplaySweep, Session, Sweep } from './types';
 
 export const rfExplorerAdapter = 'rf-explorer-3g-serial';
 export const surveyStepHz = 10_000;
@@ -143,6 +143,27 @@ export function rfExplorerReadback(
     step_hz: positiveInteger(settings.step_hz) ? settings.step_hz : undefined,
     ...(survey && { survey }),
   };
+}
+
+export function latestRfReadback(
+  sources: readonly (DisplaySweep | Sweep)[],
+  sessionId: string,
+  streamId: string,
+  latest?: { at: string; readback: RfExplorerReadback },
+) {
+  for (const source of sources) {
+    const at = source.interval.ended_at;
+    if (
+      source.session_id !== sessionId ||
+      source.stream_id !== streamId ||
+      (latest && at <= latest.at)
+    )
+      continue;
+    const readback =
+      'settings' in source ? rfExplorerReadback(source.settings) : source.rf_explorer;
+    if (readback?.confirmed && readback.active_board) latest = { at, readback };
+  }
+  return latest;
 }
 
 export function standaloneRfExplorer(session: Session): boolean {

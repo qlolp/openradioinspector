@@ -3,6 +3,7 @@ import { hz, Modal } from './components';
 import { getLocale, t } from './i18n';
 import {
   boardProfiles,
+  latestRfReadback,
   rangeEndpoints,
   rfExplorerSession,
   surveyCounts,
@@ -200,13 +201,7 @@ export function RfExplorerNewSession({
   const current = desk.rfSession;
   const readback =
     current && current.streams[0].port === port.trim()
-      ? desk.live.rows.findLast(
-          (row) =>
-            row.session_id === current.id &&
-            row.stream_id === current.streams[0].id &&
-            row.rf_explorer?.confirmed &&
-            row.rf_explorer.active_board,
-        )?.rf_explorer
+      ? latestRfReadback(desk.live.rows, current.id, current.streams[0].id)?.readback
       : undefined;
   function writeFields(bounds: RfBounds, target: 'edges' | 'center') {
     const { start_hz, stop_hz } = bounds;
