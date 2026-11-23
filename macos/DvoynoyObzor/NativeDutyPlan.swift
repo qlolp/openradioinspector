@@ -234,5 +234,6 @@ struct NativeReceiverOriginalLink: Identifiable, Equatable {
     let pass: Int
     let frequencyHz: Int64
     var archivedEvent = false
+    var contextID: String?
     var id: PlatformExactID { observation }
 }

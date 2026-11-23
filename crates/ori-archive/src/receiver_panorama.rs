@@ -66,6 +66,7 @@ impl Grid {
 
 struct Pass {
     context: i64,
+    key: String,
     number: i64,
     grid: Grid,
     start_time: String,
@@ -79,16 +80,26 @@ fn pass_number(pass: u64) -> Result<i64> {
         .ok_or_else(|| invalid("receiver scan pass"))
 }
 
-fn select_pass(db: &Connection, session: &str, stream: &str, number: Option<i64>) -> Result<Pass> {
-    let current = db
-        .query_row(
+fn select_pass(
+    db: &Connection,
+    session: &str,
+    stream: &str,
+    number: Option<i64>,
+    key: Option<&str>,
+) -> Result<Pass> {
+    let current: i64 = if let Some(key) = key {
+        db.query_row(
+            "SELECT id FROM ori_ardv1_contexts_v1 WHERE session_id=? AND stream_id=? AND context_key=?",
+            params![session, stream, key], |r| r.get(0),
+        )
+    } else {
+        db.query_row(
             "SELECT id FROM ori_ardv1_contexts_v1
         WHERE session_id=? AND stream_id=? ORDER BY last_seq DESC LIMIT 1",
             params![session, stream],
-            |r| r.get::<_, i64>(0),
+            |r| r.get(0),
         )
-        .optional()?
-        .ok_or(ArchiveError::NotFound)?;
+    }.optional()?.ok_or(ArchiveError::NotFound)?;
     let current_pass = if let Some(number) = number {
         // Prefer the current context when a changed plan restarted numbering.
         let found = db
@@ -101,6 +112,8 @@ fn select_pass(db: &Connection, session: &str, stream: &str, number: Option<i64>
             .is_some();
         let context = if found {
             current
+        } else if key.is_some() {
+            return Err(ArchiveError::NotFound);
         } else {
             db.query_row("SELECT context_id FROM ori_ardv1_passes_v1 WHERE stream_id=? AND pass=? ORDER BY last_seq DESC LIMIT 1",
                 params![stream,number],|r|r.get(0)).optional()?.ok_or(ArchiveError::NotFound)?
@@ -116,7 +129,7 @@ fn select_pass(db: &Connection, session: &str, stream: &str, number: Option<i64>
     };
     let (context, number) = current_pass;
     let mut stmt = db.prepare(
-        "SELECT c.start_hz,c.stop_hz,c.step_hz,c.total,p.started_at,p.ended_at
+        "SELECT c.start_hz,c.stop_hz,c.step_hz,c.total,p.started_at,p.ended_at,c.context_key
          FROM ori_ardv1_contexts_v1 c JOIN ori_ardv1_passes_v1 p ON p.context_id=c.id
          WHERE c.id=? AND p.pass=?",
     )?;
@@ -124,6 +137,7 @@ fn select_pass(db: &Connection, session: &str, stream: &str, number: Option<i64>
     let row = cursor.next()?.ok_or(ArchiveError::NotFound)?;
     Ok(Pass {
         context,
+        key: row.get(6)?,
         number,
         grid: Grid::from_columns(row, 0)?,
         start_time: row.get(4)?,
@@ -251,15 +265,28 @@ impl Archive {
         pass: Option<u64>,
         columns: usize,
     ) -> Result<Value> {
+        self.receiver_panorama_in_context(session, stream, pass, columns, None)
+            .await
+    }
+
+    pub async fn receiver_panorama_in_context(
+        &self,
+        session: &str,
+        stream: &str,
+        pass: Option<u64>,
+        columns: usize,
+        context_id: Option<&str>,
+    ) -> Result<Value> {
         if !(2..=1024).contains(&columns) {
             return Err(invalid("receiver panorama columns"));
         }
         let pass = pass.map(pass_number).transpose()?;
         let [session, stream] = [session, stream].map(str::to_owned);
+        let context = context_id.map(str::to_owned);
         let maximum = self.inner.config.max_response_bytes;
         self.inner
             .read(move |db| {
-                let pass = select_pass(db, &session, &stream, pass)?;
+                let pass = select_pass(db, &session, &stream, pass, context.as_deref())?;
                 let grid = &pass.grid;
                 let columns = columns.min(grid.total);
                 let mut bins = vec![Bin::default(); columns];
@@ -297,7 +324,7 @@ impl Archive {
                     }));
                 }
                 Ok(json!({
-                    "pass": pass.number, "total_points": grid.total, "measured_points": measured,
+                    "pass": pass.number, "context_id": pass.key, "total_points": grid.total, "measured_points": measured,
                     "complete": measured == grid.total, "start_hz": grid.start,
                     "stop_hz": grid.stop, "step_hz": grid.step,
                     "level_unit": "s_meter_count", "lower_is_stronger": true,
@@ -315,13 +342,26 @@ impl Archive {
         pass: u64,
         frequency: u64,
     ) -> Result<Value> {
+        self.receiver_panorama_point_in_context(session, stream, pass, frequency, None)
+            .await
+    }
+
+    pub async fn receiver_panorama_point_in_context(
+        &self,
+        session: &str,
+        stream: &str,
+        pass: u64,
+        frequency: u64,
+        context_id: Option<&str>,
+    ) -> Result<Value> {
         let number = pass_number(pass)?;
         let frequency =
             i64::try_from(frequency).map_err(|_| invalid("receiver point frequency"))?;
         let [session, stream] = [session, stream].map(str::to_owned);
+        let context = context_id.map(str::to_owned);
         self.inner
             .read(move |db| {
-                let pass = select_pass(db, &session, &stream, Some(number))?;
+                let pass = select_pass(db, &session, &stream, Some(number), context.as_deref())?;
                 let idx = pass
                     .grid
                     .exact_index(frequency)

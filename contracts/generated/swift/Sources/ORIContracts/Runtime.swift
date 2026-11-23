@@ -2237,6 +2237,7 @@ public struct RFExplorerPassWindows: ContractModel, Equatable, Sendable {
 public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
     public var bins: [ReceiverPanoramaBin]
     public var complete: Bool
+    public var context_id: String?
     public var coverage_hex: String
     public var ended_at: UtcTimestamp
     public var level_unit: ReceiverPanoramaLevelUnit
@@ -2249,9 +2250,10 @@ public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
     public var stop_hz: UInt64
     public var total_points: UInt64
     public var extra: JSONObject
-    public init(bins: [ReceiverPanoramaBin], complete: Bool, coverage_hex: String, ended_at: UtcTimestamp, level_unit: ReceiverPanoramaLevelUnit, lower_is_stronger: Bool, measured_points: UInt64, pass: UInt64, start_hz: UInt64, started_at: UtcTimestamp, step_hz: UInt64, stop_hz: UInt64, total_points: UInt64, extra: JSONObject = [:]) {
+    public init(bins: [ReceiverPanoramaBin], complete: Bool, context_id: String? = nil, coverage_hex: String, ended_at: UtcTimestamp, level_unit: ReceiverPanoramaLevelUnit, lower_is_stronger: Bool, measured_points: UInt64, pass: UInt64, start_hz: UInt64, started_at: UtcTimestamp, step_hz: UInt64, stop_hz: UInt64, total_points: UInt64, extra: JSONObject = [:]) {
         self.bins = bins
         self.complete = complete
+        self.context_id = context_id
         self.coverage_hex = coverage_hex
         self.ended_at = ended_at
         self.level_unit = level_unit
@@ -2271,6 +2273,7 @@ public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
         bins = try binsValue.requireArray().map { try ReceiverPanoramaBin(json: $0) }
         guard let completeValue = object.removeValue(forKey: "complete") else { throw ContractError.invalid("Missing complete") }
         complete = try completeValue.requireBool()
+        if let value = object.removeValue(forKey: "context_id"), value != .null { context_id = try value.requireString() } else { context_id = nil }
         guard let coverage_hexValue = object.removeValue(forKey: "coverage_hex") else { throw ContractError.invalid("Missing coverage_hex") }
         coverage_hex = try coverage_hexValue.requireString()
         guard let ended_atValue = object.removeValue(forKey: "ended_at") else { throw ContractError.invalid("Missing ended_at") }
@@ -2302,6 +2305,7 @@ public struct ReceiverPanorama: ContractModel, Equatable, Sendable {
         var object = extra
         object["bins"] = .array(bins.map { $0.json })
         object["complete"] = .bool(complete)
+        if let value = context_id { object["context_id"] = .string(value) }
         object["coverage_hex"] = .string(coverage_hex)
         object["ended_at"] = ended_at.json
         object["level_unit"] = level_unit.json
@@ -2811,8 +2815,8 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_screen",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/screen",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
-RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "columns"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
-RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "frequency_hz"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "columns", "context_id"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point",backends: ["rust-candidate"],features: ["ardv1_receiver_panorama"],capabilities: [], requestFeatures: [], query: ["pass", "frequency_hz", "context_id"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_recover",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/recover",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["limit", "before"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["columns", "hold_since"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),

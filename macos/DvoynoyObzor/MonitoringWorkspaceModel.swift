@@ -193,6 +193,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
     var schedulesAvailable: Bool { capabilities["features"]["monitoring_duty_schedule"].bool == true }
+    var receiverPanoramaContextsAvailable: Bool { capabilities["features"]["ardv1_receiver_panorama_context"].bool == true }
     var notificationChannelsAvailable: Bool { capabilities["features"]["monitoring_notification_channels"].bool == true }
     var dutyEnabled: Bool { duty["enabled"].bool == true }
     var isArmed: Bool { status["active"].bool == true || ["armed", "searching"].contains(project["state"].text) }

@@ -3094,6 +3094,13 @@
           "complete": {
             "type": "boolean"
           },
+          "context_id": {
+            "description": "Stable receiver profile identifier, scoped to session and stream. Events carry this value as receiver_context_key.",
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
           "coverage_hex": {
             "description": "Byte i/8, bit i%8 marks an actually committed original at grid index i (hex bytes in ascending byte order).",
             "maxLength": 32498,
@@ -6792,7 +6799,7 @@
     },
     "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama": {
       "get": {
-        "description": "Peak-preserving bins of committed FM receiver observations in a sequential pass. Without pass, reads the latest pass.",
+        "description": "Peak-preserving bins of committed FM receiver observations in a sequential pass. Without pass, reads the latest pass. When context_id is supplied, only the matching acquisition context is searched.",
         "operationId": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama",
         "parameters": [
           {
@@ -6836,6 +6843,17 @@
               "maximum": 1024,
               "minimum": 2,
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "context_id",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64,
+              "pattern": "^[0-9a-f]{64}$"
             }
           }
         ],
@@ -6922,7 +6940,7 @@
     },
     "/api/v1/sessions/{id}/streams/{stream_id}/receiver-panorama/point": {
       "get": {
-        "description": "Original receiver observation at the exact confirmed frequency and pass.",
+        "description": "Original receiver observation at the exact confirmed frequency and pass. When context_id is supplied, only the matching acquisition context is searched.",
         "operationId": "get_api_v1_sessions_id_streams_stream_id_receiver_panorama_point",
         "parameters": [
           {
@@ -6965,6 +6983,17 @@
               "maximum": 1300000000,
               "minimum": 100000,
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "context_id",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64,
+              "pattern": "^[0-9a-f]{64}$"
             }
           }
         ],

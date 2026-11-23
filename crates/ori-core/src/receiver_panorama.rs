@@ -14,14 +14,22 @@ enum Request {
 impl Request {
     fn parse(path: &[&str], query: &BTreeMap<String, String>) -> ApiResult<Self> {
         let allowed: &[&str] = match path {
-            [] => &["pass", "columns"],
-            ["point"] => &["pass", "frequency_hz"],
+            [] => &["pass", "columns", "context_id"],
+            ["point"] => &["pass", "frequency_hz", "context_id"],
             _ => return Err(ApiError::missing("not_found")),
         };
         if query.keys().any(|key| !allowed.contains(&key.as_str())) {
             return Err(ApiError::invalid(
                 "Unknown receiver panorama query parameter",
             ));
+        }
+        if let Some(id) = query.get("context_id")
+            && (id.len() != 64
+                || !id
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)))
+        {
+            return Err(ApiError::invalid("Invalid receiver panorama context_id"));
         }
         let pass = query
             .get("pass")
@@ -66,17 +74,18 @@ pub(crate) async fn read(
     query: &BTreeMap<String, String>,
 ) -> ApiResult<Value> {
     let request = Request::parse(path, query)?;
+    let context_id = query.get("context_id").map(String::as_str);
     crate::http::stream_context(core, session, stream).await?;
     let archive = core.archive()?;
     Ok(match request {
         Request::Panorama { pass, columns } => {
             archive
-                .receiver_panorama(session, stream, pass, columns)
+                .receiver_panorama_in_context(session, stream, pass, columns, context_id)
                 .await?
         }
         Request::Point { pass, frequency } => {
             archive
-                .receiver_panorama_point(session, stream, pass, frequency)
+                .receiver_panorama_point_in_context(session, stream, pass, frequency, context_id)
                 .await?
         }
     })
@@ -145,7 +154,7 @@ mod tests {
         let archive = core.archive().unwrap();
         archive.create_session(json!({"id":"scope","name":"Synthetic RX","created_at":"2026-11-11T00:00:00Z",
             "streams":[{"id":"rx","device":"Test receiver","role":"receiver","level_unit":"s_meter_count"}]})).await.unwrap();
-        archive.append_observations(vec![json!({"id":"raw-one","session_id":"scope","stream_id":"rx",
+        let first = json!({"id":"raw-one","session_id":"scope","stream_id":"rx",
             "interval":{"started_at":"2026-11-11T00:00:00Z","ended_at":"2026-11-11T00:00:00Z"},
             "frequency_hz":100000000,"mode":"FM","level_unit":"s_meter_count","level":135,
             "metadata":{"adapter":"ardv1-serial","receiver_profile":"ardv1-monitor-v1","receiver_firmware":"2504A",
@@ -154,7 +163,11 @@ mod tests {
                 "scan_step_hz":10000,"scan_segment_index":0,"settle_s":0.025,"frequency_readback":true,"simulated":false,
                 "observed_frequency_hz":100000000,"requested_frequency_hz":100000000,"observed_mode":"FM","requested_mode":"FM",
                 "frequency_source":"receiver_RX","mode_source":"receiver_RX","raw_receiver_status":"RX VFA RF0100.00000 ST010.00 MD0F0 LM1350"}
-        })]).await.unwrap();
+        });
+        archive
+            .append_observations(vec![first.clone()])
+            .await
+            .unwrap();
         let root = "/api/v1/sessions/scope/streams/rx/receiver-panorama";
         let get = |tail: &str| {
             let req = Request::builder()
@@ -182,6 +195,38 @@ mod tests {
         assert_eq!(read(original).await["data"]["id"], "raw-one");
         assert_eq!(
             get("/point?pass=1&frequency_hz=100010000").await.status(),
+            404
+        );
+        // A changed plan restarts pass numbering at one in the same stream.
+        let first_context = ori_archive::verified_receiver_scan_context(&first).unwrap();
+        let mut other = first;
+        other["metadata"]["scan_plan_key"] = json!("second-plan");
+        other["id"] = json!("raw-two");
+        let second_context = ori_archive::verified_receiver_scan_context(&other).unwrap();
+        archive.append_observations(vec![other]).await.unwrap();
+        let old_query = format!("?pass=1&context_id={first_context}");
+        let old_pass = get(&old_query).await;
+        assert_eq!(old_pass.status(), 200);
+        let old_pass = read(old_pass).await;
+        assert_eq!(old_pass["data"]["context_id"], first_context);
+        assert_eq!(old_pass["data"]["bins"][0]["observation_id"], "raw-one");
+        let point = read(get(&format!("/point{old_query}&frequency_hz=100000000")).await).await;
+        assert_eq!(point["data"]["id"], "raw-one");
+        assert_eq!(
+            read(get("?pass=1").await).await["data"]["context_id"],
+            second_context
+        );
+        assert_eq!(get("?pass=2&context_id=bad").await.status(), 400);
+        assert_eq!(
+            get(&format!("?pass=2&context_id={first_context}"))
+                .await
+                .status(),
+            404
+        );
+        assert_eq!(
+            get(&format!("?context_id={}", "0".repeat(64)))
+                .await
+                .status(),
             404
         );
         core.close().await.unwrap();

@@ -910,6 +910,7 @@ fn capabilities(core: &Core) -> Value {
     value["features"]["single_source_duty"] = Value::Bool(domains);
     value["features"]["ardv1_cyclic_panorama"] = Value::Bool(serial);
     value["features"]["ardv1_receiver_panorama"] = Value::Bool(archived);
+    value["features"]["ardv1_receiver_panorama_context"] = Value::Bool(archived);
     value["features"]["monitoring_duty_schedule"] = Value::Bool(domains);
     value["features"]["monitoring_notification_channels"] = Value::Bool(domains);
     value["features"]["archive_location"] = Value::Bool(archived);

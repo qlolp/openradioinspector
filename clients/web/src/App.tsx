@@ -8,6 +8,7 @@ import { Prepare } from './Prepare';
 import { preparationReady } from './station';
 import { BaselineCounts, sourceNames } from './DutySetup';
 import {
+  EventReceiverPanorama,
   OriginalObservation,
   readObservation,
   ReceiverHold,
@@ -1503,7 +1504,16 @@ export function App({
         <OriginalObservation
           source={sourceObservation}
           close={() => setSourceObservation(undefined)}
-        />
+        >
+          {event?.receiver_context_key &&
+            desk.capabilities?.features.ardv1_receiver_panorama_context === true && (
+              <EventReceiverPanorama
+                api={desk.api}
+                source={sourceObservation}
+                context={event.receiver_context_key}
+              />
+            )}
+        </OriginalObservation>
       )}
       {originalDialog}
     </div>

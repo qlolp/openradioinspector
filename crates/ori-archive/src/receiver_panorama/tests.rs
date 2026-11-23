@@ -135,6 +135,49 @@ async fn contiguous_partial_pass_retains_edge_holes_and_earliest_strongest_origi
 }
 
 #[tokio::test]
+async fn same_pass_number_in_two_profiles_keeps_each_original_after_restore() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = new_archive(&dir).await;
+    let a = point("before-profile-change", 1, 0, 102, 1);
+    let mut b = point("after-profile-change", 1, 0, 80, 2);
+    b["metadata"]["scan_plan_key"] = json!("plan-B");
+    let contexts = [&a, &b].map(|row| super::verified_receiver_scan_context(row).unwrap());
+    archive.append_observations(vec![a, b]).await.unwrap();
+    archive.close().await.unwrap();
+    let database = dir.path().join("archive.sqlite");
+    let restored = dir.path().join("restored.sqlite");
+    let backup = dir.path().join("backup");
+    crate::backup_stopped_archive(&database, &backup).unwrap();
+    crate::restore_backup(&backup, &restored).unwrap();
+    for path in [database, restored] {
+        let reopened = Archive::open(ArchiveConfig::new(path)).unwrap();
+        for (key, id) in contexts
+            .iter()
+            .zip(["before-profile-change", "after-profile-change"])
+        {
+            let pass = reopened
+                .receiver_panorama_in_context("s", "r", Some(1), 2, Some(key))
+                .await
+                .unwrap();
+            assert_eq!(pass["context_id"].as_str(), Some(key.as_str()));
+            assert_eq!(pass["bins"][0]["observation_id"], id);
+            let point = reopened
+                .receiver_panorama_point_in_context("s", "r", 1, 88_000_000, Some(key))
+                .await
+                .unwrap();
+            assert_eq!(point["id"], id);
+            assert!(matches!(
+                reopened
+                    .receiver_panorama_in_context("s", "other", Some(1), 2, Some(key))
+                    .await,
+                Err(ArchiveError::NotFound)
+            ));
+        }
+        reopened.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn checkpoint_follows_commits_and_new_pass_persists_across_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let a = new_archive(&dir).await;

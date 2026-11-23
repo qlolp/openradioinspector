@@ -192,6 +192,7 @@ export interface Preflight {
 }
 export interface MonitoringEvent {
   id: string;
+  receiver_context_key?: string;
   project_id: string;
   run_session_id?: string;
   kind: string;

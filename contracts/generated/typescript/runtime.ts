@@ -470,6 +470,7 @@ export interface RFExplorerPassWindows {
 export interface ReceiverPanorama {
   bins: Array<ReceiverPanoramaBin>;
   complete: boolean;
+  context_id?: string;
   coverage_hex: string;
   ended_at: string;
   level_unit: ReceiverPanoramaLevelUnit;
@@ -2919,6 +2920,13 @@ const schemas = {...baselineSchemas, ...{
       },
       "complete": {
         "type": "boolean"
+      },
+      "context_id": {
+        "description": "Stable receiver profile identifier, scoped to session and stream. Events carry this value as receiver_context_key.",
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
       },
       "coverage_hex": {
         "description": "Byte i/8, bit i%8 marks an actually committed original at grid index i (hex bytes in ascending byte order).",
@@ -6505,7 +6513,8 @@ export const runtimeOperations = [
     ],
     "query": [
       "pass",
-      "columns"
+      "columns",
+      "context_id"
     ],
     "request_features": []
   },
@@ -6527,7 +6536,8 @@ export const runtimeOperations = [
     ],
     "query": [
       "pass",
-      "frequency_hz"
+      "frequency_hz",
+      "context_id"
     ],
     "request_features": []
   },

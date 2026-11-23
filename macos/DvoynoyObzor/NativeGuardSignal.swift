@@ -103,7 +103,8 @@ struct NativeGuardSignal: Identifiable {
                   let n = ref["scan_pass"].integer, let pass = Int(exactly: n), pass > 0,
                   let hz = ref["frequency_hz"].integer, (100_000...1_300_000_000).contains(hz) else { continue }
             return .init(session: PlatformExactID(session), stream: PlatformExactID(stream),
-                         observation: PlatformExactID(id), pass: pass, frequencyHz: hz, archivedEvent: true)
+                         observation: PlatformExactID(id), pass: pass, frequencyHz: hz, archivedEvent: true,
+                         contextID: value["receiver_context_key"].text.isEmpty ? nil : value["receiver_context_key"].text)
         }
         return nil
     }

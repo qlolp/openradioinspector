@@ -76,7 +76,10 @@ struct NativeGuardSignalsPane: View {
         }
 
         .sheet(item: $observationLink) { link in
-            if let client = remote?.client { NativeReceiverOriginalPane(client: client, source: link) }
+            if let client = remote?.client {
+                NativeReceiverOriginalPane(client: client, source: link,
+                    showEventPanorama: workspace.receiverPanoramaContextsAvailable)
+            }
         }
     }
 
