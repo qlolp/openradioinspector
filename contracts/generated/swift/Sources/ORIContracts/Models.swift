@@ -72,6 +72,18 @@ public enum FieldStrengthResultUnit: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum SweepToleranceBinClassification: String, Sendable, Codable, CaseIterable {
+    case above = "above"
+    case below = "below"
+    case within = "within"
+    case uncovered = "uncovered"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public struct ArtifactSummary: ContractModel, Equatable, Sendable {
     public var created_at: UtcTimestamp
     public var filename: String
@@ -1120,6 +1132,115 @@ public struct NewSession: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct RFExplorerBandPowerRequest: ContractModel, Equatable, Sendable {
+    public var start_hz: UInt64
+    public var stop_hz: UInt64
+    public var sweep_id: String
+    public var extra: JSONObject
+    public init(start_hz: UInt64, stop_hz: UInt64, sweep_id: String, extra: JSONObject = [:]) {
+        self.start_hz = start_hz
+        self.stop_hz = stop_hz
+        self.sweep_id = sweep_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let start_hzValue = object.removeValue(forKey: "start_hz") else { throw ContractError.invalid("Missing start_hz") }
+        start_hz = try start_hzValue.requireUInt64()
+        guard let stop_hzValue = object.removeValue(forKey: "stop_hz") else { throw ContractError.invalid("Missing stop_hz") }
+        stop_hz = try stop_hzValue.requireUInt64()
+        guard let sweep_idValue = object.removeValue(forKey: "sweep_id") else { throw ContractError.invalid("Missing sweep_id") }
+        sweep_id = try sweep_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["start_hz"] = .integer(String(start_hz))
+        object["stop_hz"] = .integer(String(stop_hz))
+        object["sweep_id"] = .string(sweep_id)
+        return .object(object)
+    }
+}
+
+public struct RFExplorerBandPowerResult: ContractModel, Equatable, Sendable {
+    public var enbw_correction: String
+    public var hardware_validation: String
+    public var integration: String
+    public var rbw_hz: UInt64
+    public var source: Sweep
+    public var start_hz: UInt64
+    public var start_index: UInt64
+    public var stop_hz: UInt64
+    public var stop_index: UInt64
+    public var uncertainty_db: Double?
+    public var unit: String
+    public var value: Double
+    public var extra: JSONObject
+    public init(enbw_correction: String, hardware_validation: String, integration: String, rbw_hz: UInt64, source: Sweep, start_hz: UInt64, start_index: UInt64, stop_hz: UInt64, stop_index: UInt64, uncertainty_db: Double? = nil, unit: String, value: Double, extra: JSONObject = [:]) {
+        self.enbw_correction = enbw_correction
+        self.hardware_validation = hardware_validation
+        self.integration = integration
+        self.rbw_hz = rbw_hz
+        self.source = source
+        self.start_hz = start_hz
+        self.start_index = start_index
+        self.stop_hz = stop_hz
+        self.stop_index = stop_index
+        self.uncertainty_db = uncertainty_db
+        self.unit = unit
+        self.value = value
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let enbw_correctionValue = object.removeValue(forKey: "enbw_correction") else { throw ContractError.invalid("Missing enbw_correction") }
+        enbw_correction = try enbw_correctionValue.requireString()
+        guard enbw_correction == "not_calibrated" else { throw ContractError.invalid("Unsupported enbw_correction") }
+        guard let hardware_validationValue = object.removeValue(forKey: "hardware_validation") else { throw ContractError.invalid("Missing hardware_validation") }
+        hardware_validation = try hardware_validationValue.requireString()
+        guard hardware_validation == "not_run" else { throw ContractError.invalid("Unsupported hardware_validation") }
+        guard let integrationValue = object.removeValue(forKey: "integration") else { throw ContractError.invalid("Missing integration") }
+        integration = try integrationValue.requireString()
+        guard integration == "trapezoid_over_actual_grid" else { throw ContractError.invalid("Unsupported integration") }
+        guard let rbw_hzValue = object.removeValue(forKey: "rbw_hz") else { throw ContractError.invalid("Missing rbw_hz") }
+        rbw_hz = try rbw_hzValue.requireUInt64()
+        guard let sourceValue = object.removeValue(forKey: "source") else { throw ContractError.invalid("Missing source") }
+        source = try Sweep(json: sourceValue)
+        guard let start_hzValue = object.removeValue(forKey: "start_hz") else { throw ContractError.invalid("Missing start_hz") }
+        start_hz = try start_hzValue.requireUInt64()
+        guard let start_indexValue = object.removeValue(forKey: "start_index") else { throw ContractError.invalid("Missing start_index") }
+        start_index = try start_indexValue.requireUInt64()
+        guard let stop_hzValue = object.removeValue(forKey: "stop_hz") else { throw ContractError.invalid("Missing stop_hz") }
+        stop_hz = try stop_hzValue.requireUInt64()
+        guard let stop_indexValue = object.removeValue(forKey: "stop_index") else { throw ContractError.invalid("Missing stop_index") }
+        stop_index = try stop_indexValue.requireUInt64()
+        guard let uncertainty_dbValue = object.removeValue(forKey: "uncertainty_db") else { throw ContractError.invalid("Missing uncertainty_db") }
+        uncertainty_db = uncertainty_dbValue == .null ? nil : try uncertainty_dbValue.requireDouble()
+        guard let unitValue = object.removeValue(forKey: "unit") else { throw ContractError.invalid("Missing unit") }
+        unit = try unitValue.requireString()
+        guard unit == "dBm" else { throw ContractError.invalid("Unsupported unit") }
+        guard let valueValue = object.removeValue(forKey: "value") else { throw ContractError.invalid("Missing value") }
+        value = try valueValue.requireDouble()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["enbw_correction"] = .string(enbw_correction)
+        object["hardware_validation"] = .string(hardware_validation)
+        object["integration"] = .string(integration)
+        object["rbw_hz"] = .integer(String(rbw_hz))
+        object["source"] = source.json
+        object["start_hz"] = .integer(String(start_hz))
+        object["start_index"] = .integer(String(start_index))
+        object["stop_hz"] = .integer(String(stop_hz))
+        object["stop_index"] = .integer(String(stop_index))
+        if let value = uncertainty_db { object["uncertainty_db"] = .number(value) } else { object["uncertainty_db"] = .null }
+        object["unit"] = .string(unit)
+        object["value"] = .number(value)
+        return .object(object)
+    }
+}
+
 public struct ReceiverObservation: ContractModel, Equatable, Sendable {
     public var audio_uri: String?
     public var decoded_mode: String?
@@ -1426,6 +1547,193 @@ public struct SweepSummaryPage: ContractModel, Equatable, Sendable {
         var object = extra
         object["items"] = .array(items.map { $0.json })
         if let value = next_cursor { object["next_cursor"] = .string(value) } else { object["next_cursor"] = .null }
+        return .object(object)
+    }
+}
+
+public struct SweepToleranceBin: ContractModel, Equatable, Sendable {
+    public var classification: SweepToleranceBinClassification
+    public var delta_db: Double?
+    public var frequency_hz: UInt64
+    public var lower_dbm: Double?
+    public var reference_index: UInt64?
+    public var target_index: UInt64
+    public var upper_dbm: Double?
+    public var extra: JSONObject
+    public init(classification: SweepToleranceBinClassification, delta_db: Double? = nil, frequency_hz: UInt64, lower_dbm: Double? = nil, reference_index: UInt64? = nil, target_index: UInt64, upper_dbm: Double? = nil, extra: JSONObject = [:]) {
+        self.classification = classification
+        self.delta_db = delta_db
+        self.frequency_hz = frequency_hz
+        self.lower_dbm = lower_dbm
+        self.reference_index = reference_index
+        self.target_index = target_index
+        self.upper_dbm = upper_dbm
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let classificationValue = object.removeValue(forKey: "classification") else { throw ContractError.invalid("Missing classification") }
+        classification = try SweepToleranceBinClassification(json: classificationValue)
+        guard let delta_dbValue = object.removeValue(forKey: "delta_db") else { throw ContractError.invalid("Missing delta_db") }
+        delta_db = delta_dbValue == .null ? nil : try delta_dbValue.requireDouble()
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireUInt64()
+        guard let lower_dbmValue = object.removeValue(forKey: "lower_dbm") else { throw ContractError.invalid("Missing lower_dbm") }
+        lower_dbm = lower_dbmValue == .null ? nil : try lower_dbmValue.requireDouble()
+        guard let reference_indexValue = object.removeValue(forKey: "reference_index") else { throw ContractError.invalid("Missing reference_index") }
+        reference_index = reference_indexValue == .null ? nil : try reference_indexValue.requireUInt64()
+        guard let target_indexValue = object.removeValue(forKey: "target_index") else { throw ContractError.invalid("Missing target_index") }
+        target_index = try target_indexValue.requireUInt64()
+        guard let upper_dbmValue = object.removeValue(forKey: "upper_dbm") else { throw ContractError.invalid("Missing upper_dbm") }
+        upper_dbm = upper_dbmValue == .null ? nil : try upper_dbmValue.requireDouble()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["classification"] = classification.json
+        if let value = delta_db { object["delta_db"] = .number(value) } else { object["delta_db"] = .null }
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        if let value = lower_dbm { object["lower_dbm"] = .number(value) } else { object["lower_dbm"] = .null }
+        if let value = reference_index { object["reference_index"] = .integer(String(value)) } else { object["reference_index"] = .null }
+        object["target_index"] = .integer(String(target_index))
+        if let value = upper_dbm { object["upper_dbm"] = .number(value) } else { object["upper_dbm"] = .null }
+        return .object(object)
+    }
+}
+
+public struct SweepToleranceCounts: ContractModel, Equatable, Sendable {
+    public var above: UInt64
+    public var below: UInt64
+    public var uncovered: UInt64
+    public var within: UInt64
+    public var extra: JSONObject
+    public init(above: UInt64, below: UInt64, uncovered: UInt64, within: UInt64, extra: JSONObject = [:]) {
+        self.above = above
+        self.below = below
+        self.uncovered = uncovered
+        self.within = within
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let aboveValue = object.removeValue(forKey: "above") else { throw ContractError.invalid("Missing above") }
+        above = try aboveValue.requireUInt64()
+        guard let belowValue = object.removeValue(forKey: "below") else { throw ContractError.invalid("Missing below") }
+        below = try belowValue.requireUInt64()
+        guard let uncoveredValue = object.removeValue(forKey: "uncovered") else { throw ContractError.invalid("Missing uncovered") }
+        uncovered = try uncoveredValue.requireUInt64()
+        guard let withinValue = object.removeValue(forKey: "within") else { throw ContractError.invalid("Missing within") }
+        within = try withinValue.requireUInt64()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["above"] = .integer(String(above))
+        object["below"] = .integer(String(below))
+        object["uncovered"] = .integer(String(uncovered))
+        object["within"] = .integer(String(within))
+        return .object(object)
+    }
+}
+
+public struct SweepToleranceRequest: ContractModel, Equatable, Sendable {
+    public var lower_deviation_db: Double
+    public var reference_id: String
+    public var target_id: String
+    public var upper_deviation_db: Double
+    public var extra: JSONObject
+    public init(lower_deviation_db: Double, reference_id: String, target_id: String, upper_deviation_db: Double, extra: JSONObject = [:]) {
+        self.lower_deviation_db = lower_deviation_db
+        self.reference_id = reference_id
+        self.target_id = target_id
+        self.upper_deviation_db = upper_deviation_db
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let lower_deviation_dbValue = object.removeValue(forKey: "lower_deviation_db") else { throw ContractError.invalid("Missing lower_deviation_db") }
+        lower_deviation_db = try lower_deviation_dbValue.requireDouble()
+        guard let reference_idValue = object.removeValue(forKey: "reference_id") else { throw ContractError.invalid("Missing reference_id") }
+        reference_id = try reference_idValue.requireString()
+        guard let target_idValue = object.removeValue(forKey: "target_id") else { throw ContractError.invalid("Missing target_id") }
+        target_id = try target_idValue.requireString()
+        guard let upper_deviation_dbValue = object.removeValue(forKey: "upper_deviation_db") else { throw ContractError.invalid("Missing upper_deviation_db") }
+        upper_deviation_db = try upper_deviation_dbValue.requireDouble()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["lower_deviation_db"] = .number(lower_deviation_db)
+        object["reference_id"] = .string(reference_id)
+        object["target_id"] = .string(target_id)
+        object["upper_deviation_db"] = .number(upper_deviation_db)
+        return .object(object)
+    }
+}
+
+public struct SweepToleranceResult: ContractModel, Equatable, Sendable {
+    public var bins: [SweepToleranceBin]
+    public var counts: SweepToleranceCounts
+    public var delta_unit: String
+    public var level_unit: String
+    public var lower_deviation_db: Double
+    public var reference: Sweep
+    public var session_id: String
+    public var stream_id: String
+    public var target: Sweep
+    public var upper_deviation_db: Double
+    public var extra: JSONObject
+    public init(bins: [SweepToleranceBin], counts: SweepToleranceCounts, delta_unit: String, level_unit: String, lower_deviation_db: Double, reference: Sweep, session_id: String, stream_id: String, target: Sweep, upper_deviation_db: Double, extra: JSONObject = [:]) {
+        self.bins = bins
+        self.counts = counts
+        self.delta_unit = delta_unit
+        self.level_unit = level_unit
+        self.lower_deviation_db = lower_deviation_db
+        self.reference = reference
+        self.session_id = session_id
+        self.stream_id = stream_id
+        self.target = target
+        self.upper_deviation_db = upper_deviation_db
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let binsValue = object.removeValue(forKey: "bins") else { throw ContractError.invalid("Missing bins") }
+        bins = try binsValue.requireArray().map { try SweepToleranceBin(json: $0) }
+        guard let countsValue = object.removeValue(forKey: "counts") else { throw ContractError.invalid("Missing counts") }
+        counts = try SweepToleranceCounts(json: countsValue)
+        guard let delta_unitValue = object.removeValue(forKey: "delta_unit") else { throw ContractError.invalid("Missing delta_unit") }
+        delta_unit = try delta_unitValue.requireString()
+        guard delta_unit == "dB" else { throw ContractError.invalid("Unsupported delta_unit") }
+        guard let level_unitValue = object.removeValue(forKey: "level_unit") else { throw ContractError.invalid("Missing level_unit") }
+        level_unit = try level_unitValue.requireString()
+        guard level_unit == "dBm" else { throw ContractError.invalid("Unsupported level_unit") }
+        guard let lower_deviation_dbValue = object.removeValue(forKey: "lower_deviation_db") else { throw ContractError.invalid("Missing lower_deviation_db") }
+        lower_deviation_db = try lower_deviation_dbValue.requireDouble()
+        guard let referenceValue = object.removeValue(forKey: "reference") else { throw ContractError.invalid("Missing reference") }
+        reference = try Sweep(json: referenceValue)
+        guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
+        session_id = try session_idValue.requireString()
+        guard let stream_idValue = object.removeValue(forKey: "stream_id") else { throw ContractError.invalid("Missing stream_id") }
+        stream_id = try stream_idValue.requireString()
+        guard let targetValue = object.removeValue(forKey: "target") else { throw ContractError.invalid("Missing target") }
+        target = try Sweep(json: targetValue)
+        guard let upper_deviation_dbValue = object.removeValue(forKey: "upper_deviation_db") else { throw ContractError.invalid("Missing upper_deviation_db") }
+        upper_deviation_db = try upper_deviation_dbValue.requireDouble()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["bins"] = .array(bins.map { $0.json })
+        object["counts"] = counts.json
+        object["delta_unit"] = .string(delta_unit)
+        object["level_unit"] = .string(level_unit)
+        object["lower_deviation_db"] = .number(lower_deviation_db)
+        object["reference"] = reference.json
+        object["session_id"] = .string(session_id)
+        object["stream_id"] = .string(stream_id)
+        object["target"] = target.json
+        object["upper_deviation_db"] = .number(upper_deviation_db)
         return .object(object)
     }
 }

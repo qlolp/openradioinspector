@@ -336,7 +336,7 @@ fn runtime_backend_and_request_features_fail_closed() {
         select_operations("python-legacy", &[], &[], &empty)
             .unwrap()
             .len(),
-        141
+        143
     );
     let available = select_operations("rust-candidate", &[], &[], &empty).unwrap();
     assert!(
@@ -671,4 +671,17 @@ fn optional_receive_grid_round_trips_without_changing_legacy_band() {
         let encoded = serde_json::to_value(band).unwrap();
         assert_eq!(encoded.get("step_hz"), f[key].get("step_hz"));
     }
+}
+
+#[test]
+fn survey_sdk_preserves_unmeasured_columns_and_the_original_point_index() {
+    use ori_contracts::runtime::RFExplorerPassPanorama;
+    let input = include_bytes!("../fixtures/rf-explorer-pass-v1.json");
+    let panorama: RFExplorerPassPanorama = from_json_slice(input, input.len()).unwrap();
+    assert_eq!(panorama.columns[0].as_ref().unwrap().point_index, 111);
+    assert!(panorama.columns[1].is_none());
+    assert!(panorama.hold_columns.is_none());
+    let encoded: Value = from_json_slice(&to_json_vec(&panorama).unwrap(), 4096).unwrap();
+    assert!(encoded["columns"][1].is_null());
+    assert_eq!(encoded["columns"][0]["level_dbm"], -42.5);
 }

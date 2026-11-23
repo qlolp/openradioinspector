@@ -340,6 +340,77 @@ export interface PairingInput {
   [key: string]: unknown;
 }
 
+export interface RFExplorerCoverage {
+  start_hz: Integer;
+  stop_hz: Integer;
+  [key: string]: unknown;
+}
+
+export interface RFExplorerPassPage {
+  items: Array<RFExplorerPassSummary>;
+  next_before: string | null;
+  [key: string]: unknown;
+}
+
+export interface RFExplorerPassPanorama {
+  columns: Array<RFExplorerPassPoint | null>;
+  coverage: Array<RFExplorerCoverage>;
+  hold_columns: Array<RFExplorerPassPoint | null> | null;
+  hold_coverage: Array<RFExplorerCoverage> | null;
+  summary: RFExplorerPassSummary;
+  [key: string]: unknown;
+}
+
+export interface RFExplorerPassPoint {
+  ended_at: string;
+  frequency_hz: Integer;
+  last_measured_at: string;
+  level_dbm: number;
+  point_index: Integer;
+  started_at: string;
+  sweep_id: string;
+  tile: Integer;
+  [key: string]: unknown;
+}
+
+export interface RFExplorerPassSummary {
+  active_board: string;
+  active_input: string;
+  complete: boolean;
+  detector: string;
+  duration_s: number | null;
+  ended_at: string;
+  expected_points: Integer;
+  offset_db: Integer;
+  pass: Integer;
+  pass_id: string;
+  rbw_hz: Integer;
+  received_tiles: Integer;
+  revisit_s: number | null;
+  simulated: boolean;
+  start_hz: Integer;
+  started_at: string;
+  step_hz: Integer;
+  stop_hz: Integer;
+  tiles: Integer;
+  unique_points: Integer;
+  [key: string]: unknown;
+}
+
+export interface RFExplorerPassWindow {
+  ended_at: string;
+  started_at: string;
+  sweep_id: string;
+  tile: Integer;
+  [key: string]: unknown;
+}
+
+export interface RFExplorerPassWindows {
+  items: Array<RFExplorerPassWindow>;
+  next_after_tile: Integer | null;
+  [key: string]: unknown;
+}
+
 export interface RecognizedGuardEvent {
   id: string;
   peak_source?: JSONObject;
@@ -2188,6 +2259,349 @@ const schemas = {...baselineSchemas, ...{
     ],
     "type": "object"
   },
+  "RFExplorerCoverage": {
+    "properties": {
+      "start_hz": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "stop_hz": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "start_hz",
+      "stop_hz"
+    ],
+    "type": "object"
+  },
+  "RFExplorerPassPage": {
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/components/schemas/RFExplorerPassSummary"
+        },
+        "maxItems": 100,
+        "type": "array"
+      },
+      "next_before": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "items",
+      "next_before"
+    ],
+    "type": "object"
+  },
+  "RFExplorerPassPanorama": {
+    "properties": {
+      "columns": {
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/RFExplorerPassPoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxItems": 2048,
+        "type": "array"
+      },
+      "coverage": {
+        "items": {
+          "$ref": "#/components/schemas/RFExplorerCoverage"
+        },
+        "maxItems": 2398,
+        "type": "array"
+      },
+      "hold_columns": {
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/RFExplorerPassPoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxItems": 2048,
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "hold_coverage": {
+        "items": {
+          "$ref": "#/components/schemas/RFExplorerCoverage"
+        },
+        "maxItems": 2398,
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "summary": {
+        "$ref": "#/components/schemas/RFExplorerPassSummary"
+      }
+    },
+    "required": [
+      "summary",
+      "columns",
+      "hold_columns",
+      "coverage",
+      "hold_coverage"
+    ],
+    "type": "object"
+  },
+  "RFExplorerPassPoint": {
+    "properties": {
+      "ended_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "frequency_hz": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "last_measured_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "level_dbm": {
+        "format": "double",
+        "type": "number"
+      },
+      "point_index": {
+        "format": "uint64",
+        "maximum": 111,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "started_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "sweep_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "tile": {
+        "format": "uint64",
+        "maximum": 2398,
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "frequency_hz",
+      "level_dbm",
+      "sweep_id",
+      "point_index",
+      "started_at",
+      "ended_at",
+      "tile",
+      "last_measured_at"
+    ],
+    "type": "object"
+  },
+  "RFExplorerPassSummary": {
+    "properties": {
+      "active_board": {
+        "maxLength": 16,
+        "minLength": 1,
+        "type": "string"
+      },
+      "active_input": {
+        "maxLength": 16,
+        "minLength": 1,
+        "type": "string"
+      },
+      "complete": {
+        "type": "boolean"
+      },
+      "detector": {
+        "maxLength": 32,
+        "minLength": 1,
+        "type": "string"
+      },
+      "duration_s": {
+        "format": "double",
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "ended_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "expected_points": {
+        "format": "uint64",
+        "maximum": 268501,
+        "minimum": 112,
+        "type": "integer"
+      },
+      "offset_db": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "pass": {
+        "format": "uint64",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "pass_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "rbw_hz": {
+        "format": "uint64",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "received_tiles": {
+        "format": "uint64",
+        "maximum": 2398,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "revisit_s": {
+        "format": "double",
+        "minimum": 0,
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "simulated": {
+        "type": "boolean"
+      },
+      "start_hz": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "started_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "step_hz": {
+        "format": "uint64",
+        "maximum": 10000,
+        "minimum": 10000,
+        "type": "integer"
+      },
+      "stop_hz": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "tiles": {
+        "format": "uint64",
+        "maximum": 2398,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "unique_points": {
+        "format": "uint64",
+        "maximum": 268501,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "pass_id",
+      "pass",
+      "start_hz",
+      "stop_hz",
+      "step_hz",
+      "tiles",
+      "received_tiles",
+      "unique_points",
+      "expected_points",
+      "started_at",
+      "ended_at",
+      "complete",
+      "duration_s",
+      "revisit_s",
+      "active_board",
+      "active_input",
+      "rbw_hz",
+      "detector",
+      "offset_db",
+      "simulated"
+    ],
+    "type": "object"
+  },
+  "RFExplorerPassWindow": {
+    "properties": {
+      "ended_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "started_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "sweep_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "tile": {
+        "format": "uint64",
+        "maximum": 2398,
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "tile",
+      "sweep_id",
+      "started_at",
+      "ended_at"
+    ],
+    "type": "object"
+  },
+  "RFExplorerPassWindows": {
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/components/schemas/RFExplorerPassWindow"
+        },
+        "maxItems": 256,
+        "type": "array"
+      },
+      "next_after_tile": {
+        "format": "uint64",
+        "maximum": 2398,
+        "minimum": 1,
+        "type": [
+          "integer",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "items",
+      "next_after_tile"
+    ],
+    "type": "object"
+  },
   "RecognizedGuardEvent": {
     "additionalProperties": true,
     "properties": {
@@ -2796,6 +3210,20 @@ export const decodePairedRecheckVisit = (value: JSONValue): PairedRecheckVisit =
 export const encodePairedRecheckVisit = (value: PairedRecheckVisit): string => stringifyJSON(walk(schemas.PairedRecheckVisit as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairingInput = (value: JSONValue): PairingInput => walk(schemas.PairingInput as unknown as Schema,value,false) as unknown as PairingInput;
 export const encodePairingInput = (value: PairingInput): string => stringifyJSON(walk(schemas.PairingInput as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerCoverage = (value: JSONValue): RFExplorerCoverage => walk(schemas.RFExplorerCoverage as unknown as Schema,value,false) as unknown as RFExplorerCoverage;
+export const encodeRFExplorerCoverage = (value: RFExplorerCoverage): string => stringifyJSON(walk(schemas.RFExplorerCoverage as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerPassPage = (value: JSONValue): RFExplorerPassPage => walk(schemas.RFExplorerPassPage as unknown as Schema,value,false) as unknown as RFExplorerPassPage;
+export const encodeRFExplorerPassPage = (value: RFExplorerPassPage): string => stringifyJSON(walk(schemas.RFExplorerPassPage as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerPassPanorama = (value: JSONValue): RFExplorerPassPanorama => walk(schemas.RFExplorerPassPanorama as unknown as Schema,value,false) as unknown as RFExplorerPassPanorama;
+export const encodeRFExplorerPassPanorama = (value: RFExplorerPassPanorama): string => stringifyJSON(walk(schemas.RFExplorerPassPanorama as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerPassPoint = (value: JSONValue): RFExplorerPassPoint => walk(schemas.RFExplorerPassPoint as unknown as Schema,value,false) as unknown as RFExplorerPassPoint;
+export const encodeRFExplorerPassPoint = (value: RFExplorerPassPoint): string => stringifyJSON(walk(schemas.RFExplorerPassPoint as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerPassSummary = (value: JSONValue): RFExplorerPassSummary => walk(schemas.RFExplorerPassSummary as unknown as Schema,value,false) as unknown as RFExplorerPassSummary;
+export const encodeRFExplorerPassSummary = (value: RFExplorerPassSummary): string => stringifyJSON(walk(schemas.RFExplorerPassSummary as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerPassWindow = (value: JSONValue): RFExplorerPassWindow => walk(schemas.RFExplorerPassWindow as unknown as Schema,value,false) as unknown as RFExplorerPassWindow;
+export const encodeRFExplorerPassWindow = (value: RFExplorerPassWindow): string => stringifyJSON(walk(schemas.RFExplorerPassWindow as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerPassWindows = (value: JSONValue): RFExplorerPassWindows => walk(schemas.RFExplorerPassWindows as unknown as Schema,value,false) as unknown as RFExplorerPassWindows;
+export const encodeRFExplorerPassWindows = (value: RFExplorerPassWindows): string => stringifyJSON(walk(schemas.RFExplorerPassWindows as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeRecognizedGuardEvent = (value: JSONValue): RecognizedGuardEvent => walk(schemas.RecognizedGuardEvent as unknown as Schema,value,false) as unknown as RecognizedGuardEvent;
 export const encodeRecognizedGuardEvent = (value: RecognizedGuardEvent): string => stringifyJSON(walk(schemas.RecognizedGuardEvent as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeScanBand = (value: JSONValue): ScanBand => walk(schemas.ScanBand as unknown as Schema,value,false) as unknown as ScanBand;
@@ -4623,10 +5051,13 @@ export const runtimeOperations = [
   },
   {
     "backends": [
-      "python-legacy"
+      "python-legacy",
+      "rust-candidate"
     ],
     "capabilities": [],
-    "features": [],
+    "features": [
+      "frequency_bookmarks"
+    ],
     "max_request_bytes": null,
     "method": "GET",
     "operation_id": "get_api_v1_sessions_id_frequency_bookmarks",
@@ -4639,10 +5070,13 @@ export const runtimeOperations = [
   },
   {
     "backends": [
-      "python-legacy"
+      "python-legacy",
+      "rust-candidate"
     ],
     "capabilities": [],
-    "features": [],
+    "features": [
+      "frequency_bookmarks"
+    ],
     "max_request_bytes": 8192,
     "method": "POST",
     "operation_id": "post_api_v1_sessions_id_frequency_bookmarks",
@@ -5097,6 +5531,25 @@ export const runtimeOperations = [
     ],
     "capabilities": [],
     "features": [
+      "rf_explorer_band_power"
+    ],
+    "max_request_bytes": 8192,
+    "method": "POST",
+    "operation_id": "post_api_v1_sessions_id_rf_explorer_band_power",
+    "path": "/api/v1/sessions/{id}/rf-explorer-band-power",
+    "path_parameters": [
+      "id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy",
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
       "signal_list_exchange"
     ],
     "max_request_bytes": null,
@@ -5463,6 +5916,74 @@ export const runtimeOperations = [
   },
   {
     "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "rf_explorer_survey_panorama"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes",
+    "path_parameters": [
+      "id",
+      "stream_id"
+    ],
+    "query": [
+      "limit",
+      "before"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "rf_explorer_survey_panorama"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}",
+    "path_parameters": [
+      "id",
+      "stream_id",
+      "pass_id"
+    ],
+    "query": [
+      "columns",
+      "hold_since"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "rf_explorer_survey_panorama"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_windows",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/windows",
+    "path_parameters": [
+      "id",
+      "stream_id",
+      "pass_id"
+    ],
+    "query": [
+      "limit",
+      "after_tile"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
       "python-legacy",
       "rust-candidate"
     ],
@@ -5765,6 +6286,25 @@ export const runtimeOperations = [
       "window_points",
       "margin_db"
     ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy",
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "sweep_tolerance_envelope"
+    ],
+    "max_request_bytes": 8192,
+    "method": "POST",
+    "operation_id": "post_api_v1_sessions_id_sweep_tolerance_envelope",
+    "path": "/api/v1/sessions/{id}/sweep-tolerance-envelope",
+    "path_parameters": [
+      "id"
+    ],
+    "query": [],
     "request_features": []
   },
   {

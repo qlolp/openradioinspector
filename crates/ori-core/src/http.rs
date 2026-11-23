@@ -116,6 +116,9 @@ pub(crate) fn request_limit(path: &str) -> usize {
             | "sweep-context"
             | "sweep-occupancy"
             | "sweep-quality"
+            | "frequency-bookmarks"
+            | "rf-explorer-band-power"
+            | "sweep-tolerance-envelope"
             | "frequency-counter"
             | "dvb-evaluation",
         ] => 8192,
@@ -617,6 +620,17 @@ async fn get(
             let payload = crate::analysis::get_payload(method, &query)?;
             return crate::analysis::response(&core, id, method, payload).await;
         }
+        [
+            "api",
+            "v1",
+            "sessions",
+            id,
+            "streams",
+            stream,
+            "rf-explorer",
+            "passes",
+            tail @ ..,
+        ] => crate::rf_explorer_history::read(&core, id, stream, tail, &query).await?,
         ["api", "v1", "sessions", id, "sweep-summaries"] => {
             crate::history::summaries(&core, id, &query).await?
         }
@@ -846,6 +860,8 @@ fn capabilities(core: &Core) -> Value {
         "sweep_quality",
         "frequency_counter",
         "field_strength_rms_v2",
+        "rf_explorer_band_power",
+        "sweep_tolerance_envelope",
         "dvb_t_evaluation",
         "measurement_map",
     ] {
@@ -859,6 +875,8 @@ fn capabilities(core: &Core) -> Value {
         value["features"][name] = Value::Bool(archived);
     }
     let serial = archived && core.config.devices.transport.is_some();
+    value["features"]["frequency_bookmarks"] = Value::Bool(domains);
+    value["features"]["rf_explorer_survey_panorama"] = Value::Bool(archived);
     let rf_explorer = core
         .devices
         .as_ref()
@@ -1228,7 +1246,7 @@ async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<R
         )),
     }
 }
-async fn stream_context(core: &Core, session: &str, stream: &str) -> ApiResult<Value> {
+pub(crate) async fn stream_context(core: &Core, session: &str, stream: &str) -> ApiResult<Value> {
     core.session(session).await?["streams"]
         .as_array()
         .and_then(|items| items.iter().find(|item| item["id"] == stream))

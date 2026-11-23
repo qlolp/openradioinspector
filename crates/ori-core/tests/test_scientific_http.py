@@ -24,6 +24,14 @@ from urllib.request import Request, urlopen
 from radioinspector.contracts import Candidate, MonitoringSession, Sweep, to_primitive
 from radioinspector.session_service import SessionService
 from radioinspector.session_store import SQLiteSessionStore
+# The owned worker and the reference service use their installed packages.
+# Only the shared synthetic transport fixture is loaded from this checkout.
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+try:
+    from tests.test_rf_explorer_survey_export import START, STEP, sweep as survey_window
+finally:
+    sys.path.pop(0)
 
 
 def encode(value):
@@ -32,8 +40,7 @@ def encode(value):
 
 
 def field_fixture():
-    return json.loads((Path(__file__).resolve().parents[3] /
-                       'tests/fixtures/field-strength-rms-v2.json').read_text())
+    return json.loads((ROOT / 'tests/fixtures/field-strength-rms-v2.json').read_text())
 
 
 def payloads():
@@ -56,6 +63,9 @@ def payloads():
         "sweep_three_thresholds": {"sweep_id": "sweep-1", "levels_dbm": [-90, -80, -70]},
         "sweep_context": {"sweep_id": "sweep-1", "before": 1, "after": 1},
         "sweep_occupancy": {"sweep_id": "sweep-1", "before": 1, "after": 1, "threshold_dbm": -80},
+        "sweep_tolerance_envelope": {"reference_id": "sweep-0", "target_id": "sweep-2",
+                                     "upper_deviation_db": 2, "lower_deviation_db": 1},
+        "rf_explorer_band_power": {"sweep_id": "rf-source", "start_hz": START, "stop_hz": START + 3 * STEP},
         "sweep_mask_analysis": {"sweep_id": "sweep-1", "mask_json": encode(mask).decode()},
         "candidate_frequency_rounding": {"candidate_id": "candidate-𐀀", "profile_json": encode(profile).decode()},
         "frequency_rounding": {"candidate_ids": ["candidate-𐀀"], "table_json": encode(raster).decode()},
@@ -98,6 +108,9 @@ class ScientificHttpParity(unittest.TestCase):
                                  "ended_at": f"2026-11-11T00:00:0{number}.223456Z"},
                     "frequencies_hz": [100, 200, 300, 400], "levels": [-90.00000000000001, -80.0 + number, -60.0 + number, -90.0],
                     "level_unit": "dBm", "settings": {"rbw_hz": 10000, "extension": {"bits": [-0.0, 1.0000000000000002]}}}))
+            radio = survey_window(1)["measurement"]
+            radio.update(id="rf-source", session_id=session.id, stream_id="spectrum")
+            sweeps.append(stored.ingest_sweep(radio))
             calibrated = field_fixture()['source']
             calibrated.update(id='calibrated-source', session_id=session.id, stream_id='spectrum')
             sweeps.append(stored.ingest_sweep(calibrated))

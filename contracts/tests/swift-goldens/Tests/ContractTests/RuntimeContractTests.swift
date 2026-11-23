@@ -3,9 +3,19 @@ import Foundation
 import ORIContracts
 
 final class RuntimeContractTests: XCTestCase {
-    private func fixture() throws -> JSONValue {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("fixtures/runtime-v1.json")
+    private func fixture(_ name: String = "runtime-v1.json") throws -> JSONValue {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("fixtures").appendingPathComponent(name)
         return try StrictJSON.parse(Data(contentsOf: url))
+    }
+
+    func testSurveyPreservesSparseColumnsAndActualSources() throws {
+        let data = try fixture("rf-explorer-pass-v1.json")
+        let pass = try RFExplorerPassPanorama(json: data)
+        XCTAssertEqual(pass.columns[0]?.point_index, 111)
+        XCTAssertEqual(pass.columns[0]?.level_dbm, -42.5)
+        XCTAssertNil(pass.columns[1])
+        XCTAssertNil(pass.hold_columns)
+        XCTAssertEqual(pass.json, data)
     }
 
     func testRuntimeDTOsReuseStrictCodecsAndSummaryType() throws {
@@ -43,7 +53,7 @@ final class RuntimeContractTests: XCTestCase {
         XCTAssertEqual(runtimeOperations.first { $0.operationId == "post_api_v1_security_pair" }?.maxRequestBytes, 4096)
         XCTAssertEqual(runtimeOperations.first { $0.operationId == "get_api_v1_sessions_id_sweep_summaries" }?.pathParameters, ["id"])
         XCTAssertThrowsError(try selectRuntimeOperations(backend: "unknown"))
-        XCTAssertEqual(try selectRuntimeOperations(backend: "python-legacy").count, 141)
+        XCTAssertEqual(try selectRuntimeOperations(backend: "python-legacy").count, 143)
         let bare = try selectRuntimeOperations(backend: "rust-candidate").map(\.operationId)
         XCTAssertTrue(bare.contains("get_api_v1_security_status"))
         XCTAssertFalse(bare.contains("get_api_v1_events_ws"))

@@ -55,6 +55,43 @@ class RuntimeContractTests(unittest.TestCase):
             'adapter': 'rf-explorer-3g-serial', 'baud': 500000, 'survey_step_hz': 10000})
 
 
+    def test_rf_explorer_pass_review_routes_are_bounded_archive_reader_operations(self):
+        baseline, extension = self.documents()
+        runtime = self.composer().compose_runtime_document(baseline, extension)
+        base = '/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes'
+        for suffix, key, maximum in [('', 'limit', 100), ('/{pass_id}', 'columns', 2048),
+                                    ('/{pass_id}/windows', 'limit', 256)]:
+            self.assertIn(base + suffix, runtime['paths'])
+            op = runtime['paths'][base + suffix]['get']
+            self.assertIn('rf_explorer_survey_panorama', op['x-ori-feature-requirements'])
+            self.assertIn(op['operationId'], extension['reader_operations'])
+            query = {p['name']: p['schema'] for p in op['parameters'] if p['in'] == 'query'}
+            self.assertEqual(query[key]['maximum'], maximum)
+            self.assertNotIn(base + suffix, baseline['paths'])
+        point = runtime['components']['schemas']['RFExplorerPassPoint']
+        self.assertTrue({'frequency_hz', 'level_dbm', 'sweep_id', 'point_index',
+                         'started_at', 'ended_at', 'last_measured_at'} <= set(point['required']))
+
+    def test_nullable_display_columns_round_trip_in_each_generated_sdk(self):
+        from tools.contracts import generate
+        point = {'anyOf': [{'$ref': '#/components/schemas/RFExplorerPassPoint'}, {'type': 'null'}]}
+        columns = {'type': 'array', 'items': point}
+        self.assertEqual(generate.rust_type(columns), 'Vec<Option<RFExplorerPassPoint>>')
+        self.assertEqual(generate.swift_type(columns), '[RFExplorerPassPoint?]')
+        self.assertEqual(generate.ts_type(columns), 'Array<RFExplorerPassPoint | null>')
+        self.assertIn('== .null ? nil', generate.swift_read(columns, 'input'))
+        self.assertIn('?? .null', generate.swift_write(columns, 'input'))
+
+    def test_archived_frequency_sets_have_independent_read_and_write_support(self):
+        baseline, extension = self.documents()
+        runtime = self.composer().compose_runtime_document(baseline, extension)
+        routes = runtime['paths']['/api/v1/sessions/{id}/frequency-bookmarks']
+        for verb in ('get', 'post'):
+            self.assertIn('rust-candidate', routes[verb]['x-ori-backends'])
+            self.assertEqual(routes[verb]['x-ori-feature-requirements'], ['frequency_bookmarks'])
+        self.assertTrue(routes['get']['x-ori-reader-access'])
+        self.assertFalse(routes['post'].get('x-ori-reader-access', False))
+
     def test_composition_keeps_baseline_schemas_paths_and_rendered_bytes_unchanged(self):
         from tools.contracts.generate import render
         baseline, extension = self.documents()

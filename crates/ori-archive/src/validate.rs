@@ -518,6 +518,40 @@ pub(crate) fn mutations(values: &mut [Mutation]) -> Result<()> {
                 time(value, "created_at", false)?;
                 object(value, "values")?;
             }
+            Mutation::FrequencyBookmarks {
+                session_id,
+                name,
+                entries,
+                id,
+                created_at,
+            } => {
+                if session_id.trim().is_empty()
+                    || id.trim().is_empty()
+                    || name.trim().is_empty()
+                    || name.chars().count() > 80
+                {
+                    return Err(invalid("bookmark set identity"));
+                }
+                *created_at = utc(created_at)?;
+                let entries = entries
+                    .as_array()
+                    .filter(|v| (1..=4).contains(&v.len()))
+                    .ok_or_else(|| invalid("bookmark set size"))?;
+                let mut seen = std::collections::HashSet::new();
+                for item in entries {
+                    let label = text(item, "label")?;
+                    let hz = item["frequency_hz"]
+                        .as_u64()
+                        .filter(|n| *n <= 9_007_199_254_740_991)
+                        .ok_or_else(|| invalid("bookmark frequency"))?;
+                    if label.chars().count() > 80
+                        || item.as_object().is_none_or(|v| v.len() != 2)
+                        || !seen.insert(hz)
+                    {
+                        return Err(invalid("bookmark entry"));
+                    }
+                }
+            }
             Mutation::Reference { value, .. } => {
                 for key in ["id", "session_id", "stream_id", "sweep_id", "name"] {
                     text(value, key)?;

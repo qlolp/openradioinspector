@@ -1,0 +1,45 @@
+{
+  "summary": {
+    "pass_id": "synthetic-receiver-1",
+    "pass": 1,
+    "start_hz": 100000000,
+    "stop_hz": 102230000,
+    "step_hz": 10000,
+    "tiles": 2,
+    "received_tiles": 1,
+    "expected_points": 224,
+    "unique_points": 112,
+    "active_board": "expansion",
+    "active_input": "right",
+    "rbw_hz": 15000,
+    "offset_db": 0,
+    "detector": "normal",
+    "simulated": true,
+    "started_at": "2026-11-23T00:00:00.123456Z",
+    "ended_at": "2026-11-23T00:00:00.223456Z",
+    "complete": false,
+    "duration_s": null,
+    "revisit_s": null
+  },
+  "columns": [
+    {
+      "frequency_hz": 101110000,
+      "level_dbm": -42.5,
+      "sweep_id": "synthetic-window-1",
+      "point_index": 111,
+      "started_at": "2026-11-23T00:00:00.123456Z",
+      "ended_at": "2026-11-23T00:00:00.223456Z",
+      "tile": 1,
+      "last_measured_at": "2026-11-23T00:00:00.223456Z"
+    },
+    null
+  ],
+  "coverage": [
+    {
+      "start_hz": 100000000,
+      "stop_hz": 101110000
+    }
+  ],
+  "hold_columns": null,
+  "hold_coverage": null
+}

@@ -155,6 +155,7 @@ async fn reader_can_browse_measurements_while_mutations_and_unrelated_reads_are_
         session.clone(),
         format!("{session}/streams"),
         format!("{session}/streams/{stream}"),
+        format!("{session}/streams/{stream}/rf-explorer/passes"),
         format!("{session}/sweeps/{source}"),
         format!("{session}/sweeps?limit=1"),
         format!("{session}/sweep-summaries?limit=1"),

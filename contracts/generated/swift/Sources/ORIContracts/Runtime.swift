@@ -1651,6 +1651,337 @@ public struct PairingInput: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct RFExplorerCoverage: ContractModel, Equatable, Sendable {
+    public var start_hz: UInt64
+    public var stop_hz: UInt64
+    public var extra: JSONObject
+    public init(start_hz: UInt64, stop_hz: UInt64, extra: JSONObject = [:]) {
+        self.start_hz = start_hz
+        self.stop_hz = stop_hz
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let start_hzValue = object.removeValue(forKey: "start_hz") else { throw ContractError.invalid("Missing start_hz") }
+        start_hz = try start_hzValue.requireUInt64()
+        guard let stop_hzValue = object.removeValue(forKey: "stop_hz") else { throw ContractError.invalid("Missing stop_hz") }
+        stop_hz = try stop_hzValue.requireUInt64()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["start_hz"] = .integer(String(start_hz))
+        object["stop_hz"] = .integer(String(stop_hz))
+        return .object(object)
+    }
+}
+
+public struct RFExplorerPassPage: ContractModel, Equatable, Sendable {
+    public var items: [RFExplorerPassSummary]
+    public var next_before: String?
+    public var extra: JSONObject
+    public init(items: [RFExplorerPassSummary], next_before: String? = nil, extra: JSONObject = [:]) {
+        self.items = items
+        self.next_before = next_before
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let itemsValue = object.removeValue(forKey: "items") else { throw ContractError.invalid("Missing items") }
+        items = try itemsValue.requireArray().map { try RFExplorerPassSummary(json: $0) }
+        guard let next_beforeValue = object.removeValue(forKey: "next_before") else { throw ContractError.invalid("Missing next_before") }
+        next_before = next_beforeValue == .null ? nil : try next_beforeValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["items"] = .array(items.map { $0.json })
+        if let value = next_before { object["next_before"] = .string(value) } else { object["next_before"] = .null }
+        return .object(object)
+    }
+}
+
+public struct RFExplorerPassPanorama: ContractModel, Equatable, Sendable {
+    public var columns: [RFExplorerPassPoint?]
+    public var coverage: [RFExplorerCoverage]
+    public var hold_columns: [RFExplorerPassPoint?]?
+    public var hold_coverage: [RFExplorerCoverage]?
+    public var summary: RFExplorerPassSummary
+    public var extra: JSONObject
+    public init(columns: [RFExplorerPassPoint?], coverage: [RFExplorerCoverage], hold_columns: [RFExplorerPassPoint?]? = nil, hold_coverage: [RFExplorerCoverage]? = nil, summary: RFExplorerPassSummary, extra: JSONObject = [:]) {
+        self.columns = columns
+        self.coverage = coverage
+        self.hold_columns = hold_columns
+        self.hold_coverage = hold_coverage
+        self.summary = summary
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let columnsValue = object.removeValue(forKey: "columns") else { throw ContractError.invalid("Missing columns") }
+        columns = try columnsValue.requireArray().map { $0 == .null ? nil : try RFExplorerPassPoint(json: $0) }
+        guard let coverageValue = object.removeValue(forKey: "coverage") else { throw ContractError.invalid("Missing coverage") }
+        coverage = try coverageValue.requireArray().map { try RFExplorerCoverage(json: $0) }
+        guard let hold_columnsValue = object.removeValue(forKey: "hold_columns") else { throw ContractError.invalid("Missing hold_columns") }
+        hold_columns = hold_columnsValue == .null ? nil : try hold_columnsValue.requireArray().map { $0 == .null ? nil : try RFExplorerPassPoint(json: $0) }
+        guard let hold_coverageValue = object.removeValue(forKey: "hold_coverage") else { throw ContractError.invalid("Missing hold_coverage") }
+        hold_coverage = hold_coverageValue == .null ? nil : try hold_coverageValue.requireArray().map { try RFExplorerCoverage(json: $0) }
+        guard let summaryValue = object.removeValue(forKey: "summary") else { throw ContractError.invalid("Missing summary") }
+        summary = try RFExplorerPassSummary(json: summaryValue)
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["columns"] = .array(columns.map { $0.map { $0.json } ?? .null })
+        object["coverage"] = .array(coverage.map { $0.json })
+        if let value = hold_columns { object["hold_columns"] = .array(value.map { $0.map { $0.json } ?? .null }) } else { object["hold_columns"] = .null }
+        if let value = hold_coverage { object["hold_coverage"] = .array(value.map { $0.json }) } else { object["hold_coverage"] = .null }
+        object["summary"] = summary.json
+        return .object(object)
+    }
+}
+
+public struct RFExplorerPassPoint: ContractModel, Equatable, Sendable {
+    public var ended_at: UtcTimestamp
+    public var frequency_hz: UInt64
+    public var last_measured_at: UtcTimestamp
+    public var level_dbm: Double
+    public var point_index: UInt64
+    public var started_at: UtcTimestamp
+    public var sweep_id: String
+    public var tile: UInt64
+    public var extra: JSONObject
+    public init(ended_at: UtcTimestamp, frequency_hz: UInt64, last_measured_at: UtcTimestamp, level_dbm: Double, point_index: UInt64, started_at: UtcTimestamp, sweep_id: String, tile: UInt64, extra: JSONObject = [:]) {
+        self.ended_at = ended_at
+        self.frequency_hz = frequency_hz
+        self.last_measured_at = last_measured_at
+        self.level_dbm = level_dbm
+        self.point_index = point_index
+        self.started_at = started_at
+        self.sweep_id = sweep_id
+        self.tile = tile
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let ended_atValue = object.removeValue(forKey: "ended_at") else { throw ContractError.invalid("Missing ended_at") }
+        ended_at = try UtcTimestamp(json: ended_atValue)
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireUInt64()
+        guard let last_measured_atValue = object.removeValue(forKey: "last_measured_at") else { throw ContractError.invalid("Missing last_measured_at") }
+        last_measured_at = try UtcTimestamp(json: last_measured_atValue)
+        guard let level_dbmValue = object.removeValue(forKey: "level_dbm") else { throw ContractError.invalid("Missing level_dbm") }
+        level_dbm = try level_dbmValue.requireDouble()
+        guard let point_indexValue = object.removeValue(forKey: "point_index") else { throw ContractError.invalid("Missing point_index") }
+        point_index = try point_indexValue.requireUInt64()
+        guard point_index <= 111 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let started_atValue = object.removeValue(forKey: "started_at") else { throw ContractError.invalid("Missing started_at") }
+        started_at = try UtcTimestamp(json: started_atValue)
+        guard let sweep_idValue = object.removeValue(forKey: "sweep_id") else { throw ContractError.invalid("Missing sweep_id") }
+        sweep_id = try sweep_idValue.requireString()
+        guard let tileValue = object.removeValue(forKey: "tile") else { throw ContractError.invalid("Missing tile") }
+        tile = try tileValue.requireUInt64()
+        guard tile >= 1 && tile <= 2398 else { throw ContractError.invalid("Integer outside schema bounds") }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["ended_at"] = ended_at.json
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        object["last_measured_at"] = last_measured_at.json
+        object["level_dbm"] = .number(level_dbm)
+        object["point_index"] = .integer(String(point_index))
+        object["started_at"] = started_at.json
+        object["sweep_id"] = .string(sweep_id)
+        object["tile"] = .integer(String(tile))
+        return .object(object)
+    }
+}
+
+public struct RFExplorerPassSummary: ContractModel, Equatable, Sendable {
+    public var active_board: String
+    public var active_input: String
+    public var complete: Bool
+    public var detector: String
+    public var duration_s: Double?
+    public var ended_at: UtcTimestamp
+    public var expected_points: UInt64
+    public var offset_db: Int64
+    public var pass: UInt64
+    public var pass_id: String
+    public var rbw_hz: UInt64
+    public var received_tiles: UInt64
+    public var revisit_s: Double?
+    public var simulated: Bool
+    public var start_hz: UInt64
+    public var started_at: UtcTimestamp
+    public var step_hz: UInt64
+    public var stop_hz: UInt64
+    public var tiles: UInt64
+    public var unique_points: UInt64
+    public var extra: JSONObject
+    public init(active_board: String, active_input: String, complete: Bool, detector: String, duration_s: Double? = nil, ended_at: UtcTimestamp, expected_points: UInt64, offset_db: Int64, pass: UInt64, pass_id: String, rbw_hz: UInt64, received_tiles: UInt64, revisit_s: Double? = nil, simulated: Bool, start_hz: UInt64, started_at: UtcTimestamp, step_hz: UInt64, stop_hz: UInt64, tiles: UInt64, unique_points: UInt64, extra: JSONObject = [:]) {
+        self.active_board = active_board
+        self.active_input = active_input
+        self.complete = complete
+        self.detector = detector
+        self.duration_s = duration_s
+        self.ended_at = ended_at
+        self.expected_points = expected_points
+        self.offset_db = offset_db
+        self.pass = pass
+        self.pass_id = pass_id
+        self.rbw_hz = rbw_hz
+        self.received_tiles = received_tiles
+        self.revisit_s = revisit_s
+        self.simulated = simulated
+        self.start_hz = start_hz
+        self.started_at = started_at
+        self.step_hz = step_hz
+        self.stop_hz = stop_hz
+        self.tiles = tiles
+        self.unique_points = unique_points
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let active_boardValue = object.removeValue(forKey: "active_board") else { throw ContractError.invalid("Missing active_board") }
+        active_board = try active_boardValue.requireString()
+        guard let active_inputValue = object.removeValue(forKey: "active_input") else { throw ContractError.invalid("Missing active_input") }
+        active_input = try active_inputValue.requireString()
+        guard let completeValue = object.removeValue(forKey: "complete") else { throw ContractError.invalid("Missing complete") }
+        complete = try completeValue.requireBool()
+        guard let detectorValue = object.removeValue(forKey: "detector") else { throw ContractError.invalid("Missing detector") }
+        detector = try detectorValue.requireString()
+        guard let duration_sValue = object.removeValue(forKey: "duration_s") else { throw ContractError.invalid("Missing duration_s") }
+        duration_s = duration_sValue == .null ? nil : try duration_sValue.requireDouble()
+        guard let ended_atValue = object.removeValue(forKey: "ended_at") else { throw ContractError.invalid("Missing ended_at") }
+        ended_at = try UtcTimestamp(json: ended_atValue)
+        guard let expected_pointsValue = object.removeValue(forKey: "expected_points") else { throw ContractError.invalid("Missing expected_points") }
+        expected_points = try expected_pointsValue.requireUInt64()
+        guard expected_points >= 112 && expected_points <= 268501 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let offset_dbValue = object.removeValue(forKey: "offset_db") else { throw ContractError.invalid("Missing offset_db") }
+        offset_db = try offset_dbValue.requireInt64()
+        guard let passValue = object.removeValue(forKey: "pass") else { throw ContractError.invalid("Missing pass") }
+        pass = try passValue.requireUInt64()
+        guard pass >= 1 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let pass_idValue = object.removeValue(forKey: "pass_id") else { throw ContractError.invalid("Missing pass_id") }
+        pass_id = try pass_idValue.requireString()
+        guard let rbw_hzValue = object.removeValue(forKey: "rbw_hz") else { throw ContractError.invalid("Missing rbw_hz") }
+        rbw_hz = try rbw_hzValue.requireUInt64()
+        guard rbw_hz >= 1 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let received_tilesValue = object.removeValue(forKey: "received_tiles") else { throw ContractError.invalid("Missing received_tiles") }
+        received_tiles = try received_tilesValue.requireUInt64()
+        guard received_tiles <= 2398 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let revisit_sValue = object.removeValue(forKey: "revisit_s") else { throw ContractError.invalid("Missing revisit_s") }
+        revisit_s = revisit_sValue == .null ? nil : try revisit_sValue.requireDouble()
+        guard let simulatedValue = object.removeValue(forKey: "simulated") else { throw ContractError.invalid("Missing simulated") }
+        simulated = try simulatedValue.requireBool()
+        guard let start_hzValue = object.removeValue(forKey: "start_hz") else { throw ContractError.invalid("Missing start_hz") }
+        start_hz = try start_hzValue.requireUInt64()
+        guard let started_atValue = object.removeValue(forKey: "started_at") else { throw ContractError.invalid("Missing started_at") }
+        started_at = try UtcTimestamp(json: started_atValue)
+        guard let step_hzValue = object.removeValue(forKey: "step_hz") else { throw ContractError.invalid("Missing step_hz") }
+        step_hz = try step_hzValue.requireUInt64()
+        guard step_hz >= 10000 && step_hz <= 10000 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let stop_hzValue = object.removeValue(forKey: "stop_hz") else { throw ContractError.invalid("Missing stop_hz") }
+        stop_hz = try stop_hzValue.requireUInt64()
+        guard let tilesValue = object.removeValue(forKey: "tiles") else { throw ContractError.invalid("Missing tiles") }
+        tiles = try tilesValue.requireUInt64()
+        guard tiles >= 1 && tiles <= 2398 else { throw ContractError.invalid("Integer outside schema bounds") }
+        guard let unique_pointsValue = object.removeValue(forKey: "unique_points") else { throw ContractError.invalid("Missing unique_points") }
+        unique_points = try unique_pointsValue.requireUInt64()
+        guard unique_points <= 268501 else { throw ContractError.invalid("Integer outside schema bounds") }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["active_board"] = .string(active_board)
+        object["active_input"] = .string(active_input)
+        object["complete"] = .bool(complete)
+        object["detector"] = .string(detector)
+        if let value = duration_s { object["duration_s"] = .number(value) } else { object["duration_s"] = .null }
+        object["ended_at"] = ended_at.json
+        object["expected_points"] = .integer(String(expected_points))
+        object["offset_db"] = .integer(String(offset_db))
+        object["pass"] = .integer(String(pass))
+        object["pass_id"] = .string(pass_id)
+        object["rbw_hz"] = .integer(String(rbw_hz))
+        object["received_tiles"] = .integer(String(received_tiles))
+        if let value = revisit_s { object["revisit_s"] = .number(value) } else { object["revisit_s"] = .null }
+        object["simulated"] = .bool(simulated)
+        object["start_hz"] = .integer(String(start_hz))
+        object["started_at"] = started_at.json
+        object["step_hz"] = .integer(String(step_hz))
+        object["stop_hz"] = .integer(String(stop_hz))
+        object["tiles"] = .integer(String(tiles))
+        object["unique_points"] = .integer(String(unique_points))
+        return .object(object)
+    }
+}
+
+public struct RFExplorerPassWindow: ContractModel, Equatable, Sendable {
+    public var ended_at: UtcTimestamp
+    public var started_at: UtcTimestamp
+    public var sweep_id: String
+    public var tile: UInt64
+    public var extra: JSONObject
+    public init(ended_at: UtcTimestamp, started_at: UtcTimestamp, sweep_id: String, tile: UInt64, extra: JSONObject = [:]) {
+        self.ended_at = ended_at
+        self.started_at = started_at
+        self.sweep_id = sweep_id
+        self.tile = tile
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let ended_atValue = object.removeValue(forKey: "ended_at") else { throw ContractError.invalid("Missing ended_at") }
+        ended_at = try UtcTimestamp(json: ended_atValue)
+        guard let started_atValue = object.removeValue(forKey: "started_at") else { throw ContractError.invalid("Missing started_at") }
+        started_at = try UtcTimestamp(json: started_atValue)
+        guard let sweep_idValue = object.removeValue(forKey: "sweep_id") else { throw ContractError.invalid("Missing sweep_id") }
+        sweep_id = try sweep_idValue.requireString()
+        guard let tileValue = object.removeValue(forKey: "tile") else { throw ContractError.invalid("Missing tile") }
+        tile = try tileValue.requireUInt64()
+        guard tile >= 1 && tile <= 2398 else { throw ContractError.invalid("Integer outside schema bounds") }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["ended_at"] = ended_at.json
+        object["started_at"] = started_at.json
+        object["sweep_id"] = .string(sweep_id)
+        object["tile"] = .integer(String(tile))
+        return .object(object)
+    }
+}
+
+public struct RFExplorerPassWindows: ContractModel, Equatable, Sendable {
+    public var items: [RFExplorerPassWindow]
+    public var next_after_tile: UInt64?
+    public var extra: JSONObject
+    public init(items: [RFExplorerPassWindow], next_after_tile: UInt64? = nil, extra: JSONObject = [:]) {
+        self.items = items
+        self.next_after_tile = next_after_tile
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let itemsValue = object.removeValue(forKey: "items") else { throw ContractError.invalid("Missing items") }
+        items = try itemsValue.requireArray().map { try RFExplorerPassWindow(json: $0) }
+        guard let next_after_tileValue = object.removeValue(forKey: "next_after_tile") else { throw ContractError.invalid("Missing next_after_tile") }
+        next_after_tile = next_after_tileValue == .null ? nil : try next_after_tileValue.requireUInt64()
+        if let value = next_after_tile { guard value >= 1 && value <= 2398 else { throw ContractError.invalid("Integer outside schema bounds") } }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["items"] = .array(items.map { $0.json })
+        if let value = next_after_tile { object["next_after_tile"] = .integer(String(value)) } else { object["next_after_tile"] = .null }
+        return .object(object)
+    }
+}
+
 public struct RecognizedGuardEvent: ContractModel, Equatable, Sendable {
     public var id: String
     public var peak_source: JSONObject?
@@ -2037,8 +2368,8 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_candidates_cand
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_candidates_candidate_id_investigations",method: "POST",path: "/api/v1/sessions/{id}/candidates/{candidate_id}/investigations",backends: ["python-legacy", "rust-candidate"],features: ["candidate_investigations"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "candidate_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_dvb_evaluation",method: "POST",path: "/api/v1/sessions/{id}/dvb-evaluation",backends: ["python-legacy", "rust-candidate"],features: ["dvb_t_evaluation"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 8192),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_field_strength_rms_v2",method: "POST",path: "/api/v1/sessions/{id}/field-strength-rms-v2",backends: ["python-legacy", "rust-candidate"],features: ["field_strength_rms_v2"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),
-RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_frequency_bookmarks",method: "GET",path: "/api/v1/sessions/{id}/frequency-bookmarks",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: nil),
-RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_frequency_bookmarks",method: "POST",path: "/api/v1/sessions/{id}/frequency-bookmarks",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 8192),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_frequency_bookmarks",method: "GET",path: "/api/v1/sessions/{id}/frequency-bookmarks",backends: ["python-legacy", "rust-candidate"],features: ["frequency_bookmarks"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_frequency_bookmarks",method: "POST",path: "/api/v1/sessions/{id}/frequency-bookmarks",backends: ["python-legacy", "rust-candidate"],features: ["frequency_bookmarks"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 8192),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_frequency_counter",method: "POST",path: "/api/v1/sessions/{id}/frequency-counter",backends: ["python-legacy", "rust-candidate"],features: ["frequency_counter"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 8192),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_frequency_history",method: "POST",path: "/api/v1/sessions/{id}/frequency-history",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 24576),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_frequency_rounding",method: "POST",path: "/api/v1/sessions/{id}/frequency-rounding",backends: ["python-legacy", "rust-candidate"],features: ["frequency_raster_rounding"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 524288),
@@ -2062,6 +2393,7 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_phonogram_start
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_phonogram_status",method: "GET",path: "/api/v1/sessions/{id}/phonogram/status",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: ["stream_id"], pathParameters: ["id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_phonogram_stop",method: "POST",path: "/api/v1/sessions/{id}/phonogram/stop",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_phonogram_wav",method: "GET",path: "/api/v1/sessions/{id}/phonogram/wav",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: ["stream_id"], pathParameters: ["id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_rf_explorer_band_power",method: "POST",path: "/api/v1/sessions/{id}/rf-explorer-band-power",backends: ["python-legacy", "rust-candidate"],features: ["rf_explorer_band_power"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 8192),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_signal_list_export",method: "GET",path: "/api/v1/sessions/{id}/signal-list/export",backends: ["python-legacy", "rust-candidate"],features: ["signal_list_exchange"],capabilities: [], requestFeatures: [], query: ["name", "stream_id"], pathParameters: ["id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_signal_list_import",method: "POST",path: "/api/v1/sessions/{id}/signal-list/import",backends: ["python-legacy", "rust-candidate"],features: ["signal_list_exchange"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 524288),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_start",method: "POST",path: "/api/v1/sessions/{id}/start",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 65536),
@@ -2083,6 +2415,9 @@ RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_i
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_instrument_settings",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_recover",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/recover",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["limit", "before"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["columns", "hold_since"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_windows",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/windows",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["limit", "after_tile"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_start",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/start",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_stop",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/stop",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_tune",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/tune",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
@@ -2098,6 +2433,7 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_sweep_reference
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_sweep_summaries",method: "GET",path: "/api/v1/sessions/{id}/sweep-summaries",backends: ["python-legacy", "rust-candidate"],features: ["sweep_summaries"],capabilities: [], requestFeatures: [], query: ["stream_id", "limit", "after", "start", "end", "min_hz", "max_hz"], pathParameters: ["id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_sweep_three_thresholds",method: "POST",path: "/api/v1/sessions/{id}/sweep-three-thresholds",backends: ["python-legacy", "rust-candidate"],features: ["three_sweep_thresholds"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 8192),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_sweep_threshold",method: "GET",path: "/api/v1/sessions/{id}/sweep-threshold",backends: ["python-legacy", "rust-candidate"],features: ["adaptive_sweep_threshold"],capabilities: [], requestFeatures: [], query: ["sweep_id", "window_points", "margin_db"], pathParameters: ["id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_sweep_tolerance_envelope",method: "POST",path: "/api/v1/sessions/{id}/sweep-tolerance-envelope",backends: ["python-legacy", "rust-candidate"],features: ["sweep_tolerance_envelope"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 8192),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_sweeps",method: "GET",path: "/api/v1/sessions/{id}/sweeps",backends: ["python-legacy", "rust-candidate"],features: ["sessions"],capabilities: [], requestFeatures: [], query: ["stream_id", "limit"], pathParameters: ["id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_sweeps",method: "POST",path: "/api/v1/sessions/{id}/sweeps",backends: ["python-legacy", "rust-candidate"],features: ["measurement_ingest"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 16777216),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_sweeps_batch",method: "POST",path: "/api/v1/sessions/{id}/sweeps/batch",backends: ["python-legacy", "rust-candidate"],features: ["measurement_ingest"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id"], maxRequestBytes: 16777216),

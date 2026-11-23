@@ -21,6 +21,8 @@ pub(crate) fn method(route: &str) -> Option<&'static str> {
         "sweep-three-thresholds" => "sweep_three_thresholds",
         "sweep-context" => "sweep_context",
         "sweep-occupancy" => "sweep_occupancy",
+        "sweep-tolerance-envelope" => "sweep_tolerance_envelope",
+        "rf-explorer-band-power" => "rf_explorer_band_power",
         "sweep-mask-analysis" => "sweep_mask_analysis",
         "candidate-frequency-rounding" => "candidate_frequency_rounding",
         "frequency-rounding" => "frequency_rounding",
@@ -167,7 +169,7 @@ fn ids(method: &str, payload: &Value) -> (Vec<String>, Vec<String>) {
     let mut sweeps = Vec::new();
     let mut candidates = Vec::new();
     match method {
-        "compare_sweeps" => {
+        "compare_sweeps" | "sweep_tolerance_envelope" => {
             sweeps.extend(id(&payload["reference_id"]));
             sweeps.extend(id(&payload["target_id"]));
         }
@@ -304,6 +306,7 @@ fn worker_result(value: Value, request_id: &str) -> ApiResult<Value> {
                 Some("field_strength_unavailable") => "field_strength_unavailable",
                 Some("dvb_evaluation_error") => "dvb_evaluation_error",
                 Some("measurement_map_error") => "measurement_map_error",
+                Some("band_power_unavailable") => "band_power_unavailable",
                 Some("mask_incompatible") => "mask_incompatible",
                 _ => return Err(protocol()),
             };

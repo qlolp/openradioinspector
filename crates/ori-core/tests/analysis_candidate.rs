@@ -169,6 +169,8 @@ async fn candidate_openapi_declares_scientific_routes_and_their_actual_body_budg
         ("sweep-threshold", "get", 0),
         ("sweep-context", "post", 8192),
         ("sweep-mask-analysis", "post", 524288),
+        ("sweep-tolerance-envelope", "post", 8192),
+        ("rf-explorer-band-power", "post", 8192),
         ("measurement-map", "post", 262144),
         ("field-strength-rms-v2", "post", 65536),
     ] {

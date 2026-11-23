@@ -669,6 +669,13 @@ pub const OPERATIONS: &[Operation] = &[
         max_request_bytes: None,
     },
     Operation {
+        operation_id: "post_api_v1_sessions_id_rf_explorer_band_power",
+        method: "POST",
+        path: "/api/v1/sessions/{id}/rf-explorer-band-power",
+        query: &[],
+        max_request_bytes: Some(8192),
+    },
+    Operation {
         operation_id: "get_api_v1_sessions_id_signal_list_export",
         method: "GET",
         path: "/api/v1/sessions/{id}/signal-list/export",
@@ -920,6 +927,13 @@ pub const OPERATIONS: &[Operation] = &[
         path: "/api/v1/sessions/{id}/sweep-threshold",
         query: &["sweep_id", "window_points", "margin_db"],
         max_request_bytes: None,
+    },
+    Operation {
+        operation_id: "post_api_v1_sessions_id_sweep_tolerance_envelope",
+        method: "POST",
+        path: "/api/v1/sessions/{id}/sweep-tolerance-envelope",
+        query: &[],
+        max_request_bytes: Some(8192),
     },
     Operation {
         operation_id: "get_api_v1_sessions_id_sweeps",

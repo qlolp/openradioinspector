@@ -106,7 +106,10 @@ def rust_type(schema, model="", field=""):
         return ref_name(schema)
     if "enum" in schema:
         return enum_name(model, field)
-    if kind(schema) == "array": return "Vec<" + rust_type(schema.get("items", {})) + ">"
+    if kind(schema) == "array":
+        item = schema.get("items", {})
+        ty = rust_type(item)
+        return f"Vec<Option<{ty}>>" if nullable(item) else f"Vec<{ty}>"
     return {"string": "UtcTimestamp" if schema.get("format") == "date-time" else "String",
             "integer": integer_type(schema) if kind(schema) == 'integer' else "u64",
             "number": "f64", "boolean": "bool", "object": "JSONObject"}.get(kind(schema), "serde_json::Value")
@@ -211,7 +214,9 @@ def swift_type(schema, model="", field=""):
     schema = non_null(schema)
     if "$ref" in schema: return ref_name(schema)
     if "enum" in schema: return enum_name(model, field)
-    if kind(schema) == "array": return "[" + swift_type(schema.get("items", {})) + "]"
+    if kind(schema) == "array":
+        item = schema.get("items", {})
+        return "[" + swift_type(item) + ("?" if nullable(item) else "") + "]"
     integer = 'Int64' if kind(schema) == 'integer' and integer_type(schema) == 'i64' else 'UInt64'
     return {"string": "UtcTimestamp" if schema.get("format") == "date-time" else "String", "integer": integer, "number": "Double", "boolean": "Bool", "object": "JSONObject"}.get(kind(schema), "JSONValue")
 
@@ -221,7 +226,12 @@ def swift_read(prop, expr, model="", field=""):
     if "$ref" in prop and ref_name(prop) == "JSONObject": return f"try {expr}.requireObject()"
     if "$ref" in prop: return f"try {ref_name(prop)}(json: {expr})"
     if "enum" in prop: return f"try {enum_name(model, field)}(json: {expr})"
-    if kind(prop) == "array": return f"try {expr}.requireArray().map {{ {swift_read(prop['items'], '$0')} }}"
+    if kind(prop) == "array":
+        item = prop['items']
+        decoded = swift_read(item, '$0')
+        if nullable(item):
+            decoded = '$0 == .null ? nil : ' + decoded
+        return f"try {expr}.requireArray().map {{ {decoded} }}"
     ty = swift_type(prop, model, field)
     return f"try {ty}(json: {expr})" if ty == "UtcTimestamp" else f"try {expr}.require{ {'String':'String','UInt64':'UInt64','Int64':'Int64','Double':'Double','Bool':'Bool','JSONObject':'Object'}.get(ty, 'Value')}()" if ty != "JSONValue" else expr
 
@@ -230,7 +240,12 @@ def swift_write(prop, expr, model="", field=""):
     prop = non_null(prop)
     if "$ref" in prop and ref_name(prop) == "JSONObject": return f".object({expr})"
     if "$ref" in prop or "enum" in prop or swift_type(prop, model, field) == "UtcTimestamp": return f"{expr}.json"
-    if kind(prop) == "array": return f".array({expr}.map {{ {swift_write(prop['items'], '$0')} }})"
+    if kind(prop) == "array":
+        item = prop['items']
+        encoded = swift_write(item, '$0')
+        if nullable(item):
+            encoded = f'$0.map {{ {encoded} }} ?? .null'
+        return f".array({expr}.map {{ {encoded} }})"
     return {"string": f".string({expr})", "integer": f".integer(String({expr}))", "number": f".number({expr})", "boolean": f".bool({expr})", "object": f".object({expr})"}.get(kind(prop), expr)
 
 

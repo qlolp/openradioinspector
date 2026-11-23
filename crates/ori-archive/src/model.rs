@@ -139,6 +139,13 @@ pub enum Mutation {
         value: Value,
         event: EventDraft,
     },
+    FrequencyBookmarks {
+        session_id: String,
+        name: String,
+        entries: Value,
+        id: String,
+        created_at: String,
+    },
     Artifact(Artifact),
     Webhook {
         project_id: String,
