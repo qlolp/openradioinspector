@@ -12,6 +12,7 @@ from .sweep_settings import acquisition_settings, number, same_json
 
 MAX_RESEARCH_REQUEST_BYTES = 8192
 RF_EXPLORER = "rf-explorer-3g-serial"
+RF_EXPLORER_PROFILE = "rf-explorer-3g-combo-standard-1.34"
 
 
 class BandPowerUnavailable(ValueError):
@@ -44,11 +45,45 @@ def band_power_request(payload):
     return _sweep_id(payload["sweep_id"]), start, stop
 
 
+def _readback_int(settings, key):
+    value = settings.get(key)
+    if type(value) is not int:
+        raise ValueError(f"Требуется целое значение {key} из ответа RF Explorer")
+    return value
+
+
+def _rf_input_limits(settings, start, stop):
+    board, port = settings.get("active_board"), settings.get("active_input")
+    if board == "main" and port == "left":
+        low, high = 240_000_000, 960_000_000
+    elif board == "expansion" and port == "right":
+        low, high = 15_000_000, 2_700_000_000
+    else:
+        raise ValueError("Не подтверждены активная плата и вход RF Explorer")
+    board_min = _readback_int(settings, "board_min_hz")
+    board_max = _readback_int(settings, "board_max_hz")
+    max_span = _readback_int(settings, "board_max_span_hz")
+    rbw = _readback_int(settings, "rbw_hz")
+    # The Standard configuration reports these five fields in integer kHz.
+    # The step is in Hz; the last bin can fall between integer kHz.
+    if any(value % 1000 for value in (start, board_min, board_max, max_span, rbw)):
+        raise ValueError("Частоты из полей ответа RF Explorer должны соответствовать целым кГц")
+    if (not low <= board_min <= start < stop <= board_max <= high
+            or not stop - start <= max_span <= min(600_000_000, board_max - board_min)):
+        raise ValueError("Исходное окно превышает пределы активной платы или допустимую ширину по данным прибора")
+    if not 3_000 <= rbw <= 600_000:
+        raise ValueError("Требуется RBW из ответа RF Explorer от 3 до 600 кГц")
+    bottom = _readback_int(settings, "amplitude_bottom_dbm")
+    top = _readback_int(settings, "amplitude_top_dbm")
+    if not -999 <= bottom < top <= 9999:
+        raise ValueError("Некорректные пределы отображения амплитуды из ответа RF Explorer")
+
+
 def _rf_window(sweep: Sweep) -> None:
     """Check the recorded readback and complete measured grid, including fixed-window records."""
     settings, hz = sweep.settings, sweep.frequencies_hz
     if (settings.get("adapter") != RF_EXPLORER
-            or settings.get("receive_profile") != "rf-explorer-3g-combo-standard-1.34"
+            or settings.get("receive_profile") != RF_EXPLORER_PROFILE
             or settings.get("device_mode") != "spectrum_analyzer"
             or settings.get("settings_readback") is not True
             or settings.get("settings_source") != "device_readback"
@@ -56,22 +91,18 @@ def _rf_window(sweep: Sweep) -> None:
             or type(settings.get("simulated")) is not bool):
         raise ValueError("Требуется сохранённое окно RF Explorer с подтверждёнными настройками прибора")
     identity = settings.get("device_identity")
-    inputs = {"main": "left", "expansion": "right"}
     if (not isinstance(identity, dict) or identity.get("main_model") != 3 or identity.get("expansion_model") != 5
-            or identity.get("firmware") != "01.34" or not isinstance(settings.get("active_board"), str)
-            or settings["active_board"] not in inputs
-            or settings.get("active_input") != inputs[settings["active_board"]]):
-        raise ValueError("Не подтверждены модель RF Explorer и активный вход")
-    rbw = settings.get("rbw_hz")
-    if type(rbw) is not int or not 3_000 <= rbw <= 600_000:
-        raise ValueError("Требуется RBW из ответа RF Explorer в герцах")
-    step = settings.get("step_hz")
-    if (type(step) is not int or step <= 0 or type(settings.get("points")) is not int
-            or not 16 <= len(hz) == settings["points"] <= 255
-            or type(settings.get("start_hz")) is not int or settings["start_hz"] != hz[0]
-            or type(settings.get("stop_hz")) is not int or settings["stop_hz"] != hz[-1]
-            or any(f != hz[0] + i * step for i, f in enumerate(hz))):
+            or identity.get("firmware") != "01.34"):
+        raise ValueError("Не подтверждена модель RF Explorer")
+    start = _readback_int(settings, "start_hz")
+    stop = _readback_int(settings, "stop_hz")
+    step = _readback_int(settings, "step_hz")
+    points = _readback_int(settings, "points")
+    if (not 16 <= len(hz) == points <= 255 or step * points < 112_000
+            or start != hz[0] or stop != hz[-1]
+            or any(f != start + i * step for i, f in enumerate(hz))):
         raise ValueError("Сетка исходного окна неполна или расходится с ответом прибора")
+    _rf_input_limits(settings, start, stop)
     detector = settings.get("detector_code")
     modes = ("normal", "max", "avg", "overwrite", "max_hold", "max_historical")
     if (type(detector) is not int or not 0 <= detector < len(modes)
@@ -92,7 +123,7 @@ def _envelope_settings(sweep: Sweep):
         raise MaskIncompatibleError("Нужен архивный dBm-свип с частотами в целых Hz")
     try:
         settings = acquisition_settings(sweep.settings)
-        if settings.get("adapter") == RF_EXPLORER:
+        if settings.get("adapter") == RF_EXPLORER or settings.get("receive_profile") == RF_EXPLORER_PROFILE:
             _rf_window(sweep)
             # Axes vary between tiles. The exact overlap is joined below. Pass
             # bookkeeping travels with both originals; all other extensions

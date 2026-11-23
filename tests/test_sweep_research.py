@@ -7,10 +7,12 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from radioinspector.contracts import to_primitive
+from radioinspector.contracts import Sweep, to_primitive
 from radioinspector.research_rpc import process_request
 from radioinspector.session_service import SessionService, SweepNotFoundError
 from radioinspector.session_store import SQLiteSessionStore
+from radioinspector.spectral_mask import MaskIncompatibleError
+from radioinspector.sweep_research import BandPowerUnavailable, calculate_band_power, calculate_tolerance_envelope
 from radioinspector.web.server import create_server
 from tests.test_research_rpc import encode, request
 from tests.test_rf_explorer_survey_export import START, STEP, sweep
@@ -91,6 +93,68 @@ class SweepResearchTests(unittest.TestCase):
         with self.assertRaises(SweepNotFoundError):
             self.envelope(reference_id="unknown", target_id="ref")
 
+    def test_imported_readbacks_must_cover_the_raw_window_for_both_analyses(self):
+        cases = [
+            {"active_board": "main", "active_input": "left",
+             "board_min_hz": 240_000_000, "board_max_hz": 960_000_000},
+            {"board_min_hz": START - 1000}, {"board_max_hz": 2_700_001_000},
+            {"board_min_hz": START + STEP}, {"board_max_hz": START + 100 * STEP},
+            {"board_max_span_hz": 1_109_000}, {"board_max_span_hz": 600_001_000},
+            {"board_max_hz": START + 2_000_000, "board_max_span_hz": 2_001_000},
+            {"board_max_span_hz": 0}, {"board_min_hz": False}, {"board_max_hz": "2700000000"},
+            {"board_max_hz": 2_699_999_999}, {"board_max_span_hz": 599_999_999}, {"rbw_hz": 15_001},
+            {"board_max_span_hz": 2_000_000.0}, {"amplitude_top_dbm": -120},
+            {"amplitude_bottom_dbm": -9}, {"amplitude_bottom_dbm": -1000},
+            {"amplitude_top_dbm": 10000}, {"amplitude_top_dbm": True}, {"amplitude_bottom_dbm": -120.0},
+            {"adapter": "tinysa"}, {"adapter": None},
+        ]
+        for key in ("board_min_hz", "board_max_hz", "board_max_span_hz",
+                    "amplitude_bottom_dbm", "amplitude_top_dbm"):
+            cases.append({key: None})
+        for changes in cases:
+            raw = sweep(1)["measurement"]
+            for key, value in changes.items():
+                if value is None:
+                    raw["settings"].pop(key)
+                else:
+                    raw["settings"][key] = value
+            frame = Sweep.from_dict(raw)
+            with self.subTest(changes=changes, method="power"), self.assertRaises(BandPowerUnavailable):
+                calculate_band_power(frame, START, START + 3 * STEP)
+            with self.subTest(changes=changes, method="tolerance"), self.assertRaises(MaskIncompatibleError):
+                calculate_tolerance_envelope(frame.session_id, frame, frame, 2, 3)
+
+    def test_imported_grid_matches_standard_span_and_readback_units(self):
+        for start, step, unit in ((START, 999, "dBm"), (START + 1, 1000, "dBm"),
+                                  (START, 1000, "s_meter_count")):
+            raw = sweep(1)["measurement"]
+            raw["frequencies_hz"] = [start + index * step for index in range(len(raw["levels"]))]
+            raw["settings"].update(start_hz=start, stop_hz=raw["frequencies_hz"][-1], step_hz=step)
+            raw["settings"].pop("survey")
+            raw["level_unit"] = unit
+            frame = Sweep.from_dict(raw)
+            with self.subTest(start=start, step=step, unit=unit, method="power"), self.assertRaises(BandPowerUnavailable):
+                calculate_band_power(frame, start, start + step)
+            with self.subTest(start=start, step=step, unit=unit, method="tolerance"), self.assertRaises(MaskIncompatibleError):
+                calculate_tolerance_envelope(frame.session_id, frame, frame, 2, 3)
+
+    def test_valid_narrower_readback_on_each_input_and_levels_outside_display(self):
+        for board, connector in (("main", "left"), ("expansion", "right")):
+            start, step = 433_000_000, 1000
+            raw = sweep(1)["measurement"]
+            frequencies = [start + index * step for index in range(len(raw["levels"]))]
+            raw["frequencies_hz"] = frequencies
+            raw["settings"].pop("survey")
+            raw["settings"].update(active_board=board, active_input=connector,
+                board_min_hz=430_000_000, board_max_hz=440_000_000, board_max_span_hz=1_000_000,
+                start_hz=start, stop_hz=frequencies[-1], step_hz=step,
+                amplitude_bottom_dbm=-80, amplitude_top_dbm=-30)
+            frame = Sweep.from_dict(raw)
+            with self.subTest(board=board):
+                self.assertEqual(calculate_band_power(frame, start, start + step)["source"], to_primitive(frame))
+                self.assertEqual(calculate_tolerance_envelope(frame.session_id, frame, frame, 0, 0)["counts"]["within"],
+                                 len(frequencies))
+
     def test_flat_channel_rbw_normalization_single_source_and_rpc(self):
         raw = sweep(1)["measurement"]
         target = self.add(raw, "target")
@@ -129,6 +193,10 @@ class SweepResearchTests(unittest.TestCase):
     def test_python_http_routes_originals_conflicts_and_query_body_limits(self):
         self.add(sweep(1)["measurement"], "target")
         self.add(sweep(2)["measurement"], "ref")
+        wrong_board = sweep(1)["measurement"]
+        wrong_board["settings"].update(active_board="main", active_input="left",
+                                       board_min_hz=240_000_000, board_max_hz=960_000_000)
+        self.add(wrong_board, "wrong-board")
         server = create_server(host="127.0.0.1", port=0, sessions=self.service)
         runner = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         runner.start()
@@ -151,6 +219,14 @@ class SweepResearchTests(unittest.TestCase):
                 self.assertEqual(reply["data"], expected)
                 self.assertEqual(post(route + "?extra=1", body)[0], 400)
                 self.assertEqual(post(route, {"ignored": "x" * 8192})[0], 413)
+            original_dump = list(self.service._store._connection.iterdump())
+            for route, request, code in (
+                    ("rf-explorer-band-power", dict(self.band, sweep_id="wrong-board"), "band_power_unavailable"),
+                    ("sweep-tolerance-envelope", dict(self.tolerance, reference_id="wrong-board",
+                                                      target_id="wrong-board"), "mask_incompatible")):
+                status, reply = post(route, request)
+                self.assertEqual((status, reply.get("error", {}).get("code")), (409, code))
+            self.assertEqual(list(self.service._store._connection.iterdump()), original_dump)
             status, invalid = post("rf-explorer-band-power", dict(self.band, stop_hz=START + 112 * STEP))
             self.assertEqual((status, invalid["error"]["code"]), (409, "band_power_unavailable"))
             status, missing = post("sweep-tolerance-envelope", dict(self.tolerance, reference_id="foreign"))

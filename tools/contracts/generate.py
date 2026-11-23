@@ -127,6 +127,12 @@ def rust_models(schemas, include_common=True):
         lines += ["}", f"impl crate::RestoreKeys for {name} {{ fn restore_keys(&mut self) {{}} }}", ""]
     for name, schema in schemas.items():
         if name == "JSONObject": continue
+        # Envelope.contract uses the shared contract-name decoder. Other
+        # fixed string fields need the same literal check as runtime models.
+        constants = {field: prop for field, prop in schema["properties"].items()
+                     if "const" in prop and (not include_common or
+                         (prop.get("type") == "string" and field != "contract"))}
+        const_prefix = "model_const" if include_common else "runtime_const"
         lines += ["#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]", f"pub struct {name}" + ("<T = serde_json::Value>" if name == "Envelope" else "") + " {"]
         for field, prop in schema["properties"].items():
             required = field in schema.get("required", [])
@@ -139,8 +145,8 @@ def rust_models(schemas, include_common=True):
                 lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]']
             if not include_common and integer_bounds(prop):
                 lines += [f'    #[serde(deserialize_with = "runtime_integer_{name.lower()}_{field}")]']
-            if not include_common and 'const' in prop:
-                lines += [f'    #[serde(deserialize_with = "runtime_const_{name.lower()}_{field}")]']
+            if field in constants:
+                lines += [f'    #[serde(deserialize_with = "{const_prefix}_{name.lower()}_{field}")]']
             if field == "contract": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract")]']
             if field == "contract_version": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract_version")]' if required else '    #[serde(deserialize_with = "crate::codec::deserialize_optional_contract_version")]']
             lines += [f"    pub {field}: {ty},"]
@@ -169,16 +175,18 @@ def rust_models(schemas, include_common=True):
                           f'    let value: {ty} = Deserialize::deserialize(deserializer)?;',
                           f'    if {invalid} {{ return Err(serde::de::Error::custom("Integer outside schema bounds")); }}',
                           '    Ok(value)', '}', '']
-            for field, prop in schema['properties'].items():
-                if 'const' not in prop: continue
-                if prop.get('type') not in ('boolean', 'integer', 'string') or 'enum' in prop or field not in schema.get('required', []):
-                    raise ValueError('Unsupported runtime constant model field')
-                ty = rust_type(prop, name, field)
-                mismatch = '!value' if prop['const'] is True else 'value' if prop['const'] is False else f"value != {json.dumps(prop['const'])}"
-                lines += [f"fn runtime_const_{name.lower()}_{field}<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<{ty}, D::Error> {{",
-                          f"    let value = {ty}::deserialize(deserializer)?;",
-                          f"    if {mismatch} {{ return Err(serde::de::Error::custom(\"Unsupported runtime value\")); }}",
-                          "    Ok(value)", "}", ""]
+        for field, prop in constants.items():
+            optional = field not in schema.get('required', [])
+            if prop.get('type') not in ('boolean', 'integer', 'string') or 'enum' in prop or (optional and not include_common):
+                raise ValueError('Unsupported constant model field')
+            ty = rust_type(prop, name, field)
+            return_type = f'Option<{ty}>' if optional else ty
+            success = 'Some(value)' if optional else 'value'
+            mismatch = '!value' if prop['const'] is True else 'value' if prop['const'] is False else f"value != {json.dumps(prop['const'])}"
+            lines += [f"fn {const_prefix}_{name.lower()}_{field}<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<{return_type}, D::Error> {{",
+                      f"    let value = {ty}::deserialize(deserializer)?;",
+                      f"    if {mismatch} {{ return Err(serde::de::Error::custom(\"Unsupported runtime value\")); }}",
+                      f"    Ok({success})", "}", ""]
     if include_common:
         lines += ["#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]", "pub struct PlatformError {", "    pub code: String,", "    pub message: String,", '    #[serde(default, flatten)]', "    pub extra: JSONObject,", "}", "", "impl crate::RestoreKeys for PlatformError { fn restore_keys(&mut self) { crate::RestoreKeys::restore_keys(&mut self.extra); } }", "", "impl<T> Envelope<T> {", "    pub fn new(data: T) -> Self {", '        Self { contract: crate::CONTRACT_NAME.into(), contract_version: crate::CONTRACT_VERSION, data, extra: JSONObject::new() }', "    }", "}", ""]
     return "\n".join(lines)

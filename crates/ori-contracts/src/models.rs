@@ -598,8 +598,11 @@ impl crate::RestoreKeys for RFExplorerBandPowerRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RFExplorerBandPowerResult {
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_enbw_correction")]
     pub enbw_correction: String,
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_hardware_validation")]
     pub hardware_validation: String,
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_integration")]
     pub integration: String,
     pub rbw_hz: u64,
     pub source: Sweep,
@@ -609,6 +612,7 @@ pub struct RFExplorerBandPowerResult {
     pub stop_index: u64,
     #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
     pub uncertainty_db: Option<f64>,
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_unit")]
     pub unit: String,
     pub value: f64,
     #[serde(default, flatten)]
@@ -620,6 +624,46 @@ impl crate::RestoreKeys for RFExplorerBandPowerResult {
         crate::RestoreKeys::restore_keys(&mut self.extra);
         crate::RestoreKeys::restore_keys(&mut self.source);
     }
+}
+
+fn model_const_rfexplorerbandpowerresult_enbw_correction<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "not_calibrated" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_rfexplorerbandpowerresult_hardware_validation<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "not_run" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_rfexplorerbandpowerresult_integration<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "trapezoid_over_actual_grid" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_rfexplorerbandpowerresult_unit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "dBm" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -821,7 +865,9 @@ impl crate::RestoreKeys for SweepToleranceRequest {
 pub struct SweepToleranceResult {
     pub bins: Vec<SweepToleranceBin>,
     pub counts: SweepToleranceCounts,
+    #[serde(deserialize_with = "model_const_sweeptoleranceresult_delta_unit")]
     pub delta_unit: String,
+    #[serde(deserialize_with = "model_const_sweeptoleranceresult_level_unit")]
     pub level_unit: String,
     pub lower_deviation_db: f64,
     pub reference: Sweep,
@@ -841,6 +887,26 @@ impl crate::RestoreKeys for SweepToleranceResult {
         crate::RestoreKeys::restore_keys(&mut self.reference);
         crate::RestoreKeys::restore_keys(&mut self.target);
     }
+}
+
+fn model_const_sweeptoleranceresult_delta_unit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "dB" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_sweeptoleranceresult_level_unit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "dBm" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

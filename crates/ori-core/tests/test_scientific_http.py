@@ -111,6 +111,11 @@ class ScientificHttpParity(unittest.TestCase):
             radio = survey_window(1)["measurement"]
             radio.update(id="rf-source", session_id=session.id, stream_id="spectrum")
             sweeps.append(stored.ingest_sweep(radio))
+            wrong_board = copy.deepcopy(radio)
+            wrong_board["id"] = "wrong-board"
+            wrong_board["settings"].update(active_board="main", active_input="left",
+                                          board_min_hz=240_000_000, board_max_hz=960_000_000)
+            sweeps.append(stored.ingest_sweep(wrong_board))
             calibrated = field_fixture()['source']
             calibrated.update(id='calibrated-source', session_id=session.id, stream_id='spectrum')
             sweeps.append(stored.ingest_sweep(calibrated))
@@ -214,6 +219,20 @@ class ScientificHttpParity(unittest.TestCase):
             status, value = self.analyze('field_strength_rms_v2', payload)
             self.assertEqual((status, value['error']['code']), (409, 'field_strength_unavailable'))
         self.assertEqual(self.request('GET', '/api/v1/events/history?after=0&limit=100'), before)
+
+    def test_impossible_rf_explorer_readback_refuses_both_analyses_without_mutating_the_archive(self):
+        history = "/api/v1/events/history?after=0&limit=100"
+        before = self.request("GET", history)
+        for method, body, code in (
+                ("rf_explorer_band_power", dict(payloads()["rf_explorer_band_power"], sweep_id="wrong-board"),
+                 "band_power_unavailable"),
+                ("sweep_tolerance_envelope", dict(payloads()["sweep_tolerance_envelope"],
+                  reference_id="wrong-board", target_id="wrong-board"), "mask_incompatible")):
+            with self.subTest(method=method):
+                status, reply = self.analyze(method, body)
+                expected = (503, "research_unavailable") if os.name == "nt" else (409, code)
+                self.assertEqual((status, reply.get("error", {}).get("code")), expected)
+        self.assertEqual(self.request("GET", history), before)
 
     def test_missing_session_preserves_authoritative_validation_priority_without_a_fake_dto(self):
         if os.name == "nt":
