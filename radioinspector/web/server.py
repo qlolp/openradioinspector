@@ -1864,7 +1864,10 @@ def create_server(
         if sessions is not None:
             session_service = sessions
         elif session_database:
-            store = SQLiteSessionStore(session_database, max_database_bytes=archive_max_bytes)
+            options = {'max_database_bytes': archive_max_bytes}
+            if owner is not None and owner.require_existing_archive:
+                options['require_existing'] = True
+            store = SQLiteSessionStore(session_database, **options)
             cleanup.callback(store.close)
             session_service = SessionService(store=store)
         else:

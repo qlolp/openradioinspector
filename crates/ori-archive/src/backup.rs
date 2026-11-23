@@ -637,21 +637,45 @@ pub fn materialize_stopped_archive(source: &Path, destination: &Path) -> Result<
     materialize(source, destination, true)
 }
 
+fn open_stopped(source: &Path) -> Result<Connection> {
+    let db = Connection::open_with_flags(
+        source,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    schema::functions(&db)?;
+    db.busy_timeout(Duration::ZERO)?;
+    // Attach SQLite's normal shared-memory WAL index first. Entering exclusive mode
+    // before the first read uses a heap index and can leave an existing SHM orphaned.
+    db.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))?;
+    db.execute_batch("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT")?;
+    Ok(db)
+}
+
+fn checkpoint_closed(original: Connection, source: &Path) -> Result<()> {
+    let (busy, frames, copied): (i64, i64, i64) =
+        original.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    // SQLite returns -1/-1 for a database already in rollback-journal mode.
+    if !matches!((busy, frames, copied), (0, 0, 0) | (0, -1, -1)) {
+        return Err(ArchiveError::AlreadyOpen);
+    }
+    original
+        .close()
+        .map_err(|(_, err)| ArchiveError::Sql(err))?;
+    absent_sidecars(source)
+}
+
+/// Finish any committed WAL before atomically retiring the stopped main file.
+pub fn checkpoint_stopped_archive(source: &Path) -> Result<()> {
+    checkpoint_closed(open_stopped(source)?, source)
+}
+
 fn materialize(source: &Path, destination: &Path, stopped: bool) -> Result<()> {
     let staging = copy_staging(destination, ".ori-materialize-")?;
     let target = staging.path().join("archive.sqlite");
     let original = if stopped {
-        let db = Connection::open_with_flags(
-            source,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
-        schema::functions(&db)?;
-        db.busy_timeout(Duration::ZERO)?;
-        // Attach SQLite's normal shared-memory WAL index first. Entering exclusive mode
-        // before the first read uses a heap index and can leave an existing SHM orphaned.
-        db.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))?;
-        db.execute_batch("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT")?;
-        db
+        open_stopped(source)?
     } else {
         db_open(source)?
     };
@@ -684,18 +708,7 @@ fn materialize(source: &Path, destination: &Path, stopped: bool) -> Result<()> {
     integrity(&db)?;
     db.close().map_err(|(_, err)| ArchiveError::Sql(err))?;
     if let Some(original) = stopped_source {
-        let (busy, frames, copied): (i64, i64, i64) =
-            original.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?;
-        // SQLite returns -1/-1 for a database already in rollback-journal mode.
-        if !matches!((busy, frames, copied), (0, 0, 0) | (0, -1, -1)) {
-            return Err(ArchiveError::AlreadyOpen);
-        }
-        original
-            .close()
-            .map_err(|(_, err)| ArchiveError::Sql(err))?;
-        absent_sidecars(source)?;
+        checkpoint_closed(original, source)?;
     }
     publish_copy(&target, destination)
 }

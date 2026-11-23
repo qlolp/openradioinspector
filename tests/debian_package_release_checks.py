@@ -51,6 +51,9 @@ class DebianPackageAssemblyTests(unittest.TestCase):
                     maintainer = installed / 'DEBIAN' / script
                     self.assertIn(f'{name}.service', maintainer.read_text())
                     self.assertTrue(os.access(maintainer, os.X_OK))
+                prerm = (installed / 'DEBIAN/prerm').read_text()
+                self.assertIn('dpkg --compare-versions "$2" lt \'0.4.0-1\'', prerm)
+                self.assertIn(f'runuser -u {user} -- /usr/lib/{name}/ori-supervisor archive-prepare-rollback --data-dir /var/lib/{name}', prerm)
                 for script in ('prepare-archive', 'wait-ready', 'check-install'):
                     path = installed / profile.lib / script
                     self.assertTrue(os.access(path, os.X_OK))

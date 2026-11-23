@@ -19,6 +19,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | Метод | Путь | Назначение |
 |---|---|---|
 | `GET` | `/api/v1/health` | Состояние службы, число сеансов, последний ID события |
+| `GET` | `/api/v1/archive/location` | Активный каталог архива Rust-узла и ёмкость его тома при доступной возможности `archive_location`. Перенос и возврат перед откатом выполняются локально после остановки службы. [Порядок отката](release/installation.md#откат-ядра-после-переноса-архива) |
 | `GET` | `/api/v1/capabilities` | Фактические возможности и режим хранения |
 | `GET` | `/api/v1/archive/capacity` | Глобальный размер SQLite, предел и предупреждение |
 | `GET`, `POST` | `/api/v1/task-scheduler` | Глобальный runtime-only TaskScheduler, статус и opt-in |

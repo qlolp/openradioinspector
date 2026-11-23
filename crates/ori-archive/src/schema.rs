@@ -21,13 +21,15 @@ impl ProcessWriterLease {
     pub fn path(&self) -> &Path {
         &self.0
     }
-    pub fn acquire(path: &Path) -> Result<Self> {
+    pub fn acquire(path: &Path, require_existing: bool) -> Result<Self> {
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        std::fs::create_dir_all(parent)?;
-        let canonical = if path.exists() {
+        if !require_existing {
+            std::fs::create_dir_all(parent)?;
+        }
+        let canonical = if require_existing || path.exists() {
             path.canonicalize()?
         } else {
             parent.canonicalize()?.join(
@@ -157,13 +159,15 @@ pub(crate) fn writer(
         let (version, _, _) = versions(&probe)?;
         initialize_compact(&probe, config, version)?; // Fail before changing the source's journal or schema.
     }
-    let mut db = Connection::open_with_flags(
-        &config.path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
+    let mut flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    if !config.require_existing {
+        flags |= OpenFlags::SQLITE_OPEN_CREATE;
+    }
+    let mut db = Connection::open_with_flags(&config.path, flags)?;
     functions(&db)?;
+    if config.require_existing && !table(&db, "sessions")? {
+        return Err(crate::error::invalid("registered archive is uninitialized"));
+    }
     versions(&db)?;
     db.busy_timeout(config.busy_timeout)?;
     db.pragma_update(None, "foreign_keys", true)?;

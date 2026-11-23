@@ -11,7 +11,7 @@ from pathlib import Path
 import stat
 import threading
 
-from .runtime_bridge import RuntimeBridgeError, _safe_path, _open_archive_writer
+from .runtime_bridge import RuntimeBridgeError, _ArchiveLeases, _safe_path, _open_archive_writer
 
 
 _RETAINED: dict[int, ArchiveWriterOwner] = {}
@@ -119,6 +119,7 @@ class ArchiveWriterOwner:
     """One lease lifetime, independent of runtime credentials or HTTP state."""
     def __init__(self, database_path: Path, lease):
         self.database_path = database_path
+        self.require_existing_archive = isinstance(lease, _ArchiveLeases)
         self.data_directory = database_path.parent
         self._lease = lease
         self._lock = threading.RLock()

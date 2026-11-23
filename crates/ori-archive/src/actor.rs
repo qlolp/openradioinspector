@@ -149,7 +149,7 @@ impl Inner {
         budget: Arc<dyn crate::CheckpointBudget>,
     ) -> Result<Arc<Self>> {
         config.validate()?;
-        let lease = schema::ProcessWriterLease::acquire(&config.path)?;
+        let lease = schema::ProcessWriterLease::acquire(&config.path, config.require_existing)?;
         let (checkpoint, checkpoint_requests) = crate::checkpoint::Control::new();
         let maintenance = crate::checkpoint::Owner::start(
             checkpoint.clone(),

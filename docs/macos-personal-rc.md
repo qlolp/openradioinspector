@@ -29,8 +29,11 @@ storage/backup budget. No automatic original-measurement deletion is enabled.
 **Stop service** first sends private Stop (the agent remains idle and recoverable if the UI disappears), then waits for the core's real shutdown, device release, writer
 lease and listeners before acknowledging and unregistering the LaunchAgent.
 An error is not proof of release: do not update the installed app until stop is
-confirmed. RC refuses private backend cutover; update/rollback stop the service
-first and use the latest archive without restoring an older copy over it.
+confirmed. Before replacing the app with an earlier version, reconnect the selected
+archive volume and choose **«Вернуть архив для отката»** in the stopped service pane.
+The current app verifies the latest archive and returns it to the node directory.
+Wait for confirmation before replacing the bundle. The upgraded app will read
+measurements the earlier core adds there.
 
 While actual guard is armed, IOPM prevents automatic idle system sleep. It does
 not override lid closure or manual sleep. Each physical transport compares

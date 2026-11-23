@@ -118,7 +118,6 @@ async fn moving_a_stopped_archive_preserves_measurements_and_closed_audio() {
         .unwrap()
         .payload;
     archive.close().await.unwrap();
-    let original = fs::read(&source).unwrap();
     let target = disk.path().join("measurements");
     let moved = relocate(node.path(), &target);
     assert!(
@@ -126,7 +125,25 @@ async fn moving_a_stopped_archive_preserves_measurements_and_closed_audio() {
         "{}",
         String::from_utf8_lossy(&moved.stderr)
     );
-    assert_eq!(fs::read(source).unwrap(), original);
+    let retained = target.join(".ori-runtime/prior-node-backup");
+    let temporary = tempfile::tempdir().unwrap();
+    let independent = temporary.path().join("retained.sqlite3");
+    ori_archive::restore_backup(&retained, &independent).unwrap();
+    let saved = Archive::open(ArchiveConfig::new(independent)).unwrap();
+    assert_eq!(
+        saved
+            .get_observation("relocation-precision")
+            .await
+            .unwrap()
+            .unwrap(),
+        observation
+    );
+    saved.close().await.unwrap();
+    assert!(
+        fs::read(&source)
+            .unwrap()
+            .starts_with(b"ORI relocated archive v1\n")
+    );
     let selected =
         ori_runtime::archive_location::directory(&node.path().canonicalize().unwrap()).unwrap();
     assert_eq!(selected, target.canonicalize().unwrap());
@@ -155,4 +172,79 @@ async fn moving_a_stopped_archive_preserves_measurements_and_closed_audio() {
         audio
     );
     restored.close().await.unwrap();
+}
+
+#[test]
+fn absent_volume_and_interrupted_handoff_cannot_select_a_stale_writer() {
+    let node = tempfile::tempdir().unwrap();
+    let disk = tempfile::tempdir().unwrap();
+    let data = node.path().canonicalize().unwrap();
+    let selected = disk.path().join("measurements");
+    assert!(relocate(&data, &selected).status.success());
+    let pointer = fs::read(data.join("sessions.sqlite3")).unwrap();
+    let volume_lease = WriterLease::acquire(&selected.canonicalize().unwrap()).unwrap();
+    assert!(!relocate(&data, &data).status.success());
+    drop(volume_lease);
+
+    // Simulate a crash after retiring the private selection but before switching
+    // the legacy name back to SQLite. The pointer is still authoritative.
+    fs::remove_file(data.join(".ori-runtime/archive-location.json")).unwrap();
+    let absent = disk.path().join("absent");
+    fs::rename(&selected, &absent).unwrap();
+    assert!(!relocate(&data, &data).status.success());
+    assert_eq!(fs::read(data.join("sessions.sqlite3")).unwrap(), pointer);
+    fs::rename(absent, &selected).unwrap();
+    fs::write(data.join("sessions.sqlite3-wal"), b"orphan").unwrap();
+    assert!(!relocate(&data, &data).status.success());
+    fs::remove_file(data.join("sessions.sqlite3-wal")).unwrap();
+    assert!(relocate(&data, &data).status.success());
+    assert!(relocate(&data, &data).status.success());
+    assert_eq!(
+        ori_runtime::archive_location::directory(&data).unwrap(),
+        data
+    );
+    assert!(selected.join("sessions.sqlite3").is_file());
+}
+
+#[test]
+fn upgrades_a_pre_guard_selection_even_when_its_volume_is_missing() {
+    let node = tempfile::tempdir().unwrap();
+    let disk = tempfile::tempdir().unwrap();
+    let data = node.path().canonicalize().unwrap();
+    let selected = disk.path().join("measurements");
+    assert!(relocate(&data, &selected).status.success());
+    // Recreate the old layout with a real stale database at the legacy name.
+    let legacy = data.join("sessions.sqlite3");
+    fs::copy(selected.join("sessions.sqlite3"), &legacy).unwrap();
+    fs::rename(&selected, disk.path().join("offline")).unwrap();
+    assert!(!relocate(&data, &data).status.success());
+    assert!(
+        fs::read(&legacy)
+            .unwrap()
+            .starts_with(b"ORI relocated archive v1\n")
+    );
+    let retained = fs::read_dir(data.join(".ori-runtime"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .find(|e| e.file_name().to_string_lossy().starts_with("prior-node-"))
+        .unwrap();
+    ori_archive::verify_backup(&retained.path()).unwrap();
+    assert!(!selected.exists());
+}
+
+#[test]
+fn selected_writer_cannot_initialize_a_missing_or_empty_database() {
+    use ori_archive::{Archive, ArchiveConfig};
+    let disk = tempfile::tempdir().unwrap();
+    let absent = disk.path().join("disconnected/store/sessions.sqlite3");
+    let mut archive = ArchiveConfig::new(&absent);
+    archive.require_existing = true;
+    assert!(Archive::open(archive).is_err());
+    assert!(!disk.path().join("disconnected").exists());
+    let empty = disk.path().join("sessions.sqlite3");
+    fs::write(&empty, b"").unwrap();
+    let mut archive = ArchiveConfig::new(&empty);
+    archive.require_existing = true;
+    assert!(Archive::open(archive).is_err());
+    assert_eq!(fs::metadata(empty).unwrap().len(), 0);
 }

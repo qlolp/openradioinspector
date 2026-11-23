@@ -75,7 +75,7 @@ class SQLiteSessionStore:
     """Потокобезопасное хранилище платформы на стандартном ``sqlite3``."""
 
     def __init__(self, path: str, *, max_database_bytes: Optional[int] = None,
-                 compact_sweep_events: bool = False) -> None:
+                 compact_sweep_events: bool = False, require_existing: bool = False) -> None:
         if not isinstance(path, str) or not path.strip():
             raise ValueError("Путь к базе сеансов не должен быть пустым")
         if max_database_bytes is not None and (
@@ -86,11 +86,12 @@ class SQLiteSessionStore:
             raise ValueError("max_database_bytes должен быть положительным целым числом")
         self.path = path
         self.max_database_bytes = max_database_bytes
-        if path != ":memory:":
+        if path != ":memory:" and not require_existing:
             Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._read_slots = threading.BoundedSemaphore(2)
-        self._connection = sqlite3.connect(path, check_same_thread=False)
+        target = Path(path).resolve().as_uri() + '?mode=rw' if require_existing else path
+        self._connection = sqlite3.connect(target, check_same_thread=False, uri=require_existing)
         self._connection.row_factory = sqlite3.Row
         # A connection-local function, not an archive schema/index migration.
         # Unlike julianday(), this preserves microseconds and normalizes offsets
@@ -105,6 +106,9 @@ class SQLiteSessionStore:
         )
         try:
             with self._lock, self._connection:
+                if require_existing and self._connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'").fetchone() is None:
+                    raise ValueError('Registered archive is uninitialized')
                 panorama_events.writer_format(self._connection, SCHEMA_VERSION, compact_sweep_events)
                 from .observation_precision import check_extension, install_extension
                 check_extension(self._connection)
