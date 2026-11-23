@@ -7,7 +7,6 @@ import json
 import queue
 import socket
 import threading
-import time
 import unittest
 from http.server import ThreadingHTTPServer
 from socketserver import TCPServer
@@ -48,9 +47,8 @@ class _UnreadInput(io.BytesIO):
 class _UnreadAbortSocket:
     """Unread close loses bytes not yet received by the controlled peer.
 
-    The peer receives actual Handler output after FIN, with a short scheduling
-    delay. This models the hosted reset boundary; real OS sockets are separate
-    tests and hosted Windows remains necessary for platform acceptance.
+    The peer can receive actual Handler output 20 ms after FIN. Advance the
+    model clock when the handler waits; real sockets are exercised separately.
     """
     def __init__(self, request, *, late=b""):
         self.input = _UnreadInput(request)
@@ -59,18 +57,13 @@ class _UnreadAbortSocket:
         self.late = late
         self.closed = False
         self.timeout = 7.0
-        self.fin = threading.Event()
-        self.peer_done = threading.Event()
-        self.peer_delay = threading.Event()
-        self.peer = threading.Thread(target=self._read_peer)
-        self.peer.start()
+        self.now = 0.0
+        self.fin_at = None
 
-    def _read_peer(self):
-        if self.fin.wait(2):
-            self.peer_delay.wait(0.02)
-            if not self.closed:
-                self.received = bytes(self.sent)
-        self.peer_done.set()
+    def wait(self, timeout):
+        self.now += timeout
+        if self.fin_at is not None and self.now >= self.fin_at + 0.02 and not self.closed:
+            self.received = bytes(self.sent)
 
     def makefile(self, mode, buffering=-1):
         assert mode == "rb"
@@ -87,10 +80,10 @@ class _UnreadAbortSocket:
 
     def shutdown(self, how):
         assert how == socket.SHUT_WR
-        if not self.fin.is_set():
+        if self.fin_at is None:
             self.input.release(self.late)
             self.late = b""
-            self.fin.set()
+            self.fin_at = self.now
 
     def close(self):
         self.closed = True
@@ -112,12 +105,10 @@ class EarlyRefusalTransportTests(unittest.TestCase):
                    + f"Content-Type: {content_type}\r\nContent-Length: {length}\r\n".encode()
                    + extra + b"\r\n" + (self.body[:1] if late else self.body))
         connection = _UnreadAbortSocket(request, late=self.body[1:] if late else b"")
-        try:
+        with patch.object(server.time, "monotonic", side_effect=lambda: connection.now), \
+             patch.object(server.threading, "Event", return_value=connection):
             handler = handler_class(connection, ("127.0.0.1", 1234), SimpleNamespace())
-            TCPServer.shutdown_request(SimpleNamespace(close_request=lambda item: item.close()), connection)
-        finally:
-            connection.peer.join(3)
-        self.assertFalse(connection.peer.is_alive())
+        TCPServer.shutdown_request(SimpleNamespace(close_request=lambda item: item.close()), connection)
         self.assertTrue(connection.closed and connection.input.closed)
         self.assertEqual(connection.input.body_reads, [])
         self.assertEqual(connection.input.pending(), len(self.body))
@@ -177,6 +168,15 @@ class EarlyRefusalTransportTests(unittest.TestCase):
         self.assertEqual(bytes(connection.sent), sent)
         self.assertEqual(connection.input.body_reads, [])
 
+    def test_peer_drops_response_if_close_precedes_delivery(self):
+        connection = _UnreadAbortSocket(b"")
+        connection.sendall(b"response")
+        connection.shutdown(socket.SHUT_WR)
+        connection.wait(0.01)
+        connection.close()
+        connection.wait(0.02)
+        self.assertEqual(connection.received, b"")
+
     def fast_request(self, wire, handler_class, *, readable=False):
         connection = _UnreadAbortSocket(wire)
         if readable:
@@ -186,8 +186,6 @@ class EarlyRefusalTransportTests(unittest.TestCase):
                 handler_class(connection, ("127.0.0.1", 1234), SimpleNamespace())
         finally:
             TCPServer.shutdown_request(SimpleNamespace(close_request=lambda item: item.close()), connection)
-            connection.peer.join(3)
-        self.assertFalse(connection.peer.is_alive())
         return bytes(connection.sent)
 
     def test_valid_body_success_and_parsed_errors_do_not_wait(self):
@@ -230,27 +228,25 @@ class EarlyRefusalTransportTests(unittest.TestCase):
                 connection = _UnreadAbortSocket(
                     b"POST /api/threshold HTTP/1.0\r\nContent-Type: text/plain\r\n"
                     b"Content-Length: 15\r\n\r\n" + self.body)
-                clock = [0.0]
                 waits = []
                 original_shutdown = connection.shutdown
 
                 def shutdown(how):
-                    clock[0] += shutdown_cost
+                    connection.now += shutdown_cost
                     original_shutdown(how)
 
                 def wait(timeout):
                     waits.append(timeout)
-                    self.assertTrue(connection.peer_done.wait(1))
+                    connection.wait(timeout)
 
                 connection.shutdown = shutdown
                 try:
-                    with patch.object(server.time, "monotonic", side_effect=lambda: clock[0]), \
+                    with patch.object(server.time, "monotonic", side_effect=lambda: connection.now), \
                          patch.object(server, "REQUEST_BODY_TIMEOUT_SECONDS", body_timeout), \
                          patch.object(server.threading, "Event", return_value=SimpleNamespace(wait=wait)):
                         _RejectOnlyHandler(connection, ("127.0.0.1", 1234), SimpleNamespace())
                 finally:
                     TCPServer.shutdown_request(SimpleNamespace(close_request=lambda item: item.close()), connection)
-                    connection.peer.join(3)
                 self.assertEqual(len(waits), 1)
                 self.assertAlmostEqual(waits[0], expected_wait)
                 self.assertEqual(connection.input.body_reads, [])
