@@ -445,11 +445,14 @@ impl GuardService {
                             state["receiver_run_id"] = armed["active_session_id"].clone();
                         }
                     }
-                    (Window::Open { .. }, Err(_)) => {
+                    (Window::Open { .. }, Err(error)) => {
                         self.ensure_open()?;
                         state["status"] = json!("preflight_failed");
-                        state["last_error"] =
-                            json!("Проверка прибора, эталона или архива не пройдена");
+                        state["last_error"] = match error {
+                            GuardError::RfExplorerMaxHold
+                            | GuardError::RfExplorerDetectorUnconfirmed => json!(error.to_string()),
+                            _ => json!("Проверка прибора, эталона или архива не пройдена"),
+                        };
                         let project = self.project(id).await?;
                         self.notify_error(&project, "Не удалось начать дежурство", "restart_error")
                             .await?;

@@ -25,6 +25,14 @@ pub enum GuardError {
     NotFoundContext(&'static str),
     #[error("{0}")]
     Conflict(String),
+    #[error(
+        "RF Explorer подтвердил аппаратный режим Max Hold. Выберите Normal на приборе и повторите запуск."
+    )]
+    RfExplorerMaxHold,
+    #[error(
+        "RF Explorer не подтвердил режим Normal. Проверьте подключение и режим детектора на приборе."
+    )]
+    RfExplorerDetectorUnconfirmed,
     #[error(transparent)]
     Control(#[from] ControlError),
     #[error(transparent)]
@@ -43,6 +51,8 @@ impl GuardError {
             | Self::Archive(ori_archive::ArchiveError::NotFound) => 404,
             Self::Archive(ori_archive::ArchiveError::Invalid(_)) => 400,
             Self::Conflict(_)
+            | Self::RfExplorerMaxHold
+            | Self::RfExplorerDetectorUnconfirmed
             | Self::Control(ControlError::Denied)
             | Self::Archive(ori_archive::ArchiveError::Conflict) => 409,
             Self::Control(_) => 503,
@@ -59,6 +69,8 @@ impl GuardError {
             | Self::Archive(ori_archive::ArchiveError::NotFound) => "monitoring_not_found",
             Self::Archive(ori_archive::ArchiveError::Invalid(_)) => "invalid_monitoring_request",
             Self::Conflict(_)
+            | Self::RfExplorerMaxHold
+            | Self::RfExplorerDetectorUnconfirmed
             | Self::Control(ControlError::Denied)
             | Self::Archive(ori_archive::ArchiveError::Conflict) => "monitoring_conflict",
             Self::Control(_) => "monitoring_unavailable",

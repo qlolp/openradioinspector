@@ -474,6 +474,79 @@ async fn analyzer_only_guard_arms_and_detects_without_a_receiver() {
 }
 
 #[tokio::test]
+async fn duty_reports_the_verified_detector_at_immediate_and_scheduled_start() {
+    let session = single(
+        "spectrum_analyzer",
+        json!({"adapter":"rf-explorer-3g-serial","start_hz":100_000_000,"stop_hz":101_110_000}),
+    );
+    let h = Harness::with_session(session.clone()).await;
+    let p = prepared_single(&h, &session).await;
+    let id = p["id"].as_str().unwrap();
+    h.archive
+        .append_sweeps((1..=20).map(|n| explorer_frame(&p, n, 1, false)).collect())
+        .await
+        .unwrap();
+    h.service
+        .create_baseline(id, baseline_request())
+        .await
+        .unwrap();
+    h.service.stop_preparation(id, json!({})).await.unwrap();
+    for (weekly, verified) in [(false, true), (true, true), (false, false)] {
+        *h.sources.now.lock().unwrap() = "2026-11-23T12:00:00Z".parse().unwrap();
+        *h.control.rfe_readback_override.lock().unwrap() = serde_json::from_value(json!({
+            "detector":"max_hold","detector_code":4,"artifact_kind":"processed_trace",
+            "private_readback":"fixture-private","settings_readback":verified
+        }))
+        .unwrap();
+        let schedule = if weekly {
+            json!({"mode":"weekly","timezone":"UTC","weekdays":[1],"start_local":"13:00","end_local":"14:00"})
+        } else {
+            json!({"mode":"continuous"})
+        };
+        let mut duty = h
+            .service
+            .arm_duty(id, json!({"schedule":schedule}))
+            .await
+            .unwrap();
+        if weekly {
+            assert_eq!(duty["status"], "waiting");
+            *h.sources.now.lock().unwrap() = "2026-11-23T13:00:00Z".parse().unwrap();
+            h.service
+                .reconcile_duty(id, ori_guard::DutyTrigger::Timer)
+                .await
+                .unwrap();
+            duty = h.service.duty(id).await.unwrap();
+        }
+        assert_eq!(duty["status"], "preflight_failed");
+        let reason = duty["last_error"].as_str().unwrap();
+        assert!(
+            reason.contains("RF Explorer") && reason.contains("Normal"),
+            "{reason}"
+        );
+        assert_eq!(reason.contains("Max Hold"), verified, "{reason}");
+        assert!(!reason.contains("fixture-private"));
+        assert_eq!(h.service.duty(id).await.unwrap()["last_error"], reason);
+        assert!(!h.service.any_armed());
+        h.service.disarm(id, json!({})).await.unwrap();
+    }
+    *h.control.rfe_readback_override.lock().unwrap() = serde_json::from_value(json!({
+        "rbw_hz":30000,"private_readback":"fixture-private"
+    }))
+    .unwrap();
+    let duty = h
+        .service
+        .arm_duty(id, json!({"schedule":{"mode":"continuous"}}))
+        .await
+        .unwrap();
+    assert_eq!(duty["status"], "preflight_failed");
+    assert_eq!(
+        duty["last_error"],
+        "Проверка прибора, эталона или архива не пройдена"
+    );
+    h.close().await;
+}
+
+#[tokio::test]
 async fn explorer_actual_normal_readback_and_calibration_settings_gate_start() {
     let session = single(
         "spectrum_analyzer",
