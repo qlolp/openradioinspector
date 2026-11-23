@@ -155,6 +155,7 @@ async fn reader_can_browse_measurements_while_mutations_and_unrelated_reads_are_
         session.clone(),
         format!("{session}/streams"),
         format!("{session}/streams/{stream}"),
+        format!("{session}/streams/{stream}/rf-explorer/passes"),
         format!("{session}/sweeps/{source}"),
         format!("{session}/sweeps?limit=1"),
         format!("{session}/sweep-summaries?limit=1"),
@@ -169,6 +170,22 @@ async fn reader_can_browse_measurements_while_mutations_and_unrelated_reads_are_
             .unwrap();
         assert_eq!(response.status(), 200, "{url}");
     }
+
+    let marker = format!(
+        "{session}/streams/{stream}/rf-explorer/passes/missing/point?frequency_hz=15000000"
+    );
+    let missing = server
+        .client
+        .get(marker)
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        missing.status(),
+        404,
+        "reader must be able to look up a pass marker"
+    );
 
     let receiver = fixture["observation"]["stream_id"].as_str().unwrap();
     let observations: Value = server

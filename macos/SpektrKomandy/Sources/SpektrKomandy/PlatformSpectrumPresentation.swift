@@ -88,15 +88,29 @@ public struct PlatformSpectrumPresentation: Sendable {
                 && zip(sweep.frequenciesHz, sweep.frequenciesHz.dropFirst()).allSatisfy { $0 <= $1 }
         }), let last = incoming.last else { reset(); return }
         let suffix = Array(incoming.reversed().prefix { $0.frequenciesHz == last.frequenciesHz }.prefix(Self.capacity).reversed())
+        if paused, self.scope == scope, let frozen = sweeps.last,
+           Self.isExplorerSurvey(frozen), Self.isExplorerSurvey(last) {
+            newest = suffix
+            return
+        }
         if self.scope != scope || sweeps.last?.frequenciesHz != last.frequenciesHz { reset() }
         self.scope = scope; newest = suffix
         if !paused { sweeps = suffix }
         if scale == nil { fit() }
     }
+    private static func isExplorerSurvey(_ sweep: PlatformSweep) -> Bool {
+        guard sweep.settings?["adapter"] == .string(PlatformRFExplorerConfiguration.adapter),
+              case .object = sweep.settings?["survey"] else { return false }
+        return true
+    }
     public mutating func togglePause() {
         guard !sweeps.isEmpty else { return }
         paused.toggle()
-        if !paused { sweeps = newest }
+        if !paused {
+            let changedGrid = sweeps.last?.frequenciesHz != newest.last?.frequenciesHz
+            sweeps = newest
+            if changedGrid { fit() }
+        }
     }
     public mutating func fit() { scale = PlatformSpectrumScale.fit(sweeps.flatMap(\.levels)); error = nil }
     public mutating func setBounds(lower: String, upper: String) {

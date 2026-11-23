@@ -17,6 +17,7 @@ from ..sweep_quality import MAX_QUALITY_REQUEST_BYTES
 from ..sweep_context import MAX_CONTEXT_REQUEST_BYTES
 from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES
 from ..spectral_mask import MAX_MASK_REQUEST_BYTES
+from ..sweep_research import MAX_RESEARCH_REQUEST_BYTES
 from ..sweep_three_thresholds import MAX_THREE_THRESHOLDS_REQUEST_BYTES
 from ..frequency_rounding import MAX_ROUNDING_REQUEST_BYTES
 from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES as MAX_RASTER_REQUEST_BYTES
@@ -31,6 +32,7 @@ ANALYSIS_BUDGETS = {
     'sweep-occupancy': MAX_CONTEXT_REQUEST_BYTES, 'sweep-average-comparison': MAX_AVERAGE_REQUEST_BYTES,
     'sweep-average-change-detection': MAX_AVERAGE_REQUEST_BYTES, 'sweep-mask-analysis': MAX_MASK_REQUEST_BYTES,
     'sweep-three-thresholds': MAX_THREE_THRESHOLDS_REQUEST_BYTES,
+    'sweep-tolerance-envelope': MAX_RESEARCH_REQUEST_BYTES, 'rf-explorer-band-power': MAX_RESEARCH_REQUEST_BYTES,
     'candidate-frequency-rounding': MAX_ROUNDING_REQUEST_BYTES, 'frequency-rounding': MAX_RASTER_REQUEST_BYTES,
     'frequency-counter': MAX_COUNTER_REQUEST_BYTES, 'dvb-evaluation': MAX_DVB_REQUEST_BYTES,
     'measurement-map': MAX_MAP_REQUEST_BYTES,
@@ -74,6 +76,39 @@ def frequency_history_schemas():
             'name':text,'revision':{'type':'integer','minimum':1},'created_at':text,'entries':entries}),
         'FrequencyBookmarkPage':closed({'session_id':text,
             'items':{**array(ref('FrequencyBookmarkSet')),'maxItems':256},'limit':{'type':'integer','const':256}}),
+    }
+
+
+def sweep_research_schemas():
+    def closed(properties):
+        return {**obj(properties, tuple(properties)), 'additionalProperties': False}
+
+    identifier = {'type': 'string', 'minLength': 1, 'maxLength': 128}
+    hz = {'type': 'integer', 'format': 'uint64', 'minimum': 0, 'maximum': 9007199254740991}
+    index = {'type': 'integer', 'format': 'uint64', 'minimum': 0}
+    number = {'type': 'number', 'format': 'double'}
+    deviation = {**number, 'minimum': 0}
+    nullable = {**number, 'type': ['number', 'null']}
+    return {
+        'SweepToleranceRequest': closed({'reference_id': identifier, 'target_id': identifier,
+            'upper_deviation_db': deviation, 'lower_deviation_db': deviation}),
+        'SweepToleranceBin': closed({'target_index': index,
+            'reference_index': {**index, 'type': ['integer', 'null']}, 'frequency_hz': hz,
+            'lower_dbm': nullable, 'upper_dbm': nullable, 'delta_db': nullable,
+            'classification': {'type': 'string', 'enum': ['above', 'below', 'within', 'uncovered']}}),
+        'SweepToleranceCounts': closed({key: index for key in ('above', 'below', 'within', 'uncovered')}),
+        'SweepToleranceResult': closed({'session_id': {'type': 'string'}, 'stream_id': {'type': 'string'},
+            'level_unit': {'type': 'string', 'const': 'dBm'}, 'delta_unit': {'type': 'string', 'const': 'dB'},
+            'upper_deviation_db': deviation, 'lower_deviation_db': deviation,
+            'reference': ref('Sweep'), 'target': ref('Sweep'), 'counts': ref('SweepToleranceCounts'),
+            'bins': {**array(ref('SweepToleranceBin')), 'minItems': 1, 'maxItems': 16384}}),
+        'RFExplorerBandPowerRequest': closed({'sweep_id': identifier, 'start_hz': hz, 'stop_hz': hz}),
+        'RFExplorerBandPowerResult': closed({'source': ref('Sweep'), 'start_index': index,
+            'stop_index': index, 'start_hz': hz, 'stop_hz': hz, 'rbw_hz': hz, 'value': number,
+            'unit': {'type': 'string', 'const': 'dBm'},
+            'integration': {'type': 'string', 'const': 'trapezoid_over_actual_grid'},
+            'enbw_correction': {'type': 'string', 'const': 'not_calibrated'}, 'uncertainty_db': nullable,
+            'hardware_validation': {'type': 'string', 'const': 'not_run'}}),
     }
 
 
@@ -196,6 +231,7 @@ def schemas():
             'active_session_id': nullable_text, 'baseline_id': nullable_text,
             'autostart': {'type': 'boolean'}, 'session_ids': array(identifier)}, ('id', 'name', 'site', 'state')),
         **field_strength_schemas(),
+        **sweep_research_schemas(),
         **frequency_history_schemas(),
         'Envelope': obj({'contract': {'type': 'string', 'const': CONTRACT_NAME},
             'contract_version': {'type': 'integer', 'const': CONTRACT_VERSION}, 'data': {}},
@@ -332,6 +368,8 @@ def document():
                      'sweep-occupancy', 'frequency-rounding', 'sweep-quality', 'frequency-counter',
                      'dvb-evaluation', 'measurement-map', 'sweep-mask-analysis'):
         add(base+'/'+analysis, 'post', body=ref('JSONObject'))
+    add(base+'/sweep-tolerance-envelope', 'post', ref('SweepToleranceResult'), body=ref('SweepToleranceRequest'))
+    add(base+'/rf-explorer-band-power', 'post', ref('RFExplorerBandPowerResult'), body=ref('RFExplorerBandPowerRequest'))
     add(base+'/field-strength-rms-v2', 'post', ref('FieldStrengthResult'), body=ref('FieldStrengthRequest'))
     add(base+'/sweep-comparison', queries=('reference_id', 'target_id'))
     add(base+'/sweep-threshold', queries=('sweep_id', 'window_points', 'margin_db'))

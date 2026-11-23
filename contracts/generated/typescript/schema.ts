@@ -986,6 +986,112 @@ export const schemas = {
     "required": [],
     "type": "object"
   },
+  "RFExplorerBandPowerRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "start_hz": {
+        "format": "uint64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "stop_hz": {
+        "format": "uint64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "sweep_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "sweep_id",
+      "start_hz",
+      "stop_hz"
+    ],
+    "type": "object"
+  },
+  "RFExplorerBandPowerResult": {
+    "additionalProperties": false,
+    "properties": {
+      "enbw_correction": {
+        "const": "not_calibrated",
+        "type": "string"
+      },
+      "hardware_validation": {
+        "const": "not_run",
+        "type": "string"
+      },
+      "integration": {
+        "const": "trapezoid_over_actual_grid",
+        "type": "string"
+      },
+      "rbw_hz": {
+        "format": "uint64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "source": {
+        "$ref": "#/components/schemas/Sweep"
+      },
+      "start_hz": {
+        "format": "uint64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "start_index": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "stop_hz": {
+        "format": "uint64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "stop_index": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "uncertainty_db": {
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "unit": {
+        "const": "dBm",
+        "type": "string"
+      },
+      "value": {
+        "format": "double",
+        "type": "number"
+      }
+    },
+    "required": [
+      "source",
+      "start_index",
+      "stop_index",
+      "start_hz",
+      "stop_hz",
+      "rbw_hz",
+      "value",
+      "unit",
+      "integration",
+      "enbw_correction",
+      "uncertainty_db",
+      "hardware_validation"
+    ],
+    "type": "object"
+  },
   "ReceiverObservation": {
     "additionalProperties": true,
     "properties": {
@@ -1291,6 +1397,193 @@ export const schemas = {
     "required": [
       "items",
       "next_cursor"
+    ],
+    "type": "object"
+  },
+  "SweepToleranceBin": {
+    "additionalProperties": false,
+    "properties": {
+      "classification": {
+        "enum": [
+          "above",
+          "below",
+          "within",
+          "uncovered"
+        ],
+        "type": "string"
+      },
+      "delta_db": {
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "frequency_hz": {
+        "format": "uint64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "lower_dbm": {
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "reference_index": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "target_index": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "upper_dbm": {
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "target_index",
+      "reference_index",
+      "frequency_hz",
+      "lower_dbm",
+      "upper_dbm",
+      "delta_db",
+      "classification"
+    ],
+    "type": "object"
+  },
+  "SweepToleranceCounts": {
+    "additionalProperties": false,
+    "properties": {
+      "above": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "below": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "uncovered": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "within": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "above",
+      "below",
+      "within",
+      "uncovered"
+    ],
+    "type": "object"
+  },
+  "SweepToleranceRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "lower_deviation_db": {
+        "format": "double",
+        "minimum": 0,
+        "type": "number"
+      },
+      "reference_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "target_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "upper_deviation_db": {
+        "format": "double",
+        "minimum": 0,
+        "type": "number"
+      }
+    },
+    "required": [
+      "reference_id",
+      "target_id",
+      "upper_deviation_db",
+      "lower_deviation_db"
+    ],
+    "type": "object"
+  },
+  "SweepToleranceResult": {
+    "additionalProperties": false,
+    "properties": {
+      "bins": {
+        "items": {
+          "$ref": "#/components/schemas/SweepToleranceBin"
+        },
+        "maxItems": 16384,
+        "minItems": 1,
+        "type": "array"
+      },
+      "counts": {
+        "$ref": "#/components/schemas/SweepToleranceCounts"
+      },
+      "delta_unit": {
+        "const": "dB",
+        "type": "string"
+      },
+      "level_unit": {
+        "const": "dBm",
+        "type": "string"
+      },
+      "lower_deviation_db": {
+        "format": "double",
+        "minimum": 0,
+        "type": "number"
+      },
+      "reference": {
+        "$ref": "#/components/schemas/Sweep"
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "stream_id": {
+        "type": "string"
+      },
+      "target": {
+        "$ref": "#/components/schemas/Sweep"
+      },
+      "upper_deviation_db": {
+        "format": "double",
+        "minimum": 0,
+        "type": "number"
+      }
+    },
+    "required": [
+      "session_id",
+      "stream_id",
+      "level_unit",
+      "delta_unit",
+      "upper_deviation_db",
+      "lower_deviation_db",
+      "reference",
+      "target",
+      "counts",
+      "bins"
     ],
     "type": "object"
   },
@@ -2087,6 +2380,12 @@ export const operations = {
     "path": "/api/v1/sessions/{id}/phonogram/stop",
     "query": []
   },
+  "post_api_v1_sessions_id_rf_explorer_band_power": {
+    "max_request_bytes": 8192,
+    "method": "POST",
+    "path": "/api/v1/sessions/{id}/rf-explorer-band-power",
+    "query": []
+  },
   "post_api_v1_sessions_id_signal_list_import": {
     "max_request_bytes": 524288,
     "method": "POST",
@@ -2199,6 +2498,12 @@ export const operations = {
     "max_request_bytes": 8192,
     "method": "POST",
     "path": "/api/v1/sessions/{id}/sweep-three-thresholds",
+    "query": []
+  },
+  "post_api_v1_sessions_id_sweep_tolerance_envelope": {
+    "max_request_bytes": 8192,
+    "method": "POST",
+    "path": "/api/v1/sessions/{id}/sweep-tolerance-envelope",
     "query": []
   },
   "post_api_v1_sessions_id_sweeps": {

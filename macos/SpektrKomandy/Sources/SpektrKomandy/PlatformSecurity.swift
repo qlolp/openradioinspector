@@ -68,6 +68,9 @@ extension PlatformClient {
                   result.mode != .legacyLoopback || !result.pairingRequired else {
                 throw PlatformError.invalidResponse("Несогласованное состояние защиты узла")
             }
+            if hasBearerCredential && result.mode == .lanTLS && !result.pairingRequired {
+                readsMeasurementsOnly = result.accessScope == "reader"
+            }
             return result
         } catch { throw securityError(error) }
     }

@@ -5,7 +5,7 @@ import './history_runtime.test.ts';
 import {parseJSON, stringifyJSON, decodeSweep, decodeReceiverObservation, normalizeUTC, encodePathSegment, operationPath, encodeSweep, decodeEnvelope, decodeErrorEnvelope} from '../generated/typescript/index.ts';
 import {decodeFieldStrengthRequest, decodeFieldStrengthResult, encodeFieldStrengthResult} from '../generated/typescript/index.ts';
 import {decodeCoreCapabilities, encodeCoreCapabilities} from '../generated/typescript/index.ts';
-import {decodeSecurityStatus, encodeSecurityStatus, decodeBrowserPairing, decodeNativePairing,
+import {decodeRFExplorerPassPanorama, encodeRFExplorerPassPanorama, decodeSecurityStatus, encodeSecurityStatus, decodeBrowserPairing, decodeNativePairing,
     decodeMeasurementWebSocket, encodeMeasurementWebSocket, decodeSweepSummaryPage,
     selectRuntimeOperations, runtimeOperations} from '../generated/typescript/runtime.ts';
 
@@ -70,7 +70,7 @@ test('runtime backend and request feature selection fails closed', () => {
     assert.deepEqual(runtimeOperations.find(op=>op.operation_id==='get_api_v1_events_ws')!.query,['after']);
     const ids=(backend:string,features:string[]=[],capabilities:string[]=[],request:any={})=>selectRuntimeOperations(backend,features,capabilities,request).map(op=>op.operation_id);
     assert.throws(()=>ids('unknown'));
-    assert.equal(ids('python-legacy').length,141);
+    assert.equal(ids('python-legacy').length,143);
     assert.ok(!ids('rust-candidate').includes('post_api_v1_sessions_id_field_strength_rms_v2'));
     assert.ok(ids('rust-candidate',['field_strength_rms_v2']).includes('post_api_v1_sessions_id_field_strength_rms_v2'));
     assert.ok(!ids('python-legacy').includes('get_api_v1_security_status'));
@@ -181,4 +181,13 @@ test('shared metadata fixture preserves private names, literal escape prefixes a
     assert.equal(value.unicode['e\u0301'],'distinct');
     assert.equal(bits(value.negative_zero),'8000000000000000');
     assert.deepEqual(parseJSON(stringifyJSON(value)),value);
+});
+
+test('survey SDK retains the empty column and the exact measured source', () => {
+    const bytes = readFileSync(new URL('../fixtures/rf-explorer-pass-v1.json', import.meta.url), 'utf8');
+    const pass = decodeRFExplorerPassPanorama(parseJSON(bytes));
+    assert.equal(pass.columns[0]?.point_index, 111);
+    assert.equal(pass.columns[1], null);
+    assert.equal(pass.hold_columns, null);
+    assert.deepEqual(parseJSON(encodeRFExplorerPassPanorama(pass)), parseJSON(bytes));
 });

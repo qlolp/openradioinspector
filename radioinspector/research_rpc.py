@@ -35,7 +35,7 @@ METHODS = frozenset({
     "sweep_threshold", "sweep_three_thresholds", "sweep_context", "sweep_occupancy",
     "sweep_mask_analysis", "candidate_frequency_rounding", "frequency_rounding",
     "sweep_quality", "frequency_counter", "dvb_evaluation", "measurement_map",
-    "field_strength_rms_v2",
+    "field_strength_rms_v2", "sweep_tolerance_envelope", "rf_explorer_band_power",
 })
 CONTROL_METHODS = frozenset({'peak', 'occupied_bandwidth', 'bandwidth_3db', 'centroid', 'channel_power'})
 DETECTION_METHOD = 'automatic_detection_regions'
@@ -71,6 +71,7 @@ _API_ERRORS = {
     "FieldStrengthUnavailable": (409, "field_strength_unavailable"),
     "DvbEvaluationError": (409, "dvb_evaluation_error"),
     "MeasurementMapError": (409, "measurement_map_error"),
+    "BandPowerUnavailable": (409, "band_power_unavailable"),
     "MaskIncompatibleError": (409, "mask_incompatible"),
 }
 
@@ -450,6 +451,8 @@ def _analysis(request: dict[str, Any]) -> Any:
         "sweep_three_thresholds": lambda: service.sweep_three_thresholds(sid, payload),
         "sweep_context": lambda: service.sweep_context(sid, payload),
         "sweep_occupancy": lambda: service.sweep_occupancy(sid, payload),
+        "sweep_tolerance_envelope": lambda: service.sweep_tolerance_envelope(sid, payload),
+        "rf_explorer_band_power": lambda: service.rf_explorer_band_power(sid, payload),
         "sweep_mask_analysis": lambda: service.sweep_mask_analysis(sid, payload),
         "candidate_frequency_rounding": lambda: service.candidate_frequency_rounding(sid, payload),
         "frequency_rounding": lambda: service.frequency_rounding(sid, payload),

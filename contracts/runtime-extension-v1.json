@@ -185,6 +185,12 @@
         "candidate_investigations"
       ]
     },
+    "get_api_v1_sessions_id_frequency_bookmarks": {
+      "capabilities": [],
+      "features": [
+        "frequency_bookmarks"
+      ]
+    },
     "get_api_v1_sessions_id_investigations": {
       "capabilities": [],
       "features": [
@@ -415,9 +421,9 @@
             "streams": [
               {
                 "device": "RF Explorer 3G Combo",
-                "role": "spectrum_analyzer",
                 "level_unit": "dBm",
                 "port": "/dev/ttyUSB0",
+                "role": "spectrum_analyzer",
                 "settings": {
                   "adapter": "rf-explorer-3g-serial",
                   "baud": 500000,
@@ -492,6 +498,12 @@
         "field_strength_rms_v2"
       ]
     },
+    "post_api_v1_sessions_id_frequency_bookmarks": {
+      "capabilities": [],
+      "features": [
+        "frequency_bookmarks"
+      ]
+    },
     "post_api_v1_sessions_id_frequency_counter": {
       "capabilities": [],
       "features": [
@@ -556,6 +568,12 @@
       "capabilities": [],
       "features": [
         "measurement_ingest"
+      ]
+    },
+    "post_api_v1_sessions_id_rf_explorer_band_power": {
+      "capabilities": [],
+      "features": [
+        "rf_explorer_band_power"
       ]
     },
     "post_api_v1_sessions_id_signal_list_import": {
@@ -628,6 +646,12 @@
       "capabilities": [],
       "features": [
         "three_sweep_thresholds"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_tolerance_envelope": {
+      "capabilities": [],
+      "features": [
+        "sweep_tolerance_envelope"
       ]
     },
     "post_api_v1_sessions_id_sweeps": {
@@ -2458,6 +2482,378 @@
         "required": [
           "pairing_code",
           "label"
+        ],
+        "type": "object"
+      },
+      "RFExplorerCoverage": {
+        "properties": {
+          "start_hz": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stop_hz": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_hz",
+          "stop_hz"
+        ],
+        "type": "object"
+      },
+      "RFExplorerMarkerReading": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RFExplorerPassPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "held": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RFExplorerPassPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "current",
+          "held"
+        ],
+        "type": "object"
+      },
+      "RFExplorerPassPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RFExplorerPassSummary"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "next_before": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_before"
+        ],
+        "type": "object"
+      },
+      "RFExplorerPassPanorama": {
+        "properties": {
+          "columns": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RFExplorerPassPoint"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxItems": 2048,
+            "type": "array"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/RFExplorerCoverage"
+            },
+            "maxItems": 2398,
+            "type": "array"
+          },
+          "hold_columns": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RFExplorerPassPoint"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxItems": 2048,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "hold_coverage": {
+            "items": {
+              "$ref": "#/components/schemas/RFExplorerCoverage"
+            },
+            "maxItems": 2398,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/RFExplorerPassSummary"
+          }
+        },
+        "required": [
+          "summary",
+          "columns",
+          "hold_columns",
+          "coverage",
+          "hold_coverage"
+        ],
+        "type": "object"
+      },
+      "RFExplorerPassPoint": {
+        "properties": {
+          "ended_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "frequency_hz": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_measured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "level_dbm": {
+            "format": "double",
+            "type": "number"
+          },
+          "point_index": {
+            "format": "uint64",
+            "maximum": 111,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "sweep_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tile": {
+            "format": "uint64",
+            "maximum": 2398,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "frequency_hz",
+          "level_dbm",
+          "sweep_id",
+          "point_index",
+          "started_at",
+          "ended_at",
+          "tile",
+          "last_measured_at"
+        ],
+        "type": "object"
+      },
+      "RFExplorerPassSummary": {
+        "properties": {
+          "active_board": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          },
+          "active_input": {
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "detector": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "duration_s": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expected_points": {
+            "format": "uint64",
+            "maximum": 268501,
+            "minimum": 112,
+            "type": "integer"
+          },
+          "offset_db": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pass": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pass_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "rbw_hz": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "received_tiles": {
+            "format": "uint64",
+            "maximum": 2398,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "revisit_s": {
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "simulated": {
+            "type": "boolean"
+          },
+          "start_hz": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "step_hz": {
+            "format": "uint64",
+            "maximum": 10000,
+            "minimum": 10000,
+            "type": "integer"
+          },
+          "stop_hz": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tiles": {
+            "format": "uint64",
+            "maximum": 2398,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "unique_points": {
+            "format": "uint64",
+            "maximum": 268501,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pass_id",
+          "pass",
+          "start_hz",
+          "stop_hz",
+          "step_hz",
+          "tiles",
+          "received_tiles",
+          "unique_points",
+          "expected_points",
+          "started_at",
+          "ended_at",
+          "complete",
+          "duration_s",
+          "revisit_s",
+          "active_board",
+          "active_input",
+          "rbw_hz",
+          "detector",
+          "offset_db",
+          "simulated"
+        ],
+        "type": "object"
+      },
+      "RFExplorerPassWindow": {
+        "properties": {
+          "ended_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "sweep_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tile": {
+            "format": "uint64",
+            "maximum": 2398,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tile",
+          "sweep_id",
+          "started_at",
+          "ended_at"
+        ],
+        "type": "object"
+      },
+      "RFExplorerPassWindows": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RFExplorerPassWindow"
+            },
+            "maxItems": 256,
+            "type": "array"
+          },
+          "next_after_tile": {
+            "format": "uint64",
+            "maximum": 2398,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_after_tile"
         ],
         "type": "object"
       },
@@ -5490,6 +5886,551 @@
         }
       }
     },
+    "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes": {
+      "get": {
+        "description": "Committed RF Explorer survey passes, newest first. A cursor belongs to its session and stream.",
+        "operationId": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "format": "uint64",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/RFExplorerPassPage"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Committed RF Explorer survey passes, newest first. A cursor belongs to its session and stream."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or repeated query parameter or cursor."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Session, stream or pass not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archived survey windows or their acquisition order are incompatible."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "rf_explorer_survey_panorama"
+          ]
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}": {
+      "get": {
+        "description": "Peak-preserving archive display columns and measured coverage in integer Hz. Null columns are gaps. Software hold uses compatible sources since the supplied timestamp, through this pass. Frame times are host UTC.",
+        "operationId": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pass_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "default": 512,
+              "format": "uint64",
+              "maximum": 2048,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hold_since",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/RFExplorerPassPanorama"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Peak-preserving archive display columns and measured coverage in integer Hz. Null columns are gaps. Software hold uses compatible sources since the supplied timestamp, through this pass. Frame times are host UTC."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or repeated query parameter or cursor."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Session, stream or pass not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archived survey windows or their acquisition order are incompatible."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "rf_explorer_survey_panorama"
+          ]
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/point": {
+      "get": {
+        "description": "Exact measured sample and compatible software-held sample at the requested integer frequency, with source and latest observation times. A gap or off-grid frequency returns null.",
+        "operationId": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_point",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pass_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "frequency_hz",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hold_since",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/RFExplorerMarkerReading"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Exact measured sample and compatible software-held sample at the requested integer frequency, with source and latest observation times. A gap or off-grid frequency returns null."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or repeated query parameter or cursor."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Session, stream or pass not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archived survey windows or their acquisition order are incompatible."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "rf_explorer_survey_panorama"
+          ]
+        }
+      }
+    },
+    "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/windows": {
+      "get": {
+        "description": "Available original windows of this pass in acquisition tile order. Skipped tiles stay missing. The next cursor is exclusive.",
+        "operationId": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_windows",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pass_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "format": "uint64",
+              "maximum": 256,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_tile",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "uint64",
+              "maximum": 2398,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/RFExplorerPassWindows"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Available original windows of this pass in acquisition tile order. Skipped tiles stay missing. The next cursor is exclusive."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or repeated query parameter or cursor."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Credential required in LAN TLS mode."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Session, stream or pass not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archived survey windows or their acquisition order are incompatible."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Archive query exceeded its resource budget or the archive is unavailable."
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "rf_explorer_survey_panorama"
+          ]
+        }
+      }
+    },
     "/api/v1/sessions/{id}/sweeps/{sweep_id}": {
       "get": {
         "operationId": "get_api_v1_sessions_id_sweeps_sweep_id",
@@ -5573,9 +6514,14 @@
     "get_api_v1_security_status",
     "get_api_v1_sessions",
     "get_api_v1_sessions_id",
+    "get_api_v1_sessions_id_frequency_bookmarks",
     "get_api_v1_sessions_id_observations",
     "get_api_v1_sessions_id_streams",
     "get_api_v1_sessions_id_streams_stream_id",
+    "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",
+    "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",
+    "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_point",
+    "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_windows",
     "get_api_v1_sessions_id_sweep_summaries",
     "get_api_v1_sessions_id_sweeps",
     "get_api_v1_sessions_id_sweeps_sweep_id",

@@ -36,7 +36,9 @@ import SpektrKomandy
 
         private var sweep: [String: Any] {
             var settings: [String: Any] = ["detector": survey ? "normal" : "max_hold",
-                "rbw_hz": survey ? 15_000 : 10_000, "active_input": "right"]
+                "rbw_hz": survey ? 15_000 : 10_000, "active_input": "right", "active_board": "expansion",
+                "board_min_hz": 15_000_000, "board_max_hz": 2_700_000_000,
+                "settings_readback": true, "settings_source": "device_readback"]
             if survey {
                 settings["survey"] = ["start_hz": 100_000_000, "stop_hz": 400_000_000, "step_hz": 10_000,
                     "pass": 2, "tile": 1, "tiles": 268, "pass_id": "run-2"] as [String: Any]
@@ -249,4 +251,5 @@ import SpektrKomandy
                 "/api/v1/sessions/rf/streams/source/start", "/api/v1/sessions/rf/streams/source/start"])
         }
     }
+
 }

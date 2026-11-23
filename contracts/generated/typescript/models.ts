@@ -9,6 +9,7 @@ export type FieldStrengthCalibrationDetector = "RMS";
 export type FieldStrengthCalibrationWaveform = "CW";
 export type FieldStrengthResultMethodology = "field_strength_rms_v2";
 export type FieldStrengthResultUnit = "V/m";
+export type SweepToleranceBinClassification = "above" | "below" | "within" | "uncovered";
 export interface ArtifactSummary {
   created_at: string;
   filename: string;
@@ -246,6 +247,29 @@ export interface NewSession {
   [key: string]: unknown;
 }
 
+export interface RFExplorerBandPowerRequest {
+  start_hz: Integer;
+  stop_hz: Integer;
+  sweep_id: string;
+  [key: string]: unknown;
+}
+
+export interface RFExplorerBandPowerResult {
+  enbw_correction: "not_calibrated";
+  hardware_validation: "not_run";
+  integration: "trapezoid_over_actual_grid";
+  rbw_hz: Integer;
+  source: Sweep;
+  start_hz: Integer;
+  start_index: Integer;
+  stop_hz: Integer;
+  stop_index: Integer;
+  uncertainty_db: number | null;
+  unit: "dBm";
+  value: number;
+  [key: string]: unknown;
+}
+
 export interface ReceiverObservation {
   audio_uri?: string | null;
   decoded_mode?: string | null;
@@ -313,6 +337,47 @@ export interface SweepSummary {
 export interface SweepSummaryPage {
   items: Array<SweepSummary>;
   next_cursor: string | null;
+  [key: string]: unknown;
+}
+
+export interface SweepToleranceBin {
+  classification: SweepToleranceBinClassification;
+  delta_db: number | null;
+  frequency_hz: Integer;
+  lower_dbm: number | null;
+  reference_index: Integer | null;
+  target_index: Integer;
+  upper_dbm: number | null;
+  [key: string]: unknown;
+}
+
+export interface SweepToleranceCounts {
+  above: Integer;
+  below: Integer;
+  uncovered: Integer;
+  within: Integer;
+  [key: string]: unknown;
+}
+
+export interface SweepToleranceRequest {
+  lower_deviation_db: number;
+  reference_id: string;
+  target_id: string;
+  upper_deviation_db: number;
+  [key: string]: unknown;
+}
+
+export interface SweepToleranceResult {
+  bins: Array<SweepToleranceBin>;
+  counts: SweepToleranceCounts;
+  delta_unit: "dB";
+  level_unit: "dBm";
+  lower_deviation_db: number;
+  reference: Sweep;
+  session_id: string;
+  stream_id: string;
+  target: Sweep;
+  upper_deviation_db: number;
   [key: string]: unknown;
 }
 

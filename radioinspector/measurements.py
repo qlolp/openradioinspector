@@ -28,6 +28,20 @@ import numpy as np
 from .trace import Trace
 from .field_strength import field_strength_rms_v2
 
+def channel_power_dbm(frequencies_hz, levels_dbm, rbw_hz) -> float:
+    """Integrate validated dBm samples in linear power over the recorded grid.
+
+    RBW approximates equivalent noise bandwidth. Integration starts and ends
+    at the first and last bin centres. Scaling by the peak avoids overflow.
+    """
+    hz = np.asarray(frequencies_hz, dtype=float)
+    levels = np.asarray(levels_dbm, dtype=float)
+    reference = float(np.max(levels))
+    relative = np.power(10.0, (levels - reference) / 10)
+    total = float(np.sum((relative[:-1] + relative[1:]) * .5 * np.diff(hz)) / rbw_hz)
+    return reference + 10 * math.log10(total)
+
+
 #: Значение β/2 по умолчанию. Согласно ITU-R SM.328-10 и справочнику МСЭ,
 #: если иное не оговорено для конкретного класса излучения, β/2 = 0,5 %.
 DEFAULT_BETA = 1.0

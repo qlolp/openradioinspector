@@ -31,6 +31,7 @@ mod media;
 mod private_worker;
 mod raw_export;
 mod recovery;
+mod rf_explorer_history;
 mod security;
 pub mod task_execution;
 mod tasks;

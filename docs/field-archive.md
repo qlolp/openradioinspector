@@ -35,6 +35,16 @@ To support single-pass validation with bounded memory, write the literal first l
 
 Android exports from a closed, immutable private database, stages a complete package, then copies it to the chosen Storage Access Framework document. Providers control final write durability. After interruption select a new destination and export again from the private session. A reader rejects a partial copy.
 
+### Reviewing levels along a route on Android
+
+Open **Архив** and select a completed phone session, or tap **Открыть .orifield…** and choose an exported document in the Android file picker. Select the measurement stream if the file contains several, then choose **Трек GPS**, enter a frequency in MHz and tap **Применить**. A colored point uses the measurement’s recorded fix ID in the same session and stream. The color scale spans the lowest and highest measured levels on the displayed page. A hollow circle marks a fix without a compatible sample. A cross marks a fix whose linked measurements missed the selected frequency.
+
+For RF Explorer and tinySA, the color uses the nearest recorded bin inside each sweep, in dBm. Ties select the lower frequency. AR-DV1 uses an exact frequency match in raw S-meter counts. When several measurements cover the frequency at one fix, the last matching record with a level in capture order supplies the color. A hollow marker can still open an observation whose count is missing. A cross opens the last linked off-frequency record. Tap a linked marker to see the original measurement and its actual frequency and level when available. Use **К треку** to return to the same point or **Измерения в точке** to browse its other records. Clear the frequency and tap **Применить** to return to the plain GPS track.
+
+Android checks the ZIP boundaries, file inventory, CRCs, SHA-256 hashes, record counts, scoped references and GPS features before displaying a document. It reads the source file without modification and builds a private temporary index. **Закрыть файл** returns to saved phone sessions. Closing the document, cancelling verification or rejecting an invalid file removes its staging files. Opening a document after an app interruption also reclaims abandoned review files.
+
+The Android document viewer accepts files up to 128 MiB, manifests up to 256 KiB and individual payload lines up to 1 MiB including LF. A JSON record can contain up to 100,000 values, 64 levels of nesting and numeric literals up to 128 characters. The temporary SQLite index can use up to 384 MiB in addition to the private file copy. A file that exceeds a viewer limit reports an opening error.
+
 The [synthetic example](../contracts/fixtures/field-archive-v1.orifield) contains a sweep, a receiver observation, GPS, a note and a gap. To verify an archive or extract its validated contents into a new directory, run:
 
 ```sh

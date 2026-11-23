@@ -21,11 +21,11 @@ class ExactWireTests(unittest.TestCase):
             (root / 'route.py').write_bytes(b'current reviewed route')
             digest = hashlib.sha256(b'current reviewed route').hexdigest()
             history = [{'revision': format(i, '040x'), 'source_sha256': {
-                'route.py': digest if i == 9 else format(i, '064x')}} for i in range(1, 10)]
+                'route.py': digest if i == 10 else format(i, '064x')}} for i in range(1, 11)]
             inventory = {'python_source_revision': 'a'*40, 'source_sha256': {'route.py': '0'*64},
                          'approved_source_snapshots': history}
             self.assertEqual(approved_source_snapshot(root, inventory),
-                             (format(9, '040x'), {'route.py': digest}))
+                             (format(10, '040x'), {'route.py': digest}))
             inventory['approved_source_snapshots'] = history + [history[-1]]
             with self.assertRaises(ProtocolError):
                 approved_source_snapshot(root, inventory)
@@ -667,7 +667,7 @@ class OwnedProducerTests(unittest.TestCase):
             self.assertTrue(result["producer_sanity"]["successful"],result)
             self.assertGreaterEqual(result["producer_sanity"]["compared_cases"],140)
             self.assertTrue(result["producer_sanity"]["async_protocol_verified"])
-            self.assertEqual(result["inventory"]["published_v1_operations"],141)
+            self.assertEqual(result["inventory"]["published_v1_operations"],143)
             self.assertTrue(all(node["joined"] for node in result["nodes"]))
         except BaseException:
             print("Retained failed public API parity fixture:",directory)

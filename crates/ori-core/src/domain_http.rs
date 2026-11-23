@@ -56,6 +56,7 @@ pub(crate) fn handles_post(parts: &[String]) -> bool {
                     | "investigations"
                     | "measurement-results"
                     | "sweep-references"
+                    | "frequency-bookmarks"
                     | "signal-list"
             )
 }
@@ -138,6 +139,15 @@ pub(crate) async fn get(
                     optional(query, "methodology"),
                     Some(count(query, "limit", 100, 1000)?),
                 )
+                .await?
+        }
+        ["api", "v1", "sessions", session, "frequency-bookmarks"] => {
+            if !query.is_empty() {
+                return Err(ApiError::invalid("Unexpected bookmark query"));
+            }
+            core.domain()?
+                .session
+                .list_frequency_bookmarks(session)
                 .await?
         }
         ["api", "v1", "sessions", session, "sweep-references"] => {
@@ -300,6 +310,13 @@ pub(crate) async fn post(
             core.domain()?
                 .session
                 .save_measurement_result(session, payload)
+                .await?,
+        ),
+        ["api", "v1", "sessions", session, "frequency-bookmarks"] => (
+            StatusCode::CREATED,
+            core.domain()?
+                .session
+                .save_frequency_bookmarks(session, &payload)
                 .await?,
         ),
         ["api", "v1", "sessions", session, "sweep-references"] => {

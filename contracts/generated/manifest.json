@@ -1,6 +1,6 @@
 {
   "generator_format": 1,
-  "schema_sha256": "48d882ba41e339d8407fe5ed37b241b5e59dfd719fb7187c6ce85c9527697026",
+  "schema_sha256": "64f64afc01f110a03b2be26d2d0d5b5db95e5bd5bd4df29994bb7ba089c83c3d",
   "toolchains": {
     "node": "26.13.0",
     "python": "3.15.1",

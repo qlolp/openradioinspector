@@ -4,11 +4,14 @@ import Charts
 import UniformTypeIdentifiers
 import SpektrKomandy
 
-private struct HistoryFrequency: Identifiable {
+struct HistoryFrequency: Identifiable {
     let id = UUID()
     var label: String
     var mhz: String
     init(label: String = "Частота", hz: Int64 = 100_000_000) { self.label = label; mhz = NativeHistoryFrequencyInput.mhz(hz) }
+    func entry() throws -> PlatformFrequencyBookmarkEntry {
+        .init(label: label.trimmingCharacters(in: .whitespacesAndNewlines), frequencyHz: try NativeHistoryFrequencyInput.hz(mhz))
+    }
 }
 
 struct NativeFrequencyHistoryPane: View {
@@ -141,7 +144,7 @@ struct NativeFrequencyHistoryPane: View {
         }.chartXAxisLabel("UTC · интервалы свипов").environment(\.timeZone,.gmt)
     }
     private func entries() throws -> [PlatformFrequencyBookmarkEntry] {
-        try frequencies.map { .init(label:$0.label.trimmingCharacters(in:.whitespacesAndNewlines),frequencyHz:try NativeHistoryFrequencyInput.hz($0.mhz)) }
+        try frequencies.map { try $0.entry() }
     }
     private func apply(_ title: String, entries: [PlatformFrequencyBookmarkEntry]) {
         request?.cancel(); browser.reset(); busy = false; live = false; loadedQuery = ""; selection = nil

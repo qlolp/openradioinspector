@@ -44,6 +44,12 @@ android {
     packaging.jniLibs.useLegacyPackaging = false
 }
 
+tasks.withType<Sync>().matching { it.name == "processDebugAndroidTestJavaRes" }.configureEach {
+    from(rootProject.file("../../contracts/fixtures")) {
+        include("field-archive-v1.orifield", "field-android-export-v1.orifield")
+    }
+}
+
 val workspaceRoot = rootProject.file("../..")
 // Request the original archives AGP uses for the AAB's dependencies.pb.
 val runtimeArtifacts = providers.provider {

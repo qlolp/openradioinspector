@@ -179,6 +179,7 @@ pub(crate) fn writer(
     // Only fixed canonical DDL from the actual Python empty archive.
     tx.execute_batch(include_str!("schema_v6.sql"))?;
     crate::queries::install_scan_window_scope(&tx)?;
+    crate::bookmarks::install(&tx)?;
     let mut columns = tx.prepare("PRAGMA table_info(investigations)")?;
     let listening = columns
         .query_map([], |r| r.get::<_, String>(1))?
@@ -247,6 +248,7 @@ pub(crate) fn writer(
     if main < 6 {
         tx.execute_batch("INSERT INTO sweep_ingestion(sweep_id,session_id,stream_id) SELECT id,session_id,stream_id FROM sweeps WHERE NOT EXISTS(SELECT 1 FROM sweep_ingestion i WHERE i.sweep_id=sweeps.id) ORDER BY id;")?;
     }
+    crate::rf_explorer::install(&tx)?;
     tx.execute_batch(PRECISION_DDL)?;
     crate::candidate_precision::install(&tx)?;
     crate::export_indexes::install(&tx)?;

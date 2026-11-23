@@ -106,7 +106,10 @@ def rust_type(schema, model="", field=""):
         return ref_name(schema)
     if "enum" in schema:
         return enum_name(model, field)
-    if kind(schema) == "array": return "Vec<" + rust_type(schema.get("items", {})) + ">"
+    if kind(schema) == "array":
+        item = schema.get("items", {})
+        ty = rust_type(item)
+        return f"Vec<Option<{ty}>>" if nullable(item) else f"Vec<{ty}>"
     return {"string": "UtcTimestamp" if schema.get("format") == "date-time" else "String",
             "integer": integer_type(schema) if kind(schema) == 'integer' else "u64",
             "number": "f64", "boolean": "bool", "object": "JSONObject"}.get(kind(schema), "serde_json::Value")
@@ -124,6 +127,12 @@ def rust_models(schemas, include_common=True):
         lines += ["}", f"impl crate::RestoreKeys for {name} {{ fn restore_keys(&mut self) {{}} }}", ""]
     for name, schema in schemas.items():
         if name == "JSONObject": continue
+        # Envelope.contract uses the shared contract-name decoder. Other
+        # fixed string fields need the same literal check as runtime models.
+        constants = {field: prop for field, prop in schema["properties"].items()
+                     if "const" in prop and (not include_common or
+                         (prop.get("type") == "string" and field != "contract"))}
+        const_prefix = "model_const" if include_common else "runtime_const"
         lines += ["#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]", f"pub struct {name}" + ("<T = serde_json::Value>" if name == "Envelope" else "") + " {"]
         for field, prop in schema["properties"].items():
             required = field in schema.get("required", [])
@@ -136,8 +145,8 @@ def rust_models(schemas, include_common=True):
                 lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]']
             if not include_common and integer_bounds(prop):
                 lines += [f'    #[serde(deserialize_with = "runtime_integer_{name.lower()}_{field}")]']
-            if not include_common and 'const' in prop:
-                lines += [f'    #[serde(deserialize_with = "runtime_const_{name.lower()}_{field}")]']
+            if field in constants:
+                lines += [f'    #[serde(deserialize_with = "{const_prefix}_{name.lower()}_{field}")]']
             if field == "contract": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract")]']
             if field == "contract_version": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract_version")]' if required else '    #[serde(deserialize_with = "crate::codec::deserialize_optional_contract_version")]']
             lines += [f"    pub {field}: {ty},"]
@@ -166,16 +175,18 @@ def rust_models(schemas, include_common=True):
                           f'    let value: {ty} = Deserialize::deserialize(deserializer)?;',
                           f'    if {invalid} {{ return Err(serde::de::Error::custom("Integer outside schema bounds")); }}',
                           '    Ok(value)', '}', '']
-            for field, prop in schema['properties'].items():
-                if 'const' not in prop: continue
-                if prop.get('type') not in ('boolean', 'integer', 'string') or 'enum' in prop or field not in schema.get('required', []):
-                    raise ValueError('Unsupported runtime constant model field')
-                ty = rust_type(prop, name, field)
-                mismatch = '!value' if prop['const'] is True else 'value' if prop['const'] is False else f"value != {json.dumps(prop['const'])}"
-                lines += [f"fn runtime_const_{name.lower()}_{field}<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<{ty}, D::Error> {{",
-                          f"    let value = {ty}::deserialize(deserializer)?;",
-                          f"    if {mismatch} {{ return Err(serde::de::Error::custom(\"Unsupported runtime value\")); }}",
-                          "    Ok(value)", "}", ""]
+        for field, prop in constants.items():
+            optional = field not in schema.get('required', [])
+            if prop.get('type') not in ('boolean', 'integer', 'string') or 'enum' in prop or (optional and not include_common):
+                raise ValueError('Unsupported constant model field')
+            ty = rust_type(prop, name, field)
+            return_type = f'Option<{ty}>' if optional else ty
+            success = 'Some(value)' if optional else 'value'
+            mismatch = '!value' if prop['const'] is True else 'value' if prop['const'] is False else f"value != {json.dumps(prop['const'])}"
+            lines += [f"fn {const_prefix}_{name.lower()}_{field}<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<{return_type}, D::Error> {{",
+                      f"    let value = {ty}::deserialize(deserializer)?;",
+                      f"    if {mismatch} {{ return Err(serde::de::Error::custom(\"Unsupported runtime value\")); }}",
+                      f"    Ok({success})", "}", ""]
     if include_common:
         lines += ["#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]", "pub struct PlatformError {", "    pub code: String,", "    pub message: String,", '    #[serde(default, flatten)]', "    pub extra: JSONObject,", "}", "", "impl crate::RestoreKeys for PlatformError { fn restore_keys(&mut self) { crate::RestoreKeys::restore_keys(&mut self.extra); } }", "", "impl<T> Envelope<T> {", "    pub fn new(data: T) -> Self {", '        Self { contract: crate::CONTRACT_NAME.into(), contract_version: crate::CONTRACT_VERSION, data, extra: JSONObject::new() }', "    }", "}", ""]
     return "\n".join(lines)
@@ -211,7 +222,9 @@ def swift_type(schema, model="", field=""):
     schema = non_null(schema)
     if "$ref" in schema: return ref_name(schema)
     if "enum" in schema: return enum_name(model, field)
-    if kind(schema) == "array": return "[" + swift_type(schema.get("items", {})) + "]"
+    if kind(schema) == "array":
+        item = schema.get("items", {})
+        return "[" + swift_type(item) + ("?" if nullable(item) else "") + "]"
     integer = 'Int64' if kind(schema) == 'integer' and integer_type(schema) == 'i64' else 'UInt64'
     return {"string": "UtcTimestamp" if schema.get("format") == "date-time" else "String", "integer": integer, "number": "Double", "boolean": "Bool", "object": "JSONObject"}.get(kind(schema), "JSONValue")
 
@@ -221,7 +234,12 @@ def swift_read(prop, expr, model="", field=""):
     if "$ref" in prop and ref_name(prop) == "JSONObject": return f"try {expr}.requireObject()"
     if "$ref" in prop: return f"try {ref_name(prop)}(json: {expr})"
     if "enum" in prop: return f"try {enum_name(model, field)}(json: {expr})"
-    if kind(prop) == "array": return f"try {expr}.requireArray().map {{ {swift_read(prop['items'], '$0')} }}"
+    if kind(prop) == "array":
+        item = prop['items']
+        decoded = swift_read(item, '$0')
+        if nullable(item):
+            decoded = '$0 == .null ? nil : ' + decoded
+        return f"try {expr}.requireArray().map {{ {decoded} }}"
     ty = swift_type(prop, model, field)
     return f"try {ty}(json: {expr})" if ty == "UtcTimestamp" else f"try {expr}.require{ {'String':'String','UInt64':'UInt64','Int64':'Int64','Double':'Double','Bool':'Bool','JSONObject':'Object'}.get(ty, 'Value')}()" if ty != "JSONValue" else expr
 
@@ -230,7 +248,12 @@ def swift_write(prop, expr, model="", field=""):
     prop = non_null(prop)
     if "$ref" in prop and ref_name(prop) == "JSONObject": return f".object({expr})"
     if "$ref" in prop or "enum" in prop or swift_type(prop, model, field) == "UtcTimestamp": return f"{expr}.json"
-    if kind(prop) == "array": return f".array({expr}.map {{ {swift_write(prop['items'], '$0')} }})"
+    if kind(prop) == "array":
+        item = prop['items']
+        encoded = swift_write(item, '$0')
+        if nullable(item):
+            encoded = f'$0.map {{ {encoded} }} ?? .null'
+        return f".array({expr}.map {{ {encoded} }})"
     return {"string": f".string({expr})", "integer": f".integer(String({expr}))", "number": f".number({expr})", "boolean": f".bool({expr})", "object": f".object({expr})"}.get(kind(prop), expr)
 
 

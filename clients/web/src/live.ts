@@ -14,6 +14,7 @@ import { updatePanorama, type PlanPanorama } from './panorama';
 export interface LiveSnapshot {
   panorama?: PlanPanorama;
   scanPresentations?: ReadonlyMap<string, PresentationReceipt>;
+  selectedFrequency?: { hz: number; lastMeasuredAt: string };
   rows: DisplaySweep[];
   presentation: PresentationReceipt;
   observation?: Observation;
@@ -54,6 +55,7 @@ export class LiveStore {
   private observation?: Observation;
   private unsupported?: UnsupportedSweep;
   private panorama?: PlanPanorama;
+  private selectedFrequency?: LiveSnapshot['selectedFrequency'];
   private receiver = '';
   private session = '';
   private stream = '';
@@ -112,6 +114,25 @@ export class LiveStore {
     };
   };
   getSnapshot = () => this.snapshot;
+  followFrequency = (source: DisplaySweep, index: number) => {
+    if (source.session_id !== this.session || source.stream_id !== this.stream) return;
+    const selected = { hz: source.frequencies_hz[index], lastMeasuredAt: source.interval.ended_at };
+    this.selectedFrequency = selected;
+    for (const row of this.buffer.rows) this.observeSelectedFrequency(row);
+    this.publish();
+    return () => {
+      if (this.selectedFrequency === selected) this.selectedFrequency = undefined;
+    };
+  };
+  private observeSelectedFrequency(sweep: DisplaySweep) {
+    const selected = this.selectedFrequency;
+    if (
+      selected &&
+      sweep.interval.ended_at > selected.lastMeasuredAt &&
+      sweep.frequencies_hz.includes(selected.hz)
+    )
+      selected.lastMeasuredAt = sweep.interval.ended_at;
+  }
   lastApplied = () => this.gate.last;
   isApplying = () => this.pending !== undefined;
   needsSeed = () => !this.seeded;
@@ -157,6 +178,7 @@ export class LiveStore {
   }
   scope(session: string, stream: string, receiver: string, receiverSession = session) {
     if (session !== this.session || stream !== this.stream) {
+      this.selectedFrequency = undefined;
       this.panorama = undefined;
       this.unsupported = undefined;
       this.fencePresentation();
@@ -194,6 +216,7 @@ export class LiveStore {
           prepared.sweep.stream_id === this.stream
         ) {
           this.buffer.append(prepared.sweep);
+          this.observeSelectedFrequency(prepared.sweep);
           this.panorama = updatePanorama(this.panorama, prepared.sweep);
         }
         if (prepared.unsupported) this.unsupported = prepared.unsupported;
@@ -271,6 +294,7 @@ export class LiveStore {
       const previous = this.buffer.rows;
       this.buffer.append(frame.sweep);
       if (this.buffer.rows !== previous) {
+        this.observeSelectedFrequency(frame.sweep);
         this.panorama = updatePanorama(this.panorama, frame.sweep);
         this.presentation = { epoch: this.presentation.epoch, total: this.presentation.total + 1n };
         if (frame.sweep.scan_context) {
@@ -317,6 +341,7 @@ export class LiveStore {
       this.snapshot = {
         rows: this.buffer.rows,
         presentation: this.presentation,
+        selectedFrequency: this.selectedFrequency && { ...this.selectedFrequency },
         panorama: this.panorama,
         ...(this.scanPresentations.size
           ? { scanPresentations: new Map(this.scanPresentations) }
@@ -345,6 +370,7 @@ export class LiveStore {
   }
   resetArchive(after: EventSequence = 0) {
     this.stop();
+    this.selectedFrequency = undefined;
     this.fencePresentation();
     this.gate.reset(after);
     this.anchored = true;

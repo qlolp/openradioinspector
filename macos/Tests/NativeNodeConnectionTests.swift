@@ -423,6 +423,70 @@ final class NativeNodeConnectionTests: XCTestCase {
 
 extension NativeNodeConnectionTests {
     @MainActor
+    func testPairedReaderOpensRunningSurveyAndRecallsItsSourceWithoutOperatorRoutes() async throws {
+        let store = MemoryStore()
+        try await store.save(.init(token: "fixture-reader"), for: PlatformBaseURL(server))
+        let time = "2026-11-23T09:00:00Z"
+        let scope = "/api/v1/sessions/run"
+        let survey: [String: Any] = ["id": "run", "name": "Survey", "state": "running", "streams": [
+            ["id": "rf", "device": "RF Explorer 3G Combo", "role": "spectrum_analyzer",
+             "state": "connected", "level_unit": "dBm", "capabilities": ["sweep"],
+             "settings": ["adapter": "rf-explorer-3g-serial", "survey_step_hz": 10000]]]]
+        let raw: [String: Any] = ["id": "window", "session_id": "run", "stream_id": "rf",
+            "interval": ["started_at": time, "ended_at": time], "level_unit": "dBm",
+            "frequencies_hz": [100000000, 100010000], "levels": [-80, -35.5]]
+        let connection = NativeNodeConnectionModel(store: store, makeClient: { server, credential in
+            let transport = self.session({ stub in
+                XCTAssertEqual(stub.request.httpMethod, "GET")
+                XCTAssertEqual(stub.request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-reader")
+                switch stub.request.url!.path {
+                case "/api/v1/security/status":
+                    try stub.reply(["mode": "lan_tls", "pairing_required": false, "access_scope": "reader"])
+                case "/api/v1/health": try stub.reply(["last_event_id": 3])
+                case "/api/v1/sessions": try stub.reply([survey])
+                case scope: try stub.reply(survey)
+                case scope + "/sweeps": try stub.reply([raw])
+                case scope + "/sweeps/window": try stub.reply(raw)
+                case scope + "/frequency-bookmarks":
+                    try stub.reply(["session_id": "run", "limit": 256, "items": [
+                        ["id": "set", "session_id": "run", "schema_version": 1, "name": "Route", "revision": 1,
+                         "created_at": time, "entries": [["label": "Beacon", "frequency_hz": 100010000]]]]])
+                case scope + "/streams/rf/rf-explorer/passes/run-1/point":
+                    try stub.reply(["current": ["frequency_hz": 100010000, "level_dbm": -35.5,
+                        "sweep_id": "window", "point_index": 1, "tile": 1, "started_at": time,
+                        "ended_at": time, "last_measured_at": time], "held": NSNull()])
+                default:
+                    XCTFail("Read-only connection requested \(stub.request.url!.path)")
+                    try stub.reply([:], status: 403)
+                }
+            }, server: server)
+            return try PlatformClient(baseURL: server, session: transport, credential: credential)
+        })
+        let authorized = await connection.preflight(server: server)
+        let node = try XCTUnwrap(authorized)
+        let remote = RemoteDualModel()
+        remote.serverURL = server
+        remote.connect(startPolling: false, using: node.client)
+        defer { remote.disconnect(); connection.cancel() }
+        for _ in 0..<400 where remote.displayInspectorSweeps.isEmpty {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let stream = try XCTUnwrap(remote.analyzer)
+        XCTAssertTrue(stream.isRFExplorer3G)
+        XCTAssertEqual(remote.displayInspectorSweeps.last?.id, "window")
+        XCTAssertTrue(remote.followAnalyzerMeasurements)
+        let session = remote.selectedSessionID
+        let sets = try await node.client.frequencyBookmarks(sessionID: session)
+        let frequency = try XCTUnwrap(sets.items.first?.entries.first?.frequencyHz)
+        let resolved = try await node.client.rfExplorerMarker(sessionID: session, streamID: stream.id,
+                                                               passID: "run-1", frequencyHz: frequency)
+        let point = try XCTUnwrap(resolved.current)
+        let original = try await node.client.archiveOriginalSweep(sessionID: session, streamID: stream.id, sweepID: point.sweepId)
+        try point.validate(source: original)
+        XCTAssertEqual(point.pointIndex, 1)
+    }
+
+    @MainActor
     func testOwnerPreflightReturnsAClientWhoseTransportSurvivesTheTemporaryClient() async throws {
         let local = "http://127.55.42.3:18772"
         let connection = NativeNodeConnectionModel(store: MemoryStore(), makeClient: { server, credential in

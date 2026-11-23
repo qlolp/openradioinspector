@@ -126,7 +126,9 @@ fn sweep(db: &Connection, value: &Value, compact: bool) -> Result<(u64, Option<S
         "INSERT INTO sweep_ingestion(sweep_id,session_id,stream_id) VALUES(?,?,?)",
         params![id, sid, stream],
     )?;
-    Ok((db.last_insert_rowid() as u64, hash))
+    let sequence = db.last_insert_rowid();
+    crate::rf_explorer::insert(db, sequence, value)?;
+    Ok((sequence as u64, hash))
 }
 fn observation(db: &Connection, value: &Value) -> Result<()> {
     let id = string(value, "id");
@@ -411,6 +413,29 @@ pub(crate) fn apply(
                 result.items.push(value);
                 event(&tx, draft, &mut result)?;
             }
+            Mutation::FrequencyBookmarks {
+                session_id,
+                name,
+                entries,
+                id,
+                created_at,
+            } => {
+                let (item, created) =
+                    crate::bookmarks::save(&tx, &session_id, &name, entries, &id, &created_at)?;
+                if created {
+                    event(
+                        &tx,
+                        EventDraft {
+                            event_type: "frequency_bookmarks.saved".into(),
+                            occurred_at: created_at,
+                            session_id: Some(session_id),
+                            payload: json!({"bookmarks":item}),
+                        },
+                        &mut result,
+                    )?;
+                }
+                result.items.push(item);
+            }
             Mutation::Artifact(item) => {
                 stream_owner(&tx, &item.session_id, &item.stream_id, None)?;
                 tx.execute("INSERT INTO instrument_artifacts(id,session_id,stream_id,schema_version,kind,mime_type,filename,sha256,created_at,payload,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)",params![item.id,item.session_id,item.stream_id,item.schema_version,item.kind,item.mime_type,item.filename,item.sha256,item.created_at,item.payload,encode(&item.metadata)?])?;
@@ -433,6 +458,9 @@ pub(crate) fn apply(
             }
         }
         lifecycle_changes.after(&tx, before)?;
+    }
+    if let Some(sequence) = result.ingestion_boundary {
+        crate::rf_explorer::checkpoint(&tx, sequence as i64)?;
     }
     if measurement {
         schema::capacity_check(&tx, limit, false)?;

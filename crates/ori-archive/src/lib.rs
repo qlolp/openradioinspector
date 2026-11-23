@@ -1,6 +1,7 @@
 //! Compatible canonical SQLite archive. All mutations run on one bounded dedicated writer.
 mod actor;
 mod backup;
+mod bookmarks;
 mod candidate_precision;
 mod checkpoint;
 mod domains;
@@ -12,6 +13,7 @@ mod outbox;
 mod panorama_events;
 mod queries;
 mod query_indexes;
+mod rf_explorer;
 mod rows;
 mod schema;
 mod session_lifecycle;

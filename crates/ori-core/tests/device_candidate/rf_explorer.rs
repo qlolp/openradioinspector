@@ -117,6 +117,11 @@ async fn capability_requires_a_live_core_with_a_native_connector() {
             capabilities["data"]["features"]["rf_explorer_10khz_survey"], expected,
             "{mode:?}, connector={connector}"
         );
+        assert_eq!(
+            capabilities["data"]["features"]["rf_explorer_survey_panorama"],
+            mode != ori_core::CoreMode::Shadow,
+            "reading archived passes is independent of the live USB connector"
+        );
         if mode == ori_core::CoreMode::Replay && connector {
             setup(
                 &server,
@@ -233,6 +238,90 @@ async fn segmented_survey_archives_each_raw_window_with_a_distinct_pass_identity
     }
     assert_eq!(identities[0], identities[1]);
     assert_ne!(identities[0], identities[2]);
+    let base = "/api/v1/sessions/survey/streams/rfe/rf-explorer/passes";
+    let (status, list) = server
+        .request("GET", &format!("{base}?limit=1"), None)
+        .await;
+    assert_eq!(status, 200, "{list}");
+    let latest = &list["data"]["items"][0];
+    assert_eq!(latest["pass_id"], identities[2]);
+    assert_eq!(latest["unique_points"], 112);
+    assert_eq!(latest["complete"], false);
+    let path = format!("{base}/{}", identities[0]);
+    let (status, detail) = server
+        .request("GET", &format!("{path}?columns=2"), None)
+        .await;
+    assert_eq!(status, 200, "{detail}");
+    let data = &detail["data"];
+    assert_eq!(data["summary"]["complete"], true);
+    assert_eq!(data["summary"]["unique_points"], 224);
+    assert_eq!(data["columns"][0]["sweep_id"], rows[0]["id"]);
+    assert_eq!(data["columns"][1]["frequency_hz"], 201_120_000);
+    assert_eq!(data["columns"][1]["point_index"], 0);
+    assert_eq!(data["columns"][1]["level_dbm"], rows[1]["levels"][0]);
+    assert!(data["hold_columns"].is_null());
+    let marker = format!("{path}/point");
+    let (status, result) = server
+        .request("GET", &format!("{marker}?frequency_hz=201130000"), None)
+        .await;
+    assert_eq!(status, 200, "{result}");
+    let current = &result["data"]["current"];
+    assert_eq!(current["sweep_id"], rows[1]["id"]);
+    assert_eq!(current["point_index"], 1);
+    assert_eq!(current["frequency_hz"], 201_130_000);
+    assert_eq!(current["level_dbm"], rows[1]["levels"][1]);
+    assert_eq!(result["data"]["held"], Value::Null);
+    let (status, gap) = server
+        .request("GET", &format!("{marker}?frequency_hz=201130001"), None)
+        .await;
+    assert_eq!(status, 200, "{gap}");
+    assert_eq!(gap["data"], json!({"current":null,"held":null}));
+    for query in [
+        "",
+        "frequency_hz=1.0",
+        "frequency_hz=-1",
+        "frequency_hz=23&frequency_hz=24",
+        "frequency_hz=9007199254740992",
+        "frequency_hz=11&hold_since=wrong",
+    ] {
+        let (status, detail) = server
+            .request("GET", &format!("{marker}?{query}"), None)
+            .await;
+        assert_eq!(status, 400, "{detail}");
+    }
+    let (_, windows) = server
+        .request("GET", &format!("{path}/windows?limit=1"), None)
+        .await;
+    assert_eq!(windows["data"]["items"][0]["sweep_id"], rows[0]["id"]);
+    assert_eq!(windows["data"]["next_after_tile"], 1);
+    let (_, next) = server
+        .request("GET", &format!("{path}/windows?after_tile=1"), None)
+        .await;
+    assert_eq!(next["data"]["items"][0]["sweep_id"], rows[1]["id"]);
+    assert!(next["data"]["next_after_tile"].is_null());
+    for bad in [
+        "columns=0",
+        "columns=2049",
+        "columns=1&columns=2",
+        "hold_since=bogus",
+        "unexpected=1",
+    ] {
+        assert_eq!(
+            server
+                .request("GET", &format!("{path}?{bad}"), None)
+                .await
+                .0,
+            400
+        );
+    }
+    assert_eq!(
+        server
+            .request("GET", &format!("{base}/missing"), None)
+            .await
+            .0,
+        404
+    );
+
     assert_eq!(factory.opens.load(Ordering::Acquire), 1);
     server.stop().await;
 }
@@ -488,5 +577,36 @@ async fn failed_identity_and_stop_both_release_the_shared_port() {
     assert_eq!(code, 200, "{result}");
     wait_measurements(&server, "two", "two").await;
     assert_eq!(factory.opens.load(Ordering::Acquire), 3);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn named_frequency_sets_are_session_scoped_versioned_and_idempotent() {
+    let directory = tempfile::tempdir().unwrap();
+    let server = Server::start(CoreConfig::replay(directory.path())).await;
+    setup(&server, fixture("marked")).await;
+    setup(&server, json!({"id":"other","name":"other","streams":[]})).await;
+    let path = "/api/v1/sessions/marked/frequency-bookmarks";
+    let mut request =
+        json!({"name":" эфир ","entries":[{"frequency_hz":100_010_000,"label":"M1"}]});
+    let (status, first) = server.request("POST", path, Some(&request)).await;
+    assert_eq!(status, 201, "{first}");
+    assert_eq!(first["data"]["name"], "эфир");
+    assert_eq!(first["data"]["revision"], 1);
+    assert_eq!(server.request("POST", path, Some(&request)).await.1, first);
+    request["entries"][0]["frequency_hz"] = json!(100_020_000);
+    let (status, next) = server.request("POST", path, Some(&request)).await;
+    assert_eq!(status, 201);
+    assert_eq!(next["data"]["revision"], 2);
+    request["entries"] = json!([request["entries"][0], request["entries"][0]]);
+    assert_eq!(server.request("POST", path, Some(&request)).await.0, 400);
+    assert_eq!(
+        server.request("GET", path, None).await.1["data"]["items"],
+        json!([next["data"], first["data"]])
+    );
+    let (_, other) = server
+        .request("GET", "/api/v1/sessions/other/frequency-bookmarks", None)
+        .await;
+    assert_eq!(other["data"]["items"], json!([]));
     server.stop().await;
 }

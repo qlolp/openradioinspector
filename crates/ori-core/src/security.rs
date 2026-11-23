@@ -66,10 +66,35 @@ impl AuthContext {
                     [
                         "sessions",
                         _,
-                        "streams" | "sweeps" | "sweep-summaries" | "observations"
+                        "streams"
+                            | "sweeps"
+                            | "sweep-summaries"
+                            | "observations"
+                            | "frequency-bookmarks"
                     ]
                 )
                 | ("GET", ["sessions", _, "streams" | "sweeps", _])
+                | (
+                    "GET",
+                    ["sessions", _, "streams", _, "rf-explorer", "passes"]
+                )
+                | (
+                    "GET",
+                    ["sessions", _, "streams", _, "rf-explorer", "passes", _]
+                )
+                | (
+                    "GET",
+                    [
+                        "sessions",
+                        _,
+                        "streams",
+                        _,
+                        "rf-explorer",
+                        "passes",
+                        _,
+                        "windows" | "point"
+                    ]
+                )
                 | ("POST", ["security", "credentials", "current", "revoke"])
                 | ("DELETE", ["security", "credentials", "current"])
         ) {

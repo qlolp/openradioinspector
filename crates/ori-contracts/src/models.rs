@@ -82,6 +82,21 @@ impl crate::RestoreKeys for FieldStrengthResultUnit {
     fn restore_keys(&mut self) {}
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SweepToleranceBinClassification {
+    #[serde(rename = "above")]
+    Above,
+    #[serde(rename = "below")]
+    Below,
+    #[serde(rename = "within")]
+    Within,
+    #[serde(rename = "uncovered")]
+    Uncovered,
+}
+impl crate::RestoreKeys for SweepToleranceBinClassification {
+    fn restore_keys(&mut self) {}
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArtifactSummary {
     pub created_at: UtcTimestamp,
@@ -567,6 +582,91 @@ impl crate::RestoreKeys for NewSession {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerBandPowerRequest {
+    pub start_hz: u64,
+    pub stop_hz: u64,
+    pub sweep_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerBandPowerRequest {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerBandPowerResult {
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_enbw_correction")]
+    pub enbw_correction: String,
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_hardware_validation")]
+    pub hardware_validation: String,
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_integration")]
+    pub integration: String,
+    pub rbw_hz: u64,
+    pub source: Sweep,
+    pub start_hz: u64,
+    pub start_index: u64,
+    pub stop_hz: u64,
+    pub stop_index: u64,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub uncertainty_db: Option<f64>,
+    #[serde(deserialize_with = "model_const_rfexplorerbandpowerresult_unit")]
+    pub unit: String,
+    pub value: f64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerBandPowerResult {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.source);
+    }
+}
+
+fn model_const_rfexplorerbandpowerresult_enbw_correction<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "not_calibrated" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_rfexplorerbandpowerresult_hardware_validation<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "not_run" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_rfexplorerbandpowerresult_integration<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "trapezoid_over_actual_grid" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_rfexplorerbandpowerresult_unit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "dBm" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReceiverObservation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_uri: Option<String>,
@@ -704,6 +804,109 @@ impl crate::RestoreKeys for SweepSummaryPage {
         crate::RestoreKeys::restore_keys(&mut self.extra);
         crate::RestoreKeys::restore_keys(&mut self.items);
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepToleranceBin {
+    pub classification: SweepToleranceBinClassification,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub delta_db: Option<f64>,
+    pub frequency_hz: u64,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub lower_dbm: Option<f64>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub reference_index: Option<u64>,
+    pub target_index: u64,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub upper_dbm: Option<f64>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SweepToleranceBin {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepToleranceCounts {
+    pub above: u64,
+    pub below: u64,
+    pub uncovered: u64,
+    pub within: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SweepToleranceCounts {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepToleranceRequest {
+    pub lower_deviation_db: f64,
+    pub reference_id: String,
+    pub target_id: String,
+    pub upper_deviation_db: f64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SweepToleranceRequest {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepToleranceResult {
+    pub bins: Vec<SweepToleranceBin>,
+    pub counts: SweepToleranceCounts,
+    #[serde(deserialize_with = "model_const_sweeptoleranceresult_delta_unit")]
+    pub delta_unit: String,
+    #[serde(deserialize_with = "model_const_sweeptoleranceresult_level_unit")]
+    pub level_unit: String,
+    pub lower_deviation_db: f64,
+    pub reference: Sweep,
+    pub session_id: String,
+    pub stream_id: String,
+    pub target: Sweep,
+    pub upper_deviation_db: f64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SweepToleranceResult {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.bins);
+        crate::RestoreKeys::restore_keys(&mut self.counts);
+        crate::RestoreKeys::restore_keys(&mut self.reference);
+        crate::RestoreKeys::restore_keys(&mut self.target);
+    }
+}
+
+fn model_const_sweeptoleranceresult_delta_unit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "dB" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
+}
+
+fn model_const_sweeptoleranceresult_level_unit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value != "dBm" {
+        return Err(serde::de::Error::custom("Unsupported runtime value"));
+    }
+    Ok(value)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

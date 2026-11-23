@@ -757,6 +757,14 @@ public struct PlatformRFExplorerConfiguration: Equatable, Sendable {
         guard !path.isEmpty, !path.contains("://"), !path.contains("\0") else {
             throw PlatformError.invalidCommand("Выберите физический последовательный порт RF Explorer.")
         }
+        try Self.validateBounds(startHz: startHz, stopHz: stopHz, surveyStepHz: surveyStepHz)
+        self.port = path
+        self.startHz = startHz
+        self.stopHz = stopHz
+        self.surveyStepHz = surveyStepHz
+    }
+
+    public static func validateBounds(startHz: Int?, stopHz: Int?, surveyStepHz: Int?) throws {
         if let surveyStepHz, surveyStepHz != Self.surveySpacingHz {
             throw PlatformError.invalidCommand("Для автообзора RF Explorer доступен шаг 10 кГц.")
         }
@@ -775,10 +783,6 @@ public struct PlatformRFExplorerConfiguration: Equatable, Sendable {
         default:
             throw PlatformError.invalidCommand("Введите обе границы в пределах 15…2700 МГц с точностью до 1 кГц. Конец должен быть выше начала.")
         }
-        self.port = path
-        self.startHz = startHz
-        self.stopHz = stopHz
-        self.surveyStepHz = surveyStepHz
     }
 
     public static func supportIssue(in features: Set<String>, survey: Bool) -> String? {
@@ -892,9 +896,16 @@ private func platformValidateNDJSON(
 
 /// One resource owner shared by all scoped views of the same transport.
 /// Releasing a client must not invalidate a session another client still uses.
-private final class PlatformClientTransport: Sendable {
+private final class PlatformClientTransport: @unchecked Sendable {
     let session: URLSession
     let usesInjectedSession: Bool
+    // Scoped clients share this transport and its immutable bearer credential.
+    private let scopeLock = NSLock()
+    private var reader = false
+    var readsMeasurementsOnly: Bool {
+        get { scopeLock.withLock { reader } }
+        set { scopeLock.withLock { reader = newValue } }
+    }
 
     init(session: URLSession, usesInjectedSession: Bool) {
         self.session = session
@@ -914,6 +925,10 @@ public final class PlatformClient: Sendable {
     private var usesInjectedSession: Bool { transport.usesInjectedSession }
     var eventSessionConfiguration: URLSessionConfiguration { Self.cookieFreeConfiguration(session.configuration) }
     public var hasBearerCredential: Bool { credential != nil }
+    public internal(set) var readsMeasurementsOnly: Bool {
+        get { transport.readsMeasurementsOnly }
+        set { transport.readsMeasurementsOnly = newValue }
+    }
     private let maximumResponseBytes = 2_000_000
 
     public convenience init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil, runtimeInstanceID: String? = nil) throws {
@@ -1297,9 +1312,6 @@ public final class PlatformClient: Sendable {
         sessionID: String, includeArchiveCapacity: Bool = true, includeMeasurements: Bool = true
     ) async throws -> PlatformSnapshot {
         let session = try await getSession(sessionID)
-        async let workersRequest: [PlatformWorker] = get(
-            "/sessions/\(Self.segment(sessionID))/workers"
-        )
         async let sweepsRequest: [PlatformSweep] = includeMeasurements ? measurementsWithResponseFallback(
             kind: "sweeps", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isDbmAnalyzer })?.id
@@ -1308,6 +1320,13 @@ public final class PlatformClient: Sendable {
             kind: "observations", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isReceiver })?.id
         ) : []
+        if readsMeasurementsOnly {
+            return try await PlatformSnapshot(session: session, workers: [], sweeps: sweepsRequest,
+                                              observations: observationsRequest)
+        }
+        async let workersRequest: [PlatformWorker] = get(
+            "/sessions/\(Self.segment(sessionID))/workers"
+        )
         var workflowErrors: [String] = []
         let candidates: [PlatformCandidate]
         do {

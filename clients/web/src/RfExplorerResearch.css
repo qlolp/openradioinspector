@@ -1,0 +1,45 @@
+.rf-tolerance-plot {
+  margin: 1rem 0;
+  color: var(--muted);
+}
+
+.rf-tolerance-field {
+  position: relative;
+  height: 9rem;
+  margin: 0 3px;
+  border-block: 1px solid var(--line);
+  background: var(--input);
+}
+
+.rf-tolerance-column {
+  position: absolute;
+  inset-block: 0;
+}
+
+.rf-tolerance-column i {
+  position: absolute;
+}
+
+.rf-tolerance-column [data-tolerance-limit] {
+  width: 2px;
+  min-height: 1px;
+  background: var(--accent);
+  transform: translateX(-50%);
+}
+
+.rf-tolerance-column [data-measured-point] {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warn);
+  transform: translate(-50%, -50%);
+}
+
+.rf-tolerance-column [data-measured-point='uncovered'] {
+  background: var(--muted);
+}
+
+.rf-tolerance-axis {
+  display: flex;
+  justify-content: space-between;
+}

@@ -1,4 +1,5 @@
 //! Canonical lifecycle and supplied-result rules; hardware/science are callbacks.
+mod bookmarks;
 mod catalogs;
 mod effects;
 mod error;

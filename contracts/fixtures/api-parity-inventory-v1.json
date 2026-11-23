@@ -566,6 +566,14 @@
     {
       "method": "POST",
       "path": "/api/v1/sessions/{id}/streams/{stream_id}/recover"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-tolerance-envelope"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/rf-explorer-band-power"
     }
   ],
   "legacy_operations": [
@@ -751,6 +759,18 @@
       "source_sha256": {
         "radioinspector/web/server.py": "8fcdfbcc0450db41a781b7198bd5504eacde6f1a703ada1a675b2039a7631f66",
         "radioinspector/web/openapi.py": "f68db6a72d69dcfff9856c427f63e023b34b6145cf9ff0686ae57601e1fa3999",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "15e75bd770642e7f408ddc62c1c0a9c343fe386a565ef22f7dd2f0b6f2324b87",
+        "radioinspector/cli.py": "a319024d6cdc83c0bb9987271a46b0deda18e0355b83fd41c21a65e054750518",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
+    },
+    {
+      "revision": "9479770861adf8a140e6c7de6cf6a81ef1a2cfd9",
+      "source_sha256": {
+        "radioinspector/web/server.py": "53801078495014ab95a9ecc45982da4dc2cae3364a204be09679a79a12980624",
+        "radioinspector/web/openapi.py": "e08ac3c975dc35a4ac24da7fa9cd58fe8366fc5a4637e72377f1f0a6add4166e",
         "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
         "radioinspector/tinysa/api.py": "15e75bd770642e7f408ddc62c1c0a9c343fe386a565ef22f7dd2f0b6f2324b87",
         "radioinspector/cli.py": "a319024d6cdc83c0bb9987271a46b0deda18e0355b83fd41c21a65e054750518",

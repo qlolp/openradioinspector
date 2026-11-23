@@ -6,6 +6,55 @@ const RUNTIME_FIXTURE: &[u8] = include_bytes!("../fixtures/runtime-v1.json");
 const HISTORY_FIXTURE: &[u8] = include_bytes!("../fixtures/history-runtime-v1.json");
 
 #[test]
+fn research_results_require_their_declared_units_and_method_labels() {
+    use ori_contracts::{RFExplorerBandPowerResult, SweepToleranceResult};
+    use serde_json::json;
+    let fixture: Value = from_json_slice(FIXTURE, 65536).unwrap();
+    let source = &fixture["sweep"];
+    let power = json!({
+        "source": source, "start_index": 0, "stop_index": 3,
+        "start_hz": 100000001, "stop_hz": 100000004, "rbw_hz": 10000,
+        "value": -73.25, "unit": "dBm", "integration": "trapezoid_over_actual_grid",
+        "enbw_correction": "not_calibrated", "uncertainty_db": null, "hardware_validation": "not_run"
+    });
+    from_json_slice::<RFExplorerBandPowerResult>(&to_json_vec(&power).unwrap(), 65536).unwrap();
+    for (field, wrong) in [
+        ("unit", "W"),
+        ("integration", "sum_dbm"),
+        ("enbw_correction", "calibrated"),
+        ("hardware_validation", "verified"),
+    ] {
+        let mut invalid = power.clone();
+        invalid[field] = json!(wrong);
+        assert!(
+            from_json_slice::<RFExplorerBandPowerResult>(&to_json_vec(&invalid).unwrap(), 65536)
+                .is_err(),
+            "{field}"
+        );
+    }
+    let tolerance = json!({
+        "session_id": source["session_id"], "stream_id": source["stream_id"],
+        "reference": source, "target": source, "upper_deviation_db": 0, "lower_deviation_db": 0,
+        "delta_unit": "dB", "level_unit": "dBm",
+        "counts": {"above": 0, "below": 0, "within": 4, "uncovered": 0},
+        "bins": (0..4).map(|i| json!({
+            "target_index": i, "reference_index": i, "frequency_hz": source["frequencies_hz"][i],
+            "lower_dbm": source["levels"][i], "upper_dbm": source["levels"][i], "delta_db": 0, "classification": "within"
+        })).collect::<Vec<_>>()
+    });
+    from_json_slice::<SweepToleranceResult>(&to_json_vec(&tolerance).unwrap(), 65536).unwrap();
+    for (field, wrong) in [("delta_unit", "dBm"), ("level_unit", "dB")] {
+        let mut invalid = tolerance.clone();
+        invalid[field] = json!(wrong);
+        assert!(
+            from_json_slice::<SweepToleranceResult>(&to_json_vec(&invalid).unwrap(), 65536)
+                .is_err(),
+            "{field}"
+        );
+    }
+}
+
+#[test]
 fn core_execution_modes_keep_legacy_capabilities_and_unknown_metadata() {
     use ori_contracts::CoreCapabilities;
     let fixture: Value =
@@ -336,7 +385,7 @@ fn runtime_backend_and_request_features_fail_closed() {
         select_operations("python-legacy", &[], &[], &empty)
             .unwrap()
             .len(),
-        141
+        143
     );
     let available = select_operations("rust-candidate", &[], &[], &empty).unwrap();
     assert!(
@@ -671,4 +720,17 @@ fn optional_receive_grid_round_trips_without_changing_legacy_band() {
         let encoded = serde_json::to_value(band).unwrap();
         assert_eq!(encoded.get("step_hz"), f[key].get("step_hz"));
     }
+}
+
+#[test]
+fn survey_sdk_preserves_unmeasured_columns_and_the_original_point_index() {
+    use ori_contracts::runtime::RFExplorerPassPanorama;
+    let input = include_bytes!("../fixtures/rf-explorer-pass-v1.json");
+    let panorama: RFExplorerPassPanorama = from_json_slice(input, input.len()).unwrap();
+    assert_eq!(panorama.columns[0].as_ref().unwrap().point_index, 111);
+    assert!(panorama.columns[1].is_none());
+    assert!(panorama.hold_columns.is_none());
+    let encoded: Value = from_json_slice(&to_json_vec(&panorama).unwrap(), 4096).unwrap();
+    assert!(encoded["columns"][1].is_null());
+    assert_eq!(encoded["columns"][0]["level_dbm"], -42.5);
 }

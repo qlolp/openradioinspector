@@ -1976,3 +1976,138 @@
     font-size: 12px;
   }
 }
+
+@layer components {
+  .rf-view-controls {
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .rf-switch {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .rf-switch button {
+    border-radius: 0;
+  }
+  .rf-switch button:first-child {
+    border-radius: 4px 0 0 4px;
+  }
+  .rf-switch button:last-child {
+    border-radius: 0 4px 4px 0;
+  }
+  .rf-switch [aria-pressed='true'] {
+    border-color: var(--signal);
+    color: var(--signal);
+    background: var(--surface);
+  }
+  .rf-draft-preview,
+  .rf-gaps {
+    margin: 12px 0;
+  }
+  .rf-gaps ul {
+    max-height: 12rem;
+    overflow: auto;
+  }
+  .rf-pass-heading,
+  .rf-pass-select {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .rf-pass-select label,
+  .rf-inline-form label {
+    flex: 1 1 13rem;
+    min-width: 0;
+  }
+  .rf-inline-form {
+    align-items: flex-end;
+    margin-bottom: 10px;
+  }
+  .rf-inline-form label {
+    margin: 0;
+  }
+  .rf-pass {
+    min-width: 0;
+  }
+  .rf-pass h3 {
+    margin: 10px 0;
+  }
+  .rf-progress {
+    margin: 10px 0 0;
+    width: 100%;
+    height: 5px;
+    accent-color: var(--signal);
+  }
+  .rf-pass-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+    margin: 8px 0 16px;
+  }
+  .rf-pass-metrics dt,
+  .rf-level-axis,
+  .rf-frequency-axis {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .rf-pass-metrics dd {
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+  }
+  .rf-pass-chart {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    gap: 3px 5px;
+  }
+  .rf-pass-chart canvas {
+    width: 100%;
+    height: 195px;
+    background: var(--input);
+    cursor: crosshair;
+    touch-action: pan-y;
+  }
+  .rf-level-axis,
+  .rf-frequency-axis {
+    display: flex;
+    justify-content: space-between;
+    font-variant-numeric: tabular-nums;
+  }
+  .rf-level-axis {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  .rf-frequency-axis {
+    grid-column: 2;
+  }
+  .rf-hold-key {
+    background: var(--warn);
+  }
+  .rf-evidence,
+  .rf-review {
+    padding: 12px;
+    background: var(--input);
+    border-left: 2px solid var(--signal);
+    margin: 12px 0;
+    overflow-wrap: anywhere;
+  }
+  .rf-evidence p,
+  .rf-review p {
+    margin: 4px 0;
+    font-size: 12px;
+  }
+  .rf-evidence button {
+    margin-top: 8px;
+  }
+  .rf-plan-preview dd,
+  .rf-pass dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .original-table tr[aria-current='true'] {
+    background: var(--surface);
+    color: var(--signal);
+    font-weight: 700;
+  }
+}

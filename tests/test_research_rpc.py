@@ -28,7 +28,7 @@ TIME = "2026-11-11T00:00:00.123456Z"
 METHODS = (
     "compare_sweeps", "sweep_average_comparison", "sweep_average_change_detection",
     "sweep_threshold", "sweep_three_thresholds", "sweep_context", "sweep_occupancy",
-    "sweep_mask_analysis", "candidate_frequency_rounding", "frequency_rounding",
+    "sweep_mask_analysis", "sweep_tolerance_envelope", "candidate_frequency_rounding", "frequency_rounding",
     "sweep_quality", "frequency_counter", "dvb_evaluation", "measurement_map",
 )
 
@@ -102,6 +102,8 @@ def payloads():
         "sweep_three_thresholds": {"sweep_id": "sweep-1", "levels_dbm": [-90, -80, -70]},
         "sweep_context": {"sweep_id": "sweep-1", "before": 1, "after": 1},
         "sweep_occupancy": {"sweep_id": "sweep-1", "before": 1, "after": 1, "threshold_dbm": -80},
+        "sweep_tolerance_envelope": {"reference_id": "sweep-0", "target_id": "sweep-2",
+                                     "upper_deviation_db": 2, "lower_deviation_db": 1},
         "sweep_mask_analysis": {"sweep_id": "sweep-1", "mask_json": encode(mask).decode()},
         "candidate_frequency_rounding": {"candidate_id": "candidate-𐀀", "profile_json": encode(profile).decode()},
         "frequency_rounding": {"candidate_ids": ["candidate-𐀀"], "table_json": encode(raster).decode()},
@@ -165,7 +167,7 @@ class ResearchRpcParityTests(unittest.TestCase):
         return envelope["error"]
 
     def test_legacy_analysis_methods_exact_success_and_error_parity(self):
-        self.assertEqual(set(rpc.METHODS), set(METHODS) | {'field_strength_rms_v2'})
+        self.assertEqual(set(rpc.METHODS), set(METHODS) | {'field_strength_rms_v2', 'rf_explorer_band_power'})
         for method, payload in payloads().items():
             with self.subTest(method=method):
                 self.assert_parity(request(method, payload))

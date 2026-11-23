@@ -1239,6 +1239,284 @@ impl crate::RestoreKeys for PairingInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerCoverage {
+    pub start_hz: u64,
+    pub stop_hz: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerCoverage {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerMarkerReading {
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub current: Option<RFExplorerPassPoint>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub held: Option<RFExplorerPassPoint>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerMarkerReading {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.current);
+        crate::RestoreKeys::restore_keys(&mut self.held);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerPassPage {
+    pub items: Vec<RFExplorerPassSummary>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub next_before: Option<String>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerPassPage {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.items);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerPassPanorama {
+    pub columns: Vec<Option<RFExplorerPassPoint>>,
+    pub coverage: Vec<RFExplorerCoverage>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub hold_columns: Option<Vec<Option<RFExplorerPassPoint>>>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub hold_coverage: Option<Vec<RFExplorerCoverage>>,
+    pub summary: RFExplorerPassSummary,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerPassPanorama {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.columns);
+        crate::RestoreKeys::restore_keys(&mut self.coverage);
+        crate::RestoreKeys::restore_keys(&mut self.hold_columns);
+        crate::RestoreKeys::restore_keys(&mut self.hold_coverage);
+        crate::RestoreKeys::restore_keys(&mut self.summary);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerPassPoint {
+    pub ended_at: UtcTimestamp,
+    pub frequency_hz: u64,
+    pub last_measured_at: UtcTimestamp,
+    pub level_dbm: f64,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasspoint_point_index")]
+    pub point_index: u64,
+    pub started_at: UtcTimestamp,
+    pub sweep_id: String,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasspoint_tile")]
+    pub tile: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerPassPoint {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+fn runtime_integer_rfexplorerpasspoint_point_index<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value > 111 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_rfexplorerpasspoint_tile<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=2398).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerPassSummary {
+    pub active_board: String,
+    pub active_input: String,
+    pub complete: bool,
+    pub detector: String,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub duration_s: Option<f64>,
+    pub ended_at: UtcTimestamp,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasssummary_expected_points")]
+    pub expected_points: u64,
+    pub offset_db: i64,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasssummary_pass")]
+    pub pass: u64,
+    pub pass_id: String,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasssummary_rbw_hz")]
+    pub rbw_hz: u64,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasssummary_received_tiles")]
+    pub received_tiles: u64,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub revisit_s: Option<f64>,
+    pub simulated: bool,
+    pub start_hz: u64,
+    pub started_at: UtcTimestamp,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasssummary_step_hz")]
+    pub step_hz: u64,
+    pub stop_hz: u64,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasssummary_tiles")]
+    pub tiles: u64,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasssummary_unique_points")]
+    pub unique_points: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerPassSummary {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+fn runtime_integer_rfexplorerpasssummary_expected_points<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(112..=268501).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_rfexplorerpasssummary_pass<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value < 1 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_rfexplorerpasssummary_rbw_hz<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value < 1 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_rfexplorerpasssummary_received_tiles<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value > 2398 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_rfexplorerpasssummary_step_hz<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(10000..=10000).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_rfexplorerpasssummary_tiles<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=2398).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_rfexplorerpasssummary_unique_points<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value > 268501 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerPassWindow {
+    pub ended_at: UtcTimestamp,
+    pub started_at: UtcTimestamp,
+    pub sweep_id: String,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasswindow_tile")]
+    pub tile: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerPassWindow {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+fn runtime_integer_rfexplorerpasswindow_tile<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=2398).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerPassWindows {
+    pub items: Vec<RFExplorerPassWindow>,
+    #[serde(deserialize_with = "runtime_integer_rfexplorerpasswindows_next_after_tile")]
+    pub next_after_tile: Option<u64>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerPassWindows {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.items);
+    }
+}
+
+fn runtime_integer_rfexplorerpasswindows_next_after_tile<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    let value: Option<u64> = Deserialize::deserialize(deserializer)?;
+    if value.is_some_and(|v| !(1..=2398).contains(&v)) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecognizedGuardEvent {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2570,8 +2848,8 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         operation_id: "get_api_v1_sessions_id_frequency_bookmarks",
         method: "GET",
         path: "/api/v1/sessions/{id}/frequency-bookmarks",
-        backends: &["python-legacy"],
-        features: &[],
+        backends: &["python-legacy", "rust-candidate"],
+        features: &["frequency_bookmarks"],
         capabilities: &[],
         query: &[],
         path_parameters: &["id"],
@@ -2582,8 +2860,8 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         operation_id: "post_api_v1_sessions_id_frequency_bookmarks",
         method: "POST",
         path: "/api/v1/sessions/{id}/frequency-bookmarks",
-        backends: &["python-legacy"],
-        features: &[],
+        backends: &["python-legacy", "rust-candidate"],
+        features: &["frequency_bookmarks"],
         capabilities: &[],
         query: &[],
         path_parameters: &["id"],
@@ -2867,6 +3145,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "post_api_v1_sessions_id_rf_explorer_band_power",
+        method: "POST",
+        path: "/api/v1/sessions/{id}/rf-explorer-band-power",
+        backends: &["python-legacy", "rust-candidate"],
+        features: &["rf_explorer_band_power"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["id"],
+        max_request_bytes: Some(8192),
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "get_api_v1_sessions_id_signal_list_export",
         method: "GET",
         path: "/api/v1/sessions/{id}/signal-list/export",
@@ -3119,6 +3409,54 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes",
+        backends: &["rust-candidate"],
+        features: &["rf_explorer_survey_panorama"],
+        capabilities: &[],
+        query: &["limit", "before"],
+        path_parameters: &["id", "stream_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}",
+        backends: &["rust-candidate"],
+        features: &["rf_explorer_survey_panorama"],
+        capabilities: &[],
+        query: &["columns", "hold_since"],
+        path_parameters: &["id", "stream_id", "pass_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_point",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/point",
+        backends: &["rust-candidate"],
+        features: &["rf_explorer_survey_panorama"],
+        capabilities: &[],
+        query: &["frequency_hz", "hold_since"],
+        path_parameters: &["id", "stream_id", "pass_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_windows",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/windows",
+        backends: &["rust-candidate"],
+        features: &["rf_explorer_survey_panorama"],
+        capabilities: &[],
+        query: &["limit", "after_tile"],
+        path_parameters: &["id", "stream_id", "pass_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "post_api_v1_sessions_id_streams_stream_id_start",
         method: "POST",
         path: "/api/v1/sessions/{id}/streams/{stream_id}/start",
@@ -3304,6 +3642,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         query: &["sweep_id", "window_points", "margin_db"],
         path_parameters: &["id"],
         max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "post_api_v1_sessions_id_sweep_tolerance_envelope",
+        method: "POST",
+        path: "/api/v1/sessions/{id}/sweep-tolerance-envelope",
+        backends: &["python-legacy", "rust-candidate"],
+        features: &["sweep_tolerance_envelope"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["id"],
+        max_request_bytes: Some(8192),
         request_features: &[],
     },
     RuntimeOperation {

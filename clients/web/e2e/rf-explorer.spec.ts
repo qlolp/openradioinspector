@@ -5,11 +5,12 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ori-modern-locale', 'en'));
 });
 
-async function enableRfExplorer(page: Page, survey = false) {
+async function enableRfExplorer(page: Page, survey = false, panorama = false) {
   await page.route('**/api/v1/capabilities', async (route) => {
     const response = await route.fetch();
     const envelope = await response.json();
     envelope.data.features.rf_explorer_3g_spectrum = true;
+    envelope.data.features.rf_explorer_survey_panorama = panorama;
     if (survey) envelope.data.features.rf_explorer_10khz_survey = true;
     else delete envelope.data.features.rf_explorer_10khz_survey;
     await route.fulfill({ response, json: envelope });
@@ -217,13 +218,20 @@ test('creates negotiated surveys and shows the measured segment within the plann
     await page.getByLabel('Acquisition mode').selectOption({ label: mode });
   };
   const createSession = async () => {
+    const name = await page.getByLabel('Session name').inputValue();
     const created = page.waitForResponse(
       (r) => new URL(r.url()).pathname === '/api/v1/sessions' && r.request().method() === 'POST',
     );
     await page.getByRole('button', { name: 'Create session', exact: true }).click();
     const response = await created;
     expect(response.ok()).toBe(true);
-    return (await response.json()).data;
+    const selected = page.getByLabel('Spectrum session');
+    await expect(selected.locator('option:checked')).toHaveText(name);
+    const saved = await request.get(
+      'http://127.0.0.1:18771/api/v1/sessions/' + encodeURIComponent(await selected.inputValue()),
+    );
+    expect(saved.ok()).toBe(true);
+    return (await saved.json()).data;
   };
   await openSession('10 kHz survey · full active module');
   await expect(page.getByLabel('Start frequency (Hz)')).toHaveCount(0);
@@ -388,4 +396,728 @@ test('keeps the workspace tabs and survey form within a Russian phone viewport',
   });
   await expect(form.getByRole('spinbutton')).toHaveCount(2);
   expect(await form.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test('previews and saves offset survey presets before any device command', async ({ page }) => {
+  await enableRfExplorer(page, true, true);
+  const commands: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'GET' && r.url().includes('/streams/')) commands.push(r.url());
+  });
+  await openDesk(page);
+  await page.getByRole('button', { name: 'RF Explorer', exact: true }).click();
+  await page.getByRole('button', { name: 'New spectrum session' }).click();
+  const form = page.getByRole('dialog');
+  await form.getByLabel('Session name').fill('Preview station');
+  await form.getByLabel('RF Explorer serial port').fill('COM21');
+  await form.getByLabel('Acquisition mode').selectOption('survey-range');
+  await form.getByLabel('Range preset').selectOption({ label: '80–120 MHz' });
+  await expect(form).toContainText('36 windows');
+  await expect(form).toContainText('4,001 unique frequencies');
+  await form.getByLabel('Range preset').selectOption({ label: '100–400 MHz' });
+  await expect(form).toContainText('268 windows');
+  await expect(form).toContainText('Right SMA');
+  await form.getByLabel('Frequency entry').selectOption('center');
+  await expect(form.getByLabel('Center frequency (Hz)')).toHaveValue('250000000');
+  await form.getByLabel('Center frequency (Hz)').fill('101116000');
+  await form.getByLabel('Span (Hz)').fill('2230000');
+  await form.getByLabel('Frequency entry').selectOption('edges');
+  await expect(form.getByLabel('Start frequency (Hz)')).toHaveValue('100001000');
+  await expect(form.getByLabel('Stop frequency (Hz)')).toHaveValue('102231000');
+  await form.getByLabel('Preset name').fill('Offset receiver');
+  await form.getByRole('button', { name: 'Save preset locally' }).click();
+  await form.getByLabel('Range preset').selectOption({ label: 'Full active board' });
+  await expect(form.getByLabel('Start frequency (Hz)')).toHaveCount(0);
+  await expect(form).toContainText('2,398 windows');
+  await expect(form).toContainText('643 windows');
+  await form.getByLabel('Range preset').selectOption({ label: 'Offset receiver' });
+  await expect(form.getByLabel('Start frequency (Hz)')).toHaveValue('100001000');
+  expect(commands).toHaveLength(0);
+});
+
+for (const stopped of [false, true])
+  test(
+    'reviews sparse passes, opens the clicked source and plays originals with ' +
+      (stopped ? 'stopped' : 'active') +
+      ' acquisition',
+    async ({ page, request }) => {
+      await enableRfExplorer(page, true, true);
+      const api = 'http://127.0.0.1:18771/api/v1/sessions';
+      const make = await request.post(api, {
+        data: {
+          name: 'Pass review fixture',
+          streams: [
+            {
+              device: 'RF Explorer 3G Combo',
+              role: 'spectrum_analyzer',
+              level_unit: 'dBm',
+              port: 'COM21',
+              settings: { adapter: 'rf-explorer-3g-serial', survey_step_hz: 10000 },
+            },
+          ],
+        },
+      });
+      const session = (await make.json()).data,
+        stream = session.streams[0];
+      const start = '2026-11-22T10:05:00.000000Z',
+        end = '2026-11-22T10:05:00.100000Z';
+      const next = '2026-11-22T10:05:00.500000Z',
+        last = '2026-11-22T10:05:00.750000Z';
+      const id = 'rf-pass',
+        base = api + '/' + session.id;
+      const bins = stopped ? 672 : 336,
+        tileCount = stopped ? 6 : 3,
+        upper = 80000000 + (bins - 1) * 10000;
+      const source = (tile: number, low: number, started_at: string, ended_at: string) => ({
+        id: session.id + '-tile-' + tile,
+        session_id: session.id,
+        stream_id: stream.id,
+        interval: { started_at, ended_at },
+        frequencies_hz: Array.from({ length: 112 }, (_, i) => low + i * 10000),
+        levels: Array.from({ length: 112 }, (_, i) =>
+          i === 50 ? (tile === 1 ? -60 : -40.5) : -90,
+        ),
+        level_unit: 'dBm',
+        settings: {
+          adapter: 'rf-explorer-3g-serial',
+          active_board: 'expansion',
+          active_input: 'right',
+          board_min_hz: 15000000,
+          board_max_hz: 2700000000,
+          rbw_hz: 15000,
+          detector: 'max_hold',
+          offset_db: -2,
+          step_hz: 10000,
+          simulated: true,
+          survey: {
+            start_hz: 80000000,
+            stop_hz: upper,
+            step_hz: 10000,
+            pass_id: id,
+            pass: 2,
+            tile,
+            tiles: tileCount,
+          },
+        },
+      });
+      const originals = [source(1, 80000000, start, end), source(3, 82240000, next, last)];
+      expect((await request.post(base + '/start', { data: {} })).ok()).toBe(true);
+      expect(
+        (await request.post(base + '/sweeps/batch', { data: { items: originals } })).ok(),
+      ).toBe(true);
+      if (stopped) expect((await request.post(base + '/stop', { data: {} })).ok()).toBe(true);
+      await page.route('**/sessions/' + session.id + '/workers', async (route) => {
+        const response = await route.fetch(),
+          envelope = await response.json();
+        envelope.data.forEach((w: { alive: boolean; state: string }) => {
+          w.alive = !stopped;
+          w.state = stopped ? 'disconnected' : 'running';
+        });
+        await route.fulfill({ response, json: envelope });
+      });
+      const prior = {
+        ...originals[0],
+        id: session.id + '-previous-pass',
+        interval: {
+          started_at: '2026-11-22T10:04:51.000000Z',
+          ended_at: '2026-11-22T10:04:52.000000Z',
+        },
+        settings: {
+          ...originals[0].settings,
+          survey: { ...originals[0].settings.survey, pass: 1, pass_id: 'earlier' },
+        },
+        levels: originals[0].levels.map((v, i) => (i === 51 ? -30.5 : i === 50 ? -20 : v)),
+      };
+      expect(
+        (
+          await request.post(base + '/frequency-bookmarks', {
+            data: { name: 'Quiet bin', entries: [{ frequency_hz: 80510000, label: 'Quiet bin' }] },
+          })
+        ).ok(),
+      ).toBe(true);
+      const summary = {
+        pass_id: id,
+        pass: 2,
+        start_hz: 80000000,
+        stop_hz: upper,
+        step_hz: 10000,
+        tiles: tileCount,
+        received_tiles: 2,
+        unique_points: 224,
+        expected_points: bins,
+        started_at: start,
+        ended_at: last,
+        complete: false,
+        duration_s: null,
+        revisit_s: 7.25,
+        active_board: 'expansion',
+        active_input: 'right',
+        rbw_hz: 15000,
+        detector: 'max_hold',
+        offset_db: -2,
+        simulated: true,
+      };
+      const holds: (string | null)[] = [],
+        commands: string[] = [],
+        windows: number[] = [];
+      const envelope = (data: unknown) => ({
+        data,
+        contract: 'openradioinspector-platform',
+        contract_version: 1,
+      });
+      await page.route(/\/rf-explorer\/passes(?:[/?]|$)/, async (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname.endsWith('/point')) {
+          const f = Number(url.searchParams.get('frequency_hz'));
+          const sw = originals.find((w) => w.frequencies_hz.includes(f));
+          const i = sw?.frequencies_hz.indexOf(f) ?? -1;
+          const p = sw && {
+            tile: sw.settings.survey.tile,
+            point_index: i,
+            frequency_hz: f,
+            sweep_id: sw.id,
+            level_dbm: sw.levels[i],
+            ...sw.interval,
+            last_measured_at: sw.interval.ended_at,
+          };
+          const held = url.searchParams.get('hold_since');
+          return route.fulfill({
+            json: envelope({
+              current: p ?? null,
+              held:
+                held?.startsWith('1970-') && f === 80510000
+                  ? {
+                      ...p,
+                      sweep_id: prior.id,
+                      level_dbm: -30.5,
+                      ...prior.interval,
+                      last_measured_at: originals[0].interval.ended_at,
+                    }
+                  : null,
+            }),
+          });
+        }
+        if (url.pathname.endsWith('/windows')) {
+          const after = Number(url.searchParams.get('after_tile') || 0);
+          windows.push(after);
+          const sw = originals[after === 0 ? 0 : 1];
+          return route.fulfill({
+            json: envelope({
+              items: [{ tile: sw.settings.survey.tile, sweep_id: sw.id, ...sw.interval }],
+              next_after_tile: after === 0 ? 1 : null,
+            }),
+          });
+        }
+        if (url.pathname.endsWith('/passes'))
+          return route.fulfill({ json: envelope({ items: [summary], next_before: null }) });
+        const count = Number(url.searchParams.get('columns')),
+          held = url.searchParams.get('hold_since');
+        expect(count).toBeGreaterThan(0);
+        expect(count).toBeLessThanOrEqual(2048);
+        holds.push(held);
+        const columns = Array(count).fill(null);
+        for (const sw of originals)
+          for (let i = 0; i < 112; i++) {
+            const frequency_hz = sw.frequencies_hz[i];
+
+            const column = Math.min(
+              count - 1,
+              Math.floor(((frequency_hz - 80000000) * count) / (bins * 10000)),
+            );
+            if (columns[column] && columns[column].level_dbm >= sw.levels[i]) continue;
+            columns[column] = {
+              tile: sw.settings.survey.tile,
+              frequency_hz,
+              level_dbm: sw.levels[i],
+              point_index: i,
+              sweep_id: sw.id,
+              ...sw.interval,
+              last_measured_at: sw.interval.ended_at,
+            };
+          }
+        const coverage = [
+          { start_hz: 80000000, stop_hz: 81110000 },
+          { start_hz: 82240000, stop_hz: 83350000 },
+        ];
+        const heldPoints = held?.startsWith('1970-')
+          ? columns.map((p) => (p ? { ...p } : null))
+          : null;
+        if (heldPoints)
+          for (let i = 0; i < prior.levels.length; i++) {
+            const f = prior.frequencies_hz[i],
+              col = Math.min(count - 1, Math.floor(((f - 80000000) * count) / (bins * 10000)));
+            if (!heldPoints[col] || prior.levels[i] > heldPoints[col].level_dbm)
+              heldPoints[col] = {
+                frequency_hz: f,
+                point_index: i,
+                tile: 1,
+                sweep_id: prior.id,
+                level_dbm: prior.levels[i],
+                ...prior.interval,
+                last_measured_at: end,
+              };
+          }
+        return route.fulfill({
+          json: envelope({
+            summary,
+            columns,
+            coverage,
+            hold_columns: held ? (heldPoints ?? Array(count).fill(null)) : null,
+            hold_coverage: held ? (heldPoints ? coverage : []) : null,
+          }),
+        });
+      });
+      await page.route('**/sweeps/*', async (route) => {
+        const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!);
+        const sw = [...originals, prior].find((source) => source.id === id);
+        return sw ? route.fulfill({ json: envelope(sw) }) : route.continue();
+      });
+      page.on('request', (r) => {
+        if (
+          r.method() !== 'GET' &&
+          r.url().includes('/api/v1/sessions/') &&
+          !r.url().endsWith('/frequency-bookmarks')
+        )
+          commands.push(r.url());
+      });
+      await openDesk(page);
+      await page.getByRole('button', { name: 'RF Explorer', exact: true }).click();
+      await page.getByLabel('Spectrum session').selectOption(session.id);
+      await page.getByRole('button', { name: 'Entire pass', exact: true }).click();
+      const pass = page.getByRole('region', { name: 'Survey pass panorama' });
+      await expect(pass).toContainText('224 / ' + bins);
+      await expect(pass).toContainText('7.25');
+      await expect(pass).toContainText('max_hold');
+      await pass.getByText('Unmeasured gaps', { exact: true }).click();
+      await expect(pass).toContainText('81,120,000 Hz – 82,230,000 Hz');
+      const chart = pass.getByRole('group', { name: /Survey spectrum in dBm/ });
+      const box = await chart.boundingBox();
+      await chart.click({ position: { x: (box!.width * 167) / (bins - 1), y: box!.height / 2 } });
+      await expect(pass.getByText('No original point at this frequency')).toBeVisible();
+      await chart.click({ position: { x: (box!.width * 274) / (bins - 1), y: box!.height / 2 } });
+      await expect(pass).toContainText('82,740,000 Hz');
+      await pass.getByRole('button', { name: 'Select strongest point' }).click();
+      await expect(pass).toContainText('82,740,000 Hz');
+      await expect(pass).toContainText('-40.5 dBm');
+      await page.getByTestId('locale-select').selectOption('ru');
+      const panel = page.locator('.spectrum-panel');
+      await panel.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      const capture = await panel.boundingBox();
+      await page.screenshot({
+        path: test.info().outputPath('rf-explorer-pass-ru.png'),
+        clip: {
+          x: capture!.x,
+          y: Math.max(0, capture!.y),
+          width: capture!.width,
+          height: Math.min(capture!.height, 940),
+        },
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByTestId('locale-select').selectOption('en');
+      await pass.getByLabel('Marker name').fill('Test carrier');
+      await pass.getByRole('button', { name: 'Save marker' }).click();
+      await expect(
+        pass.getByLabel('Saved frequency markers').locator('option', { hasText: 'Test carrier' }),
+      ).toHaveCount(1);
+      await pass.getByRole('button', { name: 'Open original sweep' }).click();
+      const original = page.getByRole('dialog', { name: 'Original sweep' });
+      await expect(original).toContainText(originals[1].id);
+      await expect(original.getByRole('row', { name: '50 82740000 -40.5' })).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+      await original.getByRole('button', { name: 'Close original' }).click();
+      const quiet = pass
+        .getByLabel('Saved frequency markers')
+        .locator('option', { hasText: 'Quiet bin' });
+      await pass
+        .getByLabel('Saved frequency markers')
+        .selectOption((await quiet.getAttribute('value'))!);
+      await expect(pass.locator('.rf-evidence')).toContainText('80,510,000 Hz');
+      await expect(pass.locator('.rf-evidence')).toContainText('-90 dBm');
+      await pass.getByRole('button', { name: 'Open original sweep' }).click();
+      await expect(original.getByRole('row', { name: '51 80510000 -90' })).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+      await original.getByRole('button', { name: 'Close original' }).click();
+      await pass.getByRole('button', { name: 'Enable archive Max Hold' }).click();
+      await pass.getByLabel('Inspect trace').selectOption('hold');
+      await pass.getByLabel('Saved frequency markers').selectOption('');
+      await pass
+        .getByLabel('Saved frequency markers')
+        .selectOption((await quiet.getAttribute('value'))!);
+      await expect(pass.locator('.rf-evidence')).toContainText(prior.id);
+      await expect(pass.locator('.rf-evidence')).toContainText('-30.5 dBm');
+      await expect(pass.locator('.rf-evidence')).toContainText('10:04:52');
+      await expect(pass.locator('.rf-evidence')).toContainText('10:05:00.100000');
+      await pass.getByRole('button', { name: 'Open original sweep' }).click();
+      await expect(original.getByRole('row', { name: '51 80510000 -30.5' })).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+      await original.getByRole('button', { name: 'Close original' }).click();
+      await page.getByRole('button', { name: 'Pause display' }).click();
+      await expect(
+        page.getByText('Display paused. Acquisition continues independently.'),
+      ).toBeVisible();
+      const previousReads = holds.length;
+      if (!stopped)
+        expect(
+          (
+            await request.post(base + '/sweeps/batch', {
+              data: { items: [{ ...originals[1], id: session.id + '-later' }] },
+            })
+          ).ok(),
+        ).toBe(true);
+      await expect(page.getByRole('button', { name: 'Resume display' })).toBeVisible();
+      expect(holds.length).toBe(previousReads);
+      await page.getByRole('button', { name: 'Resume display' }).click();
+      expect(holds).toContain(null);
+      await pass
+        .getByRole('button', {
+          name: stopped ? 'Reset Max Hold to start of this pass' : 'Reset software Max Hold',
+        })
+        .click();
+      await expect
+        .poll(() => holds.some((x) => x && !x.startsWith('1970-') && x.endsWith('Z')))
+        .toBe(true);
+      if (stopped) expect(holds.at(-1)).toBe(start);
+      const reset = holds.at(-1);
+      await pass.getByRole('button', { name: 'Hide software Max Hold' }).click();
+      await pass.getByRole('button', { name: 'Show software Max Hold' }).click();
+      await expect.poll(() => holds.at(-1)).toBe(reset);
+      await pass.getByRole('button', { name: 'Review original windows' }).click();
+      const review = pass.getByRole('group', { name: 'Original window playback' });
+      await expect(review).toContainText(originals[0].id);
+      await review.getByRole('button', { name: 'Next sweep' }).click();
+      await expect(review).toContainText(originals[1].id);
+      await review.getByRole('button', { name: 'Previous sweep' }).click();
+      await expect(review).toContainText(originals[0].id);
+      await review.getByRole('button', { name: 'Play at recorded speed' }).click();
+      await expect(review).toContainText(originals[1].id);
+      expect(windows).toContain(1);
+      expect(commands).toEqual([]);
+    },
+  );
+
+test('opens an archived survey on a core with panorama support and serial acquisition disabled', async ({
+  page,
+  request,
+}) => {
+  const created = await request.post('http://127.0.0.1:18771/api/v1/sessions', {
+    data: {
+      name: 'Archive-only station',
+      streams: [
+        {
+          device: 'RF Explorer 3G Combo',
+          port: 'COM42',
+          role: 'spectrum_analyzer',
+          level_unit: 'dBm',
+          settings: { adapter: 'rf-explorer-3g-serial', survey_step_hz: 10000 },
+        },
+      ],
+    },
+  });
+  const s = (await created.json()).data,
+    calls: string[] = [];
+  await page.route('**/api/v1/capabilities', async (route) => {
+    const response = await route.fetch(),
+      envelope = await response.json();
+    Object.assign(envelope.data.features, {
+      rf_explorer_3g_spectrum: false,
+      rf_explorer_10khz_survey: false,
+      rf_explorer_survey_panorama: true,
+    });
+    return route.fulfill({ response, json: envelope });
+  });
+  await page.route(/\/rf-explorer\/passes(?:[/?]|$)/, (route) =>
+    route.fulfill({
+      json: {
+        contract: 'openradioinspector-platform',
+        contract_version: 1,
+        data: { items: [], next_before: null },
+      },
+    }),
+  );
+  page.on('request', (r) => {
+    if (r.url().includes(s.id + '/workers') || (r.method() !== 'GET' && r.url().includes(s.id)))
+      calls.push(r.url());
+  });
+  await openDesk(page);
+  await page.getByRole('button', { name: 'RF Explorer', exact: true }).click();
+  await page.getByLabel('Spectrum session').selectOption(s.id);
+  await expect(page.getByRole('button', { name: 'New spectrum session' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Start acquisition' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Entire pass', exact: true }).click();
+  await expect(page.getByText('No archived survey passes')).toBeVisible();
+  expect(calls).toEqual([]);
+});
+
+test('paired reader sees a newly committed raw window and its original with operator domains advertised', async ({
+  page,
+  context,
+  request,
+}) => {
+  const origin = 'https://reader.synthetic.invalid';
+  const response = await request.post('http://127.0.0.1:18771/api/v1/sessions', {
+    data: {
+      name: 'Paired archive reader',
+      streams: [
+        {
+          device: 'RF Explorer 3G Combo',
+          port: 'COM81',
+          role: 'spectrum_analyzer',
+          level_unit: 'dBm',
+          settings: { adapter: 'rf-explorer-3g-serial', survey_step_hz: 10000 },
+        },
+      ],
+    },
+  });
+  const session = (await response.json()).data,
+    stream = session.streams[0];
+  const source = {
+    id: 'reader-live-original',
+    session_id: session.id,
+    stream_id: stream.id,
+    interval: {
+      started_at: '2026-11-22T00:00:00.000000Z',
+      ended_at: '2026-11-22T00:00:01.000000Z',
+    },
+    frequencies_hz: Array.from({ length: 112 }, (_, i) => 80000000 + i * 10000),
+    levels: Array.from({ length: 112 }, (_, i) => (i === 1 ? -42 : -72)),
+    level_unit: 'dBm',
+    settings: {
+      adapter: 'rf-explorer-3g-serial',
+      settings_source: 'device_readback',
+      settings_readback: true,
+      active_board: 'expansion',
+      active_input: 'right',
+      board_min_hz: 15000000,
+      board_max_hz: 2700000000,
+      step_hz: 10000,
+      rbw_hz: 15000,
+      simulated: true,
+    },
+  };
+  const later = {
+    ...source,
+    id: 'reader-later-window',
+    interval: {
+      started_at: '2026-11-22T00:00:04.000000Z',
+      ended_at: '2026-11-22T00:00:05.000000Z',
+    },
+    settings: {
+      adapter: 'rf-explorer-3g-serial',
+      settings_source: 'request',
+      active_board: 'main',
+      active_input: 'left',
+      board_min_hz: 240000000,
+      board_max_hz: 960000000,
+    },
+  };
+  const lastBoardReadback = {
+    ...source,
+    id: 'reader-archived-main-board',
+    interval: {
+      started_at: '2026-11-22T00:00:02.000000Z',
+      ended_at: '2026-11-22T00:00:03.000000Z',
+    },
+    frequencies_hz: source.frequencies_hz.map((f) => f + 160000000),
+    settings: {
+      ...source.settings,
+      active_board: 'main',
+      active_input: 'left',
+      board_min_hz: 240000000,
+      board_max_hz: 960000000,
+    },
+  };
+  const envelope = (data: unknown) => ({
+    contract: 'openradioinspector-platform',
+    contract_version: 1,
+    data,
+  });
+  const sweepEvent = (sequence: number, sweep: typeof source | typeof later) =>
+    'event: sweep.received\nid: ' +
+    sequence +
+    '\ndata: ' +
+    JSON.stringify(envelope({ sequence, event_type: 'sweep.received', payload: { sweep } })) +
+    '\n\n';
+  let release!: () => void,
+    nextWindow!: () => void,
+    sendGaps!: () => void,
+    revisit!: () => void,
+    lastEvent = 0,
+    wrongInterval = true,
+    subscribed = false;
+  const nextReady = new Promise<void>((r) => {
+    nextWindow = r;
+  });
+  const windowReady = new Promise<void>((r) => {
+    release = r;
+  });
+  const gapsReady = new Promise<void>((r) => {
+    sendGaps = r;
+  });
+  const revisitReady = new Promise<void>((r) => {
+    revisit = r;
+  });
+  const denied: string[] = [],
+    reads: string[] = [];
+  await context.addCookies([
+    {
+      name: 'ori_session',
+      value: 'synthetic-reader',
+      url: origin + '/api',
+      httpOnly: true,
+      secure: true,
+    },
+  ]);
+  await page.addInitScript(() =>
+    localStorage.setItem('ori-modern-project', 'cached-operator-project'),
+  );
+  await context.route(origin + '/**', async (route) => {
+    const url = new URL(route.request().url()),
+      p = url.pathname;
+    if (p.startsWith('/api/')) {
+      expect(route.request().headers().cookie).toContain('ori_session=synthetic-reader');
+      reads.push(p);
+      if (p === '/api/v1/security/status')
+        return route.fulfill({
+          json: envelope({ mode: 'lan_tls', access_scope: 'reader', pairing_required: false }),
+        });
+      if (p === '/api/v1/capabilities')
+        return route.fulfill({
+          json: envelope({
+            features: {
+              rf_explorer_3g_spectrum: true,
+              rf_explorer_survey_panorama: true,
+              monitoring_projects: true,
+              rf_explorer_band_power: true,
+              sweep_tolerance_envelope: true,
+              frequency_bookmarks: true,
+            },
+          }),
+        });
+      if (p === '/api/v1/health')
+        return route.fulfill({
+          json: envelope({ status: 'ok', last_event_id: 10, sessions: 1, running_sessions: 1 }),
+        });
+      if (p === '/api/v1/sessions') return route.fulfill({ json: envelope([session]) });
+      if (p.endsWith('/sweeps'))
+        return route.fulfill({
+          json: envelope(
+            url.searchParams.get('limit') === '32' ? [source, lastBoardReadback, later] : [],
+          ),
+        });
+      if (p.endsWith('/sweeps/' + source.id))
+        return route.fulfill({
+          json: envelope(wrongInterval ? { ...source, interval: later.interval } : source),
+        });
+      if (p === '/api/v1/events') {
+        subscribed = true;
+        lastEvent = Number(url.searchParams.get('after'));
+        const sequence = lastEvent + 1;
+        if (sequence > 270)
+          return route.fulfill({ contentType: 'text/event-stream', body: ': heartbeat\n\n' });
+        if (sequence >= 13 && sequence < 270) {
+          await gapsReady;
+          let body = '';
+          for (let id = sequence; id < 270; id++) {
+            const time = new Date(Date.UTC(2026, 10, 22, 0, 0, id)).toISOString();
+            body += sweepEvent(id, {
+              ...later,
+              id: 'gap-' + id,
+              interval: { started_at: time, ended_at: time },
+              frequencies_hz: [80000000, 80020000],
+              levels: [-78, -74],
+            });
+          }
+          return route.fulfill({ contentType: 'text/event-stream', body });
+        }
+        if (sequence === 270) {
+          await revisitReady;
+          const time = '2026-11-22T00:05:00.000000Z';
+          return route.fulfill({
+            contentType: 'text/event-stream',
+            body: sweepEvent(sequence, {
+              ...later,
+              id: 'exact-revisit',
+              interval: { started_at: time, ended_at: time },
+            }),
+          });
+        }
+        await (sequence === 11 ? windowReady : nextReady);
+        return route.fulfill({
+          contentType: 'text/event-stream',
+          body: sweepEvent(sequence, sequence === 11 ? source : later),
+        });
+      }
+      denied.push(p);
+      return route.fulfill({
+        status: 403,
+        json: { error: { code: 'insufficient_scope', message: 'reader' } },
+      });
+    }
+    return route.fulfill({
+      response: await route.fetch({ url: 'http://127.0.0.1:18772' + p + url.search }),
+    });
+  });
+  await page.goto(origin + '/modern/');
+  await expect(page.getByRole('button', { name: 'RF Explorer', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'RF Explorer', exact: true }).click();
+  try {
+    await expect.poll(() => subscribed).toBe(true);
+  } finally {
+    release();
+  }
+  await expect(page.getByTestId('source-id')).toHaveText(source.id);
+  await expect(page.locator('canvas.spectrum:visible')).toHaveAttribute('data-sweep-id', source.id);
+  await page.getByRole('group', { name: 'Spectrum view controls' }).press('Enter');
+  await expect(page.locator('.rf-evidence')).toContainText(source.id);
+  await page.getByRole('button', { name: 'Pause display' }).click();
+  nextWindow();
+  await expect.poll(() => lastEvent, { timeout: 15000 }).toBe(12);
+  await expect(page.getByTestId('source-id')).toHaveText(source.id);
+  await expect(page.locator('.rf-evidence')).not.toContainText('00:00:05.000000 UTC');
+  await page.getByRole('button', { name: 'Resume display' }).click();
+  await expect(page.getByTestId('source-id')).toHaveText(later.id);
+  await expect(page.locator('.rf-evidence')).toContainText(source.id);
+  await expect(page.locator('.rf-evidence')).toContainText('00:00:05.000000 UTC');
+  sendGaps();
+  await expect(page.getByTestId('source-id')).toHaveText('gap-269', { timeout: 15000 });
+  const selectedTime = page
+    .locator('.rf-evidence p')
+    .filter({ hasText: 'Selected frequency last measured' });
+  try {
+    await expect(selectedTime).toContainText('00:00:05.000000 UTC');
+  } finally {
+    revisit();
+  }
+  await expect(page.getByTestId('source-id')).toHaveText('exact-revisit');
+  await expect(selectedTime).toContainText('00:05:00.000000 UTC');
+  await expect(page.locator('.rf-evidence')).toContainText(source.id);
+  await page.getByText('Acquisition preview', { exact: true }).click();
+  const inputReadback = page
+    .locator('.rf-draft-preview dt')
+    .filter({ hasText: 'Last simulated input' })
+    .locator('+ dd');
+  await expect(inputReadback).toHaveText('Right SMA · WSUB3G');
+  await page.getByRole('button', { name: 'Load history' }).click();
+  await expect(inputReadback).toHaveText('Left SMA · WSUB1G');
+  await page.getByRole('button', { name: 'Open original sweep' }).click();
+  await expect(page.getByText('Source evidence mismatch', { exact: true })).toBeVisible();
+  wrongInterval = false;
+  await page.getByRole('button', { name: 'Open original sweep' }).click();
+  const original = page.getByRole('dialog', { name: 'Original sweep' });
+  await expect(original.getByRole('row', { name: '1 80010000 -42' })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(original.getByText('Reference tolerance envelope', { exact: true })).toHaveCount(0);
+  await expect(original.getByText('Single-window band power', { exact: true })).toHaveCount(0);
+  expect(reads).toContain('/api/v1/sessions/' + session.id + '/sweeps/' + source.id);
+  expect(denied).toEqual([]);
 });

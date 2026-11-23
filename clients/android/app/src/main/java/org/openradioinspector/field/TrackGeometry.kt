@@ -49,5 +49,16 @@ internal fun projectTrack(track: List<TrackPoint>, width: Double, height: Double
     }
 }
 
-internal fun closestPoint(points: List<MapPoint>, x: Double, y: Double): Int? =
-    points.indices.minByOrNull { hypot(points[it].x - x, points[it].y - y) }
+internal fun closestPoint(points: List<MapPoint>, x: Double, y: Double, radius: Double = Double.POSITIVE_INFINITY): Int? {
+    var nearest: Int? = null
+    var distance = radius
+    for ((i, point) in points.withIndex()) {
+        val candidate = hypot(point.x - x, point.y - y)
+        if (candidate <= distance) {
+            // Later fixes are painted above earlier fixes at the same location.
+            nearest = i
+            distance = candidate
+        }
+    }
+    return nearest
+}
