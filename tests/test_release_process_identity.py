@@ -119,6 +119,27 @@ class SessionIdentityTests(unittest.TestCase):
         owner.process.wait.assert_called_once()
         self.assertEqual(kernel.sent, [])
 
+    def test_anchor_exit_between_status_and_control_requires_fresh_release_proof(self):
+        for action in ("stop", "release"):
+            for last_phase in ("released", "exited"):
+                with self.subTest(action=action, last_phase=last_phase):
+                    owner, kernel = self.released_owner()
+                    # First read predates exit. The recorded PID now identifies
+                    # a replacement, so only the original terminal record counts.
+                    owner.status = Mock(side_effect=[
+                        {"phase": "exited"}, {"phase": last_phase},
+                    ])
+                    owner.request = Mock()
+                    if last_phase == "released":
+                        getattr(owner, action)(1)
+                        self.assertTrue(owner._released)
+                    else:
+                        with self.assertRaises(OwnershipError):
+                            getattr(owner, action)(1)
+                        self.assertFalse(owner._released)
+                    owner.request.assert_not_called()
+                    self.assertEqual(kernel.sent, [])
+
     def test_failed_release_ack_is_reported_for_its_own_serial(self):
         owner, _kernel = self.released_owner()
         owner.authority = Mock()

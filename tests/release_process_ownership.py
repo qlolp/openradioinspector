@@ -33,6 +33,10 @@ class OwnershipError(RuntimeError):
     """Numeric ownership evidence is unavailable or no longer matches."""
 
 
+class _AnchorUnavailable(OwnershipError):
+    """The recorded process is no longer a live anchor for this session."""
+
+
 @dataclass(frozen=True)
 class ProcessIdentity:
     pid: int
@@ -248,7 +252,7 @@ class SessionAuthority:
             or current.sid != self.anchor.sid
             or current.pgid != self.anchor.pgid
         ):
-            raise OwnershipError("Session anchor identity changed or disappeared")
+            raise _AnchorUnavailable("Session anchor identity changed or disappeared")
 
     def members(self):
         try:
@@ -884,18 +888,35 @@ class OwnedCommand:
     def release(self, timeout):
         self._release(time.monotonic() + timeout)
 
+    def _has_release_record(self):
+        value = self.status()
+        return value is not None and value["phase"] == "released"
+
+    def _request_unless_released(self, action, deadline):
+        if not self._has_release_record():
+            try:
+                if action == "cancel":
+                    self.authority._verify_anchor()
+                elif self.authority.members():
+                    raise OwnershipError("Cannot release an anchor with live members")
+            except _AnchorUnavailable:
+                # A previous release can publish its terminal proof and exit
+                # between the status read and the numeric identity check.
+                if not self._has_release_record():
+                    raise
+            else:
+                return self.request(action, deadline)
+        self._finish_release(deadline)
+        return None
+
     def _release(self, deadline):
         if self._resume_retirement(deadline):
             return
         _remaining(deadline)
         self.pending_phase = "release_check"
-        value = self.status()
-        if value is not None and value["phase"] == "released":
-            self._finish_release(deadline)
+        serial = self._request_unless_released("release", deadline)
+        if serial is None:
             return
-        if self.authority.members():
-            raise OwnershipError("Cannot release an anchor with live members")
-        serial = self.request("release", deadline)
         while True:
             value = self.status()
             # Terminal proof can precede this request when the original parent
@@ -1010,12 +1031,9 @@ class OwnedCommand:
             return
         _remaining(deadline)
         self.pending_phase = "cancel_check"
-        value = self.status()
-        if value is not None and value["phase"] == "released":
-            self._finish_release(deadline)
+        serial = self._request_unless_released("cancel", deadline)
+        if serial is None:
             return
-        self.authority._verify_anchor()
-        serial = self.request("cancel", deadline)
         while True:
             value = self.status()
             if value is not None and (
