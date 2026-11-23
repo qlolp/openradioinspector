@@ -48,19 +48,21 @@ def active(snapshot):
 class PagedHistoryWork(BackgroundWork):
     def __init__(self, config, node, after_seconds):
         super().__init__(config, node, after_seconds, record_paged_get=self._record_connect)
-        self.report['loopback_tcp'] = dict(requests=0, attempts=0, connect_timeouts=0,
+        self.report['loopback_tcp'] = dict(requests=0, attempts=0, connect_timeouts=0, no_buffers=0,
                                            requests_without_connection=0, samples=[])
 
     def _record_connect(self, request, attempts):
         timeouts = sum(attempt['outcome'] == 'timeout' for attempt in attempts)
+        no_buffers = sum(attempt['outcome'] == 'no_buffers' for attempt in attempts)
         failed = not attempts or attempts[-1]['outcome'] != 'connected'
         with self.lock:
             report = self.report['loopback_tcp']
             report['requests'] += 1
             report['attempts'] += len(attempts)
             report['connect_timeouts'] += timeouts
+            report['no_buffers'] += no_buffers
             report['requests_without_connection'] += int(failed)
-            if (timeouts or failed) and len(report['samples']) < 32:
+            if (timeouts or no_buffers or failed) and len(report['samples']) < 32:
                 report['samples'].append(dict(route=paged_route(request.full_url), attempts=attempts,
                                               recorded_monotonic_ns=time.monotonic_ns()))
 
