@@ -165,6 +165,11 @@ async fn archived_receiver_observations_keep_time_order_and_measure_the_storage_
     );
     assert_eq!(storage["ready"], true, "{storage}");
     assert!(storage["required_free_bytes"].as_u64().unwrap() > 1_048_576);
+    assert!(
+        storage["estimated_retention_seconds"]
+            .as_f64()
+            .is_some_and(|span| span > 0.)
+    );
     server.stop().await;
 }
 
