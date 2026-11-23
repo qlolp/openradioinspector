@@ -2522,3 +2522,95 @@ async fn scan_plan_requires_explicit_receive_preparation_before_any_wire_command
     assert!(adapter.poll_band(receive()).await.is_err());
     assert!(audit.lock().unwrap().sent.is_empty());
 }
+
+#[test]
+fn cyclic_receiver_grid_accepts_the_full_envelope_with_bounded_distinct_segments() {
+    for (stop, step, expected) in [
+        (100_010, 10, 2usize),
+        (109_990, 10, 1000),
+        (110_000, 10, 1001),
+        (120_000, 10, 2001),
+        (19_995_010, 10_000, 1991),
+        (1_300_000_000, 10_000, 129_991),
+    ] {
+        let scan =
+            CyclicReceiverScope::new(100_000, stop, step, Duration::from_millis(15), true).unwrap();
+        assert_eq!(scan.points(), expected);
+        assert_eq!(scan.frequency_at(expected - 1), Some(stop));
+        let mut segment_sizes = vec![0; expected.div_ceil(1000)];
+        let mut previous = None;
+        for index in 0..expected {
+            let hz = scan.frequency_at(index).unwrap();
+            assert!(previous.is_none_or(|last| last < hz && hz - last <= step));
+            previous = Some(hz);
+            segment_sizes[scan.segment_index(index).unwrap()] += 1;
+        }
+        assert!(segment_sizes.iter().all(|size| (2..=1000).contains(size)));
+        assert_eq!(scan.frequency_at(expected), None);
+        assert_eq!(scan.segment_index(expected), None);
+    }
+    for (start, stop, step) in [
+        (100_000, 1_399_910, 10), // 129,992 points
+        (99_990, 200_000, 10_000),
+        (100_001, 120_000, 10_000),
+        (100_000, 200_001, 10_000),
+        (100_000, 200_000, 1001),
+        (100_000, 1_300_000_010, 10_000),
+        (100_000, 100_000, 10),
+    ] {
+        assert!(CyclicReceiverScope::new(start, stop, step, Duration::ZERO, true).is_err());
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn cyclic_scope_restores_raster_on_hold_and_explicitly_tunes_a_resumed_off_grid_point() {
+    let steps = vec![
+        Step::line("RE1", "20"),
+        Step::line("VR", "20VR2504A"),
+        Step::line("RN", "20RN09521111"),
+        // Resume in the middle of the segment. Select and confirm the actual VFO before ZK.
+        Step::line("VFA", "20"),
+        Step::line("ST", "20ST025.00"),
+        Step::line("SH", "20SH010.00"),
+        Step::line("VFA RF0088.10000 ST100.00 SH000.00 MD0F0", "20"),
+        Step::line("SH", "20SH000.00"),
+        Step::line("RX", "20RX VFA RF0088.10000 ST100.00 MD0F0 LM1371"),
+        Step::line("VFA ST025.00 SH010.00", "20"),
+        Step::line("ST", "20ST025.00"),
+        Step::line("SH", "20SH010.00"),
+        // Returning to the last, off-raster point must use absolute RF and retain the restored raster.
+        Step::line("VFA", "20"),
+        Step::line("MD0F0", "20"),
+        Step::line("RF0088.15000", "20"),
+        Step::line("RX", "20RX VFA RF0088.15000 ST025.00 MD0F0 LM1351"),
+        Step::line("EX", "20"),
+    ];
+    let (wire, audit) = Scripted::new(steps);
+    let config = ReceiverConfig {
+        frequency_hz: 88_000_000,
+        mode: ReceiverMode::Fm,
+        profile: ReceiverProfile::MonitorV1,
+    };
+    let plan = CyclicReceiverScope::new(
+        88_000_000,
+        88_150_000,
+        100_000,
+        Duration::from_millis(15),
+        true,
+    )
+    .unwrap();
+    let mut receiver = ArDv1::new(wire, config, IoLimits::default())
+        .unwrap()
+        .with_cyclic_scope(plan)
+        .unwrap();
+    assert_eq!(
+        receiver.poll_cyclic_point(1).await.unwrap().frequency_hz,
+        88_100_000
+    );
+    receiver.hold_cyclic_scope().await.unwrap();
+    let sample = receiver.poll_cyclic_point(2).await.unwrap();
+    assert_eq!(sample.metadata["scan_tune_command"], "RF");
+    assert_eq!(sample.frequency_hz, 88_150_000);
+    receiver.close().await.unwrap();
+    assert_drained(&audit);
+}

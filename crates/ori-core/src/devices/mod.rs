@@ -4,6 +4,7 @@ pub(crate) mod control;
 mod receipt;
 pub(crate) use receipt::RetainedWorkerHandle;
 mod acquisition;
+mod cyclic_scan;
 mod rf_explorer;
 mod scan;
 mod simulator;
@@ -16,8 +17,9 @@ use ori_contracts::{
     DeviceRole, DeviceStream, Session, from_json_slice, parse_json_value, to_json_vec,
 };
 use ori_instruments::{
-    ArDv1, ArDv1Actor, ArDv1Reply, ArDv1Request, IoLimits, ReceiveConfig, ReceiverConfig,
-    ReceiverMode, ReceiverProfile, ReceiverScope, TinySa, TinySaActor, TinySaReply, TinySaRequest,
+    ArDv1, ArDv1Actor, ArDv1Reply, ArDv1Request, CyclicReceiverScope, IoLimits, ReceiveConfig,
+    ReceiverConfig, ReceiverMode, ReceiverProfile, ReceiverScope, TinySa, TinySaActor, TinySaReply,
+    TinySaRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -304,6 +306,11 @@ enum Adapter {
     Native(Native),
 }
 enum Command {
+    ReceiverScanHold {
+        hold: bool,
+        gate: ExecutionGate,
+        response: oneshot::Sender<DeviceResult<WorkerStatus>>,
+    },
     Instrument(Box<control::Request>),
     Tune {
         frequency: u64,
@@ -363,7 +370,15 @@ impl DeviceManager {
                 .unwrap_or("");
             if matches!(adapter, "tinysa-sim" | "ardv1-sim") {
                 let _ = simulator::Simulated::new(stream)?;
-            } else if matches!(adapter, "tinysa-serial" | "ardv1-serial") {
+            } else if matches!(
+                adapter,
+                "tinysa-serial" | "ardv1-serial" | rf_explorer::ADAPTER
+            ) {
+                if adapter == rf_explorer::ADAPTER && !self.rf_explorer_enabled() {
+                    return Err(DeviceError::Unsupported(
+                        "RF Explorer requires the live native serial connector".into(),
+                    ));
+                }
                 if self.options.transport.is_none() {
                     return Err(DeviceError::Unsupported(
                         "Native serial connector is not enabled".into(),
@@ -666,6 +681,7 @@ impl DeviceManager {
         };
         let max_errors = simulator::integer(&settings, "max_consecutive_errors", 3, 1, 100)?;
         let mut scope_points = None;
+        let mut cyclic_scan = None;
         let adapter_name = settings
             .get("adapter")
             .and_then(Value::as_str)
@@ -692,6 +708,10 @@ impl DeviceManager {
             let factory=self.options.transport.clone().ok_or_else(||DeviceError::Unsupported("Physical serial is disabled; an explicit native connector and connect request are required".into()))?;
             let profile = Profile::read(&stream)?;
             transport::baud(&settings)?;
+            if let Profile::Receiver(_, Some(Scope::Cyclic(plan)), _) = &profile {
+                cyclic_scan =
+                    Some(cyclic_scan::Scan::restore(&self.archive, &stream, *plan).await?);
+            }
             let identity = factory.identity(&stream)?;
             if identity.is_empty() || identity.len() > 1024 {
                 return Err(DeviceError::Invalid(
@@ -741,12 +761,15 @@ impl DeviceManager {
                 Profile::Receiver(config, scope, readback) => {
                     let mut adapter =
                         ArDv1::new(transport, config, self.options.io_limits.clone())?;
-                    if let Some(scope) = scope {
-                        adapter = adapter.with_scope(scope)?;
-                        scope_points = Some(scope.points());
-                    } else if readback {
-                        adapter = adapter.with_frequency_readback()?;
-                    }
+                    adapter = match scope {
+                        Some(Scope::Once(scope)) => {
+                            scope_points = Some(scope.points());
+                            adapter.with_scope(scope)?
+                        }
+                        Some(Scope::Cyclic(plan)) => adapter.with_cyclic_scope(plan)?,
+                        None if readback => adapter.with_frequency_readback()?,
+                        None => adapter,
+                    };
                     Native::Receiver(ArDv1Actor::spawn(adapter, 1)?)
                 }
             };
@@ -788,19 +811,22 @@ impl DeviceManager {
             applied_revision: AtomicU64::new(0),
             confirmed_tunes: AtomicU64::new(0),
             preparation: Mutex::new(None),
-            period: if (scope_points.is_some() || adapter_name == rf_explorer::ADAPTER)
+            period: if (scope_points.is_some()
+                || cyclic_scan.is_some()
+                || adapter_name == rf_explorer::ADAPTER)
                 && !settings.contains_key("period_s")
             {
                 Duration::ZERO
             } else {
                 period
             },
-            max_errors: if scope_points.is_some() {
+            max_errors: if scope_points.is_some() || cyclic_scan.is_some() {
                 1
             } else {
                 max_errors
             },
             scope_points,
+            cyclic_scan,
             scan_plan,
             scan_coverage: Mutex::new(scan::Coverage::default()),
             lifecycle: ticket.lifecycle.clone(),
@@ -991,7 +1017,7 @@ impl DeviceManager {
         }
         let retained: RetainedWorkerHandle = self.capture_worker(&target, gate)?;
         let worker = retained.original_worker();
-        if worker.scope_points.is_some() {
+        if !worker.manual_tune_allowed() {
             return Err(DeviceError::Invalid(
                 "Завершите обзор AR-DV1 перед ручной перестройкой".into(),
             ));
@@ -1078,8 +1104,13 @@ impl Drop for SessionStop {
 
 enum Profile {
     Analyzer(ReceiveConfig),
-    Receiver(ReceiverConfig, Option<ReceiverScope>, bool),
+    Receiver(ReceiverConfig, Option<Scope>, bool),
     RfExplorer(rf_explorer::ReceivePlan),
+}
+
+enum Scope {
+    Once(ReceiverScope),
+    Cyclic(CyclicReceiverScope),
 }
 
 #[derive(Deserialize)]
@@ -1090,6 +1121,8 @@ struct ScopeSettings {
     step_hz: u64,
     settle_s: Option<f64>,
     strategy: Option<String>,
+    #[serde(default)]
+    cyclic: bool,
 }
 impl Profile {
     fn read(stream: &DeviceStream) -> DeviceResult<Self> {
@@ -1201,14 +1234,24 @@ impl Profile {
                                 ));
                             }
                         };
-                        ReceiverScope::new(
-                            plan.start_hz,
-                            plan.stop_hz,
-                            plan.step_hz,
-                            Duration::from_secs_f64(settle),
-                            auto,
-                        )
-                        .map_err(DeviceError::from)
+                        let settle = Duration::from_secs_f64(settle);
+                        if plan.cyclic {
+                            Ok(Scope::Cyclic(CyclicReceiverScope::new(
+                                plan.start_hz,
+                                plan.stop_hz,
+                                plan.step_hz,
+                                settle,
+                                auto,
+                            )?))
+                        } else {
+                            Ok(Scope::Once(ReceiverScope::new(
+                                plan.start_hz,
+                                plan.stop_hz,
+                                plan.step_hz,
+                                settle,
+                                auto,
+                            )?))
+                        }
                     })
                     .transpose()?;
                 Ok(Self::Receiver(
@@ -1282,6 +1325,7 @@ struct Worker {
     period: Duration,
     max_errors: u64,
     scope_points: Option<usize>,
+    cyclic_scan: Option<cyclic_scan::Scan>,
     scan_plan: Option<scan::Plan>,
     scan_coverage: Mutex<scan::Coverage>,
     lifecycle: Arc<Lifecycle>,
@@ -1318,6 +1362,13 @@ impl Worker {
         }
         self.completion.finish(result);
     }
+    fn manual_tune_allowed(&self) -> bool {
+        self.scope_points.is_none()
+            && self
+                .cyclic_scan
+                .as_ref()
+                .is_none_or(cyclic_scan::Scan::held)
+    }
     fn finished_ok(&self) -> bool {
         self.completion.okay() && self.tune_tasks.okay()
     }
@@ -1342,6 +1393,9 @@ impl Worker {
             self.control.project(Some(native), &mut status.current);
         }
         status.worker_instance = Some(self.instance.clone());
+        if let Some(scan) = &self.cyclic_scan {
+            scan.project(&mut status);
+        }
         if let Some(plan) = &self.scan_plan {
             if plan.uses_grid() {
                 status.current["scan_timing"] = self.scan_timing();
@@ -1449,10 +1503,20 @@ impl Worker {
             .ok_or_else(|| DeviceError::Worker("Worker stream disappeared".into()))?;
         if stream["state"] != state {
             stream["state"] = json!(state);
+            let mut payload = json!({"stream_id":self.stream.id,"state":state});
+            if let Some(scan) = &self.cyclic_scan
+                && matches!(state, "degraded" | "error" | "disconnected")
+            {
+                payload["receiver_scan"] = scan.report(if state == "disconnected" {
+                    "stopped"
+                } else {
+                    "interrupted"
+                });
+            }
             let event = EventDraft::now(
                 "device.state",
                 Some(self.stream.session_id.clone()),
-                json!({"stream_id":self.stream.id,"state":state}),
+                payload,
             );
             self.archive.save_session(session, Some(event)).await?;
         }
@@ -1583,6 +1647,7 @@ impl Worker {
         self: &Arc<Self>,
         adapter: &mut Adapter,
         window: Option<ori_guard::ScanWindow>,
+        cyclic_point: Option<cyclic_scan::Cursor>,
     ) -> DeviceResult<Value> {
         self.live()?;
         match adapter {
@@ -1670,11 +1735,16 @@ impl Worker {
             Adapter::Native(Native::Receiver(actor)) => {
                 let worker = self.clone();
                 match actor
-                    .enqueue_guarded(ArDv1Request::Poll, move || {
-                        worker
-                            .live()
-                            .map_err(|_| ori_instruments::InstrumentError::PolicyDenied)
-                    })?
+                    .enqueue_guarded(
+                        cyclic_point.map_or(ArDv1Request::Poll, |point| {
+                            ArDv1Request::PollCyclicPoint { index: point.index }
+                        }),
+                        move || {
+                            worker
+                                .live()
+                                .map_err(|_| ori_instruments::InstrumentError::PolicyDenied)
+                        },
+                    )?
                     .result()
                     .await?
                 {
@@ -1696,6 +1766,9 @@ impl Worker {
     ) -> DeviceResult<TuneOutcome> {
         self.live()?;
         gate.check(Some(self))?;
+        if !self.manual_tune_allowed() {
+            return Err(DeviceError::Denied);
+        }
         let tuned = match adapter {
             Adapter::Simulated(simulator) => {
                 if !stage.begin_io() {
@@ -1750,6 +1823,9 @@ impl Worker {
             .lock()
             .map_err(|_| DeviceError::Closed)?
             .commands_completed += 1;
+        if let Some(scan) = &self.cyclic_scan {
+            scan.manual_tuned();
+        }
         Ok(TuneOutcome {
             tuned,
             worker: self.snapshot(),
@@ -1892,6 +1968,10 @@ impl Worker {
                 }
             }
             if self.control.paused()
+                || self
+                    .cyclic_scan
+                    .as_ref()
+                    .is_some_and(cyclic_scan::Scan::waiting_for_tune)
                 || matches!(&self.native,Some(Native::Analyzer(actor))if actor.state().control_mode==ori_instruments::ControlMode::Lab)
             {
                 tokio::select! {biased; _=self.stopped()=>break,command=priority.recv()=>{match command{Some(command)=>self.apply_priority(command).await,None=>break}},command=commands.recv()=>{match command{Some(command)=>self.apply_command(&mut adapter,command).await,None=>break}},_=tokio::time::sleep(Duration::from_millis(25))=>{}}
@@ -1902,10 +1982,17 @@ impl Worker {
             let band = self.scan_plan.as_ref().map(|p| &p.config.bands[scan_index]);
             let window = band.map(|band| band.window(window_index).expect("validated scan cursor"));
             let grid = band.is_some_and(|b| b.step_hz.is_some());
+            let cyclic_point = self
+                .cyclic_scan
+                .as_ref()
+                .and_then(cyclic_scan::Scan::next_point);
             let result = self
-                .poll(&mut adapter, window)
+                .poll(&mut adapter, window, cyclic_point)
                 .await
                 .and_then(|mut source| {
+                    if let (Some(scan), Some(point)) = (&self.cyclic_scan, cyclic_point) {
+                        scan.stamp(point, &mut source)?;
+                    }
                     if let (Some(plan), Some(band)) = (&self.scan_plan, band) {
                         plan.stamp(band, window_index, &mut source)?;
                     }
@@ -1943,7 +2030,7 @@ impl Worker {
                     } else {
                         // The same worker owns the poll and the tune revision.
                         // Bind committed samples to their acquisition context.
-                        if self.scope_points.is_none() {
+                        if self.scope_points.is_none() && cyclic_point.is_none() {
                             measurement["metadata"]["receiver_tune_context"] =
                                 json!(ori_guard::receiver_tune_context(
                                     &self.instance,
@@ -1962,6 +2049,9 @@ impl Worker {
             match committed {
                 Ok(committed) => {
                     let source = &committed.items[0];
+                    if let (Some(scan), Some(point)) = (&self.cyclic_scan, cyclic_point) {
+                        scan.committed(point, source);
+                    }
                     if let (Some(plan), Some(band), Some(window)) = (&self.scan_plan, band, window)
                     {
                         self.scan_coverage

@@ -622,6 +622,13 @@ impl Worker {
     }
     pub(super) async fn apply_command(self: &Arc<Self>, adapter: &mut Adapter, command: Command) {
         match command {
+            Command::ReceiverScanHold {
+                hold,
+                gate,
+                response,
+            } => {
+                let _ = response.send(self.apply_scan_hold(hold, gate).await);
+            }
             Command::Tune {
                 frequency,
                 mode,
@@ -640,6 +647,9 @@ impl Worker {
     }
     pub(super) fn reject_command(command: Command) {
         match command {
+            Command::ReceiverScanHold { response, .. } => {
+                let _ = response.send(Err(DeviceError::Cancelled));
+            }
             Command::Tune {
                 response, stage, ..
             } => {

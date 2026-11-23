@@ -1,6 +1,8 @@
 //! Actual owned byte streams, archive commits and coordinated task races.
 #[path = "acquisition_tests.rs"]
 mod acquisition_health;
+#[path = "cyclic_scan_tests.rs"]
+mod cyclic;
 use super::*;
 use crate::{Core, CoreConfig};
 use std::{
@@ -1176,7 +1178,7 @@ async fn processed_or_zero_span_device_output_cannot_be_relabelled_as_a_raw_moni
         .await
         .unwrap();
     let result = worker
-        .poll(&mut Adapter::Native(Native::Analyzer(actor)), None)
+        .poll(&mut Adapter::Native(Native::Analyzer(actor)), None, None)
         .await;
     assert!(
         result.is_err(),

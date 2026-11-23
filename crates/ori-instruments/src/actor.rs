@@ -206,6 +206,10 @@ impl TinySaActor {
 pub enum ArDv1Request {
     Prepare,
     Poll,
+    PollCyclicPoint {
+        index: usize,
+    },
+    HoldCyclicScope,
     Tune {
         frequency_hz: u64,
         mode: ReceiverMode,
@@ -261,7 +265,11 @@ impl ArDv1Actor {
                 active.store(
                     matches!(
                         request.command,
-                        ArDv1Request::Prepare | ArDv1Request::Tune { .. } | ArDv1Request::Close
+                        ArDv1Request::Prepare
+                            | ArDv1Request::PollCyclicPoint { .. }
+                            | ArDv1Request::HoldCyclicScope
+                            | ArDv1Request::Tune { .. }
+                            | ArDv1Request::Close
                     ) || (adapter.scanning() && matches!(request.command, ArDv1Request::Poll)),
                     Ordering::SeqCst,
                 );
@@ -270,6 +278,14 @@ impl ArDv1Actor {
                     ArDv1Request::Poll => {
                         adapter.poll_receiver().await.map(ArDv1Reply::Observation)
                     }
+                    ArDv1Request::PollCyclicPoint { index } => adapter
+                        .poll_cyclic_point(index)
+                        .await
+                        .map(ArDv1Reply::Observation),
+                    ArDv1Request::HoldCyclicScope => adapter
+                        .hold_cyclic_scope()
+                        .await
+                        .map(|()| ArDv1Reply::Ready),
                     ArDv1Request::Tune { frequency_hz, mode } => adapter
                         .tune(frequency_hz, mode)
                         .await
