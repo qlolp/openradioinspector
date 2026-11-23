@@ -21,6 +21,9 @@ def check(previous, current, supervisor, volume_parent=None):
     revisions = [identity['source_revision'] for identity in identities]
     if not all(revisions) or revisions[0] == revisions[1]:
         raise ValueError('Two distinct identified core revisions are required')
+    controller = json.loads(subprocess.check_output([supervisor, '--build-info']))
+    if controller['component'] != 'ori-supervisor' or controller['source_revision'] != revisions[1]:
+        raise ValueError('The current core and supervisor must identify the same revision')
     fixture = json.loads((ROOT / 'contracts/fixtures/measurement-v1.json').read_text(encoding='utf-8'))
     observations = [dict(fixture['observation'], id=label, level=level)
                     for label, level in [('before-move', 137.0), ('after-move', 41.0), ('during-rollback', 96.0)]]

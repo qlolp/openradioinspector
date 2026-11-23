@@ -8,8 +8,9 @@ It is not a public stable release and is not Developer-ID notarized.
 Use the same checksum, source-manifest and standard Gatekeeper procedure as RC1.
 Copy the app into /Applications and eject the DMG before starting the service.
 STOP the current service and wait for resource release before replacing the app.
-The archive location remains macOS-RC; switching packages must preserve new data.
-Do not restore an older archive over newer observations during rollback.
+If you relocated the archive, reconnect its volume and choose “Вернуть архив для
+отката” in the stopped service pane. Wait for the verified copy to return to
+the macOS-RC node directory before installing an earlier app.
 
 The native audio backend is compiled and explicitly enabled in this profile.
 Starting the service does not select or open an audio input. Grant application
