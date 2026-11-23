@@ -80,10 +80,11 @@ fn check_started_workers(
     session: &Value,
     workers: &[WorkerStatus],
     unavailable: &'static str,
-) -> std::result::Result<(), &'static str> {
-    let streams = session["streams"].as_array().ok_or(unavailable)?;
+) -> Result<()> {
+    let missing_worker = || GuardError::Conflict(unavailable.into());
+    let streams = session["streams"].as_array().ok_or_else(missing_worker)?;
     if workers.len() != streams.len() {
-        return Err(unavailable);
+        return Err(missing_worker());
     }
     let mut detector_check = Ok(());
     for stream in streams {
@@ -95,7 +96,7 @@ fn check_started_workers(
                     && worker.alive
                     && worker.state != "error"
             })
-            .ok_or(unavailable)?;
+            .ok_or_else(missing_worker)?;
         if stream["settings"]["adapter"] == "rf-explorer-3g-serial" {
             let current = json!(worker.current);
             let verified = current["profile_verified"] == true;
@@ -104,9 +105,9 @@ fn check_started_workers(
             }
             detector_check = Err(
                 if verified && ori_monitoring::rfe::max_hold_readback(&current) {
-                    "RF Explorer подтвердил аппаратный режим Max Hold. Выберите Normal на приборе и повторите запуск."
+                    GuardError::RfExplorerMaxHold
                 } else {
-                    "RF Explorer не подтвердил режим Normal. Проверьте подключение и режим детектора на приборе."
+                    GuardError::RfExplorerDetectorUnconfirmed
                 },
             );
         }
@@ -594,16 +595,16 @@ impl GuardService {
             .control
             .start_session(&decode::<Session>(&session)?, permit)
             .await
-            .map_err(|_| unavailable)
+            .map_err(|_| GuardError::Conflict(unavailable.into()))
             .and_then(|statuses| {
                 check_started_workers(&session, &statuses, unavailable)?;
                 Ok(statuses)
             });
         let statuses = match result {
             Ok(statuses) => statuses,
-            Err(message) => {
+            Err(error) => {
                 self.stop_preparation_locked(id).await?;
-                return Err(GuardError::Conflict(message.into()));
+                return Err(error);
             }
         };
         self.ensure_open()?;
@@ -876,13 +877,13 @@ impl GuardService {
             .await
         {
             Ok(statuses) => {
-                if let Err(message) = check_started_workers(
+                if let Err(error) = check_started_workers(
                     &session,
                     &statuses,
                     "Не удалось запустить приборы; проверьте журнал исполнителей",
                 ) {
-                    self.fail_runtime(id, message).await?;
-                    return Err(GuardError::Conflict(message.into()));
+                    self.fail_runtime(id, &error.to_string()).await?;
+                    return Err(error);
                 }
                 self.ensure_open()?;
                 if let Err(error) = self.check_rfe_start(&p, &statuses).await {
