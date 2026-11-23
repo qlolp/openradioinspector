@@ -543,12 +543,9 @@ impl GuardService {
         );
         let receiver_primary = p["primary_source_kind"] == "ardv1";
         let sweeps = if receiver_primary {
-            let mut observations = self
-                .archive
+            self.archive
                 .list_observations(&typed.id, Some(s(&p, "receiver_stream_id")?), 128)
-                .await?;
-            observations.reverse();
-            observations
+                .await?
         } else {
             self.archive
                 .list_sweeps(&typed.id, Some(s(&p, "analyzer_stream_id")?), 128)

@@ -83,6 +83,92 @@ async fn project(server: &Server) -> String {
 }
 
 #[tokio::test]
+async fn archived_receiver_observations_keep_time_order_and_measure_the_storage_rate() {
+    let directory = tempfile::tempdir().unwrap();
+    let server = Server::start(directory.path()).await;
+    let mut session = fixture();
+    let mut receiver = session["streams"][1].clone();
+    receiver["port"] = json!("COM22");
+    receiver["settings"] = json!({"adapter":"ardv1-serial","receiver_profile":"ardv1-monitor-v1",
+        "mode":"FM","frequency_hz":100_000_000,
+        "fast_scan":{"cyclic":true,"start_hz":100_000_000,"stop_hz":100_010_000,"step_hz":10_000}});
+    session["streams"] = json!([receiver]);
+    assert_eq!(
+        server
+            .request("POST", "/api/v1/sessions", Some(&session))
+            .await
+            .0,
+        201
+    );
+    let path = "/api/v1/sessions/domain";
+    assert_eq!(
+        server
+            .request("POST", &format!("{path}/start"), Some(&json!({})))
+            .await
+            .0,
+        200
+    );
+    let id = project(&server).await;
+    let root = format!("/api/v1/monitoring-projects/{id}");
+    let (status, response) = server.request("POST",&format!("{root}/settings"),Some(
+        &json!({"archive":{"minimum_free_bytes":1_048_576,"minimum_retention_seconds":60,"reserve_backup":true}})
+    )).await;
+    assert_eq!(status, 200, "{response}");
+    let (status, cold) = server
+        .request("GET", &format!("{root}/storage"), None)
+        .await;
+    assert_eq!(status, 200, "{cold}");
+    assert_eq!(cold["data"]["ready"], false);
+    assert!(cold["data"]["bytes_per_second"].is_null());
+
+    let observations = format!("{path}/observations");
+    for (id, second) in [("late", 8), ("early", 0), ("middle", 4)] {
+        let at = format!("2026-11-11T12:00:{second:02}");
+        let record = json!({"id":id,"stream_id":"receiver","frequency_hz":100_000_000,
+            "mode":"FM","level":137,"level_unit":"s_meter_count",
+            "interval":{"started_at":format!("{at}.000000Z"),"ended_at":format!("{at}.500000Z")}});
+        let (status, response) = server.request("POST", &observations, Some(&record)).await;
+        assert_eq!(status, 201, "{response}");
+    }
+    let (status, page) = server
+        .request("GET", &format!("{observations}?limit=2"), None)
+        .await;
+    assert_eq!(status, 200, "{page}");
+    let ids = page["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["middle", "late"]);
+
+    let (status, preflight) = server
+        .request("GET", &format!("{root}/preflight"), None)
+        .await;
+    assert_eq!(status, 200, "{preflight}");
+    let performance = &preflight["data"]["performance"];
+    assert_eq!(
+        performance["mean_observed_cycle_seconds"], 4.0,
+        "{performance}"
+    );
+    assert_eq!(
+        performance["latest_observation_ended_at"],
+        "2026-11-11T12:00:08.500000Z"
+    );
+    let storage = &preflight["data"]["storage"];
+    assert_eq!(storage["sampled_observations"], 3);
+    assert!(
+        storage["bytes_per_second"]
+            .as_f64()
+            .is_some_and(|rate| rate > 0.),
+        "{storage}"
+    );
+    assert_eq!(storage["ready"], true, "{storage}");
+    assert!(storage["required_free_bytes"].as_u64().unwrap() > 1_048_576);
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn candidate_pages_keep_state_filter_order_and_legacy_list() {
     let directory = tempfile::tempdir().unwrap();
     let server = Server::start(directory.path()).await;
