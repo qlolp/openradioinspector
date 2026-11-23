@@ -6,6 +6,7 @@ rust-version = "1.99"
 publish = false
 
 [dependencies]
+ori-contracts = { path = "../ori-contracts" }
 ori-monitoring = { path = "../ori-monitoring" }
 chrono = { version = "=0.4.45", features = ["serde"] }
 rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled", "functions", "backup", "hooks", "limits"] }

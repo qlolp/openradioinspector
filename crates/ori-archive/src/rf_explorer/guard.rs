@@ -13,30 +13,6 @@ impl Archive {
             params![lo,hi,project],|r|r.get::<_,u32>(0))? as usize)).await
     }
 
-    pub async fn rfe_guard_candidates(&self, session: &str, stream: &str) -> Result<Vec<Value>> {
-        let scope = Scope::new(session, stream);
-        let maximum = self.inner.config.max_response_bytes;
-        self.inner.read(move |db| {
-            // Read bounded ends of the native stream/time index. Historical
-            // processed traces or opaque arrays never trigger a table scan.
-            let mut stmt=db.prepare("WITH first AS (SELECT id FROM sweeps WHERE session_id=?1 AND stream_id=?2 ORDER BY started_at,id LIMIT 64),
-                last AS (SELECT id FROM sweeps WHERE session_id=?1 AND stream_id=?2 ORDER BY started_at DESC,id DESC LIMIT 128),
-                candidates AS (SELECT id FROM first UNION SELECT id FROM last)
-                SELECT s.* FROM candidates c CROSS JOIN sweeps s ON s.id=c.id
-                WHERE length(s.frequencies_json)<8192 AND length(s.levels_json)<8192 AND length(s.settings_json)<65536
-                ORDER BY s.started_at,s.id")?;
-            let mut cursor=stmt.query(params![scope.session,scope.stream])?;
-            let mut values=Vec::new();
-            let mut remaining=maximum;
-            while let Some(row)=cursor.next()? {
-                let item=rows::sweep(row)?;
-                remaining-=crate::actor::check_response_size(&item,remaining)?;
-                values.push(item);
-            }
-            Ok(values)
-        }).await
-    }
-
     pub async fn rfe_guard_source_context(&self, sweep: &str) -> Result<Option<String>> {
         let id = sweep.to_owned();
         self.inner.read(move |db| Ok(db.query_row(

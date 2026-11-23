@@ -222,7 +222,13 @@ impl GuardService {
             baseline["level_unit"] = json!("dBm");
         }
         baseline["sweep_period_seconds"] = json!(selection.sweep_period_seconds);
-        baseline["sample_strategy"] = json!("uniform_window_plus_latest_twenty");
+        baseline["sample_strategy"] = json!(if band.is_none()
+            && project["primary_source_kind"] == "rf_explorer"
+        {
+            "earliest_64_and_latest_128_independent_normal_frames"
+        } else {
+            "uniform_window_plus_latest_twenty"
+        });
         if let Some(band) = &band {
             if band.step_hz.is_some() {
                 baseline["scan_window_index"] = json!(index);

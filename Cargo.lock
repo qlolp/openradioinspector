@@ -1632,6 +1632,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "fs2",
+ "ori-contracts",
  "ori-monitoring",
  "rusqlite",
  "serde",
