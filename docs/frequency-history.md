@@ -54,3 +54,6 @@ Saved sets are session-scoped. A portable JSON file contains only
 unknown fields and commands. Saving a changed set creates a version; importing
 or selecting one does not apply radio settings. Unsupported servers show the
 missing history capability and keep existing acquisition controls available.
+
+
+The Rust archive serves the same versioned frequency bookmark sets as the Python server. A reader can list the sets. Saving requires operator access on a paired node. The RF Explorer pass view can use them without a scientific worker. [RF Explorer pass review](rf-explorer-3g.md)
