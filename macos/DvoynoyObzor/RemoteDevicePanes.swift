@@ -140,7 +140,7 @@ struct RemoteUltraPane: View {
         NativeSpectrumInspector(sweeps: model.displayInspectorSweeps,
                                     scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
                                     client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
-                                    hasTinySAControls: model.tinySAAnalyzer != nil, rfExplorer: model.analyzer?.isRFExplorer3G == true,
+                                    hasTinySAControls: model.operatorClient != nil && model.tinySAAnalyzer != nil, rfExplorer: model.analyzer?.isRFExplorer3G == true,
                                     openRFExplorerWindow: openRaw, analyzeRFExplorerSweep: analyze,
                                     liveReceiving: model.followAnalyzerMeasurements && !model.measurementsStale,
                                     measurementsStale: model.measurementsStale,
@@ -157,21 +157,23 @@ struct RemoteUltraPane: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label(model.analyzer?.device ?? "Спектроанализатор", systemImage: "waveform.path").font(.headline)
-                Text(NativeDeviceStatus.title(model.worker(for: model.analyzer?.id)?.state ?? "disconnected"))
+                Text(model.analyzerReceptionLabel)
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Начать приём") { model.startStream(model.analyzer) }
-                    .disabled(model.analyzer == nil || model.busy || model.worker(for: model.analyzer?.id)?.alive == true)
-                Button("Завершить приём") { model.stopStream(model.analyzer) }
-                    .disabled(model.worker(for: model.analyzer?.id)?.alive != true || model.busy)
-                Menu("Ещё") {
-                    Button("Прервать измерение", role: .destructive) { model.stopStream(model.analyzer, mode: .force) }
+                if model.operatorClient != nil {
+                    Button("Начать приём") { model.startStream(model.analyzer) }
+                        .disabled(model.analyzer == nil || model.busy || model.worker(for: model.analyzer?.id)?.alive == true)
+                    Button("Завершить приём") { model.stopStream(model.analyzer) }
                         .disabled(model.worker(for: model.analyzer?.id)?.alive != true || model.busy)
+                    Menu("Ещё") {
+                        Button("Прервать измерение", role: .destructive) { model.stopStream(model.analyzer, mode: .force) }
+                            .disabled(model.worker(for: model.analyzer?.id)?.alive != true || model.busy)
+                    }
                 }
             }.controlSize(.small)
             if !compact {
                 NativeMeasurementStatus(model: model)
-                if let analyzer = model.tinySAAnalyzer {
+                if model.operatorClient != nil, let analyzer = model.tinySAAnalyzer {
                     NativeAnalyzerControls(model: model)
                         .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), analyzer.exactID])
                 }
@@ -222,7 +224,7 @@ struct RemoteUltraPane: View {
                     VStack(alignment: .leading, spacing: 12) {
                         if compact {
                             NativeMeasurementStatus(model: model)
-                            if model.tinySAAnalyzer != nil { NativeAnalyzerControls(model: model) }
+                            if model.operatorClient != nil, model.tinySAAnalyzer != nil { NativeAnalyzerControls(model: model) }
                         }
                         NativeSpectrumReadout(points: model.displayCurrent)
                         DisclosureGroup("Порог и ручная шкала") {

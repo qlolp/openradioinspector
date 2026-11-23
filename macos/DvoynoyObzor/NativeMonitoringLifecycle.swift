@@ -13,20 +13,26 @@ struct NativeMonitoringLifecycle: View {
     @ObservedObject var workspace: MonitoringWorkspaceModel
     @State private var sessionFollow = MonitoringProjectSessionFollowState()
 
-    private var endpoint: String { model.connected ? model.serverURL : "" }
+    private var endpoint: String { model.operatorClient == nil ? "" : model.serverURL }
     private var connection: NativeMonitoringConnection {
-        .init(server: PlatformExactID(endpoint), client: model.connected ? model.client.map(ObjectIdentifier.init) : nil)
+        .init(server: PlatformExactID(endpoint), client: model.operatorClient.map(ObjectIdentifier.init))
+    }
+
+    @MainActor static func loadWorkspace(model: RemoteDualModel, workspace: MonitoringWorkspaceModel) async {
+        let client = model.operatorClient
+        workspace.configure(client == nil ? "" : model.serverURL, client: client)
+        guard client != nil else { return }
+        async let capabilities: Void = workspace.loadMonitoringCapabilities()
+        await workspace.load()
+        await capabilities
+        guard !Task.isCancelled, model.operatorClient === client else { return }
+        await workspace.loadBandPlan()
     }
 
     var body: some View {
         Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
             .task(id: connection) {
-                workspace.configure(endpoint, client: model.connected ? model.client : nil)
-                guard !endpoint.isEmpty else { return }
-                async let capabilities: Void = workspace.loadMonitoringCapabilities()
-                await workspace.load()
-                await capabilities
-                await workspace.loadBandPlan()
+                await Self.loadWorkspace(model: model, workspace: workspace)
             }
             .task(id: [PlatformExactID(endpoint), PlatformExactID(workspace.selected)]) {
                 let server = endpoint, project = workspace.selected
@@ -48,7 +54,7 @@ struct NativeMonitoringLifecycle: View {
                 }
             }
             .onChange(of: PlatformExactID(workspace.project["active_session_id"].text)) { _, id in
-                if let next = sessionFollow.sessionToFollow(endpoint: endpoint, projectID: workspace.selected,
+                if model.operatorClient != nil, let next = sessionFollow.sessionToFollow(endpoint: endpoint, projectID: workspace.selected,
                                                            activeSessionID: id.rawValue), (!model.isStandaloneRFExplorer || workspace.includesSession(model.selectedSessionID)) {
                     model.selectSession(next)
                     Task { await model.reloadSessions() }
