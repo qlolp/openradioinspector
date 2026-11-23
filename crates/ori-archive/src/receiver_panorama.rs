@@ -146,6 +146,78 @@ struct Bin {
     best: Option<(u32, i64, usize)>,
 }
 
+fn bin_range(total: usize, columns: usize, column: usize) -> std::ops::Range<usize> {
+    (column * total).div_ceil(columns)..((column + 1) * total).div_ceil(columns)
+}
+
+fn project_points(
+    db: &Connection,
+    pass: &Pass,
+    bins: &mut [Bin],
+    coverage: &mut [u8],
+) -> Result<usize> {
+    // Each subquery uses the unique (context_id, pass, idx) index. Separate
+    // MIN/MAX queries let SQLite seek directly to each end of this pass.
+    let (measured, first, last): (u32, Option<u32>, Option<u32>) = db.query_row(
+        "SELECT
+         (SELECT COUNT(*) FROM ori_ardv1_points_v1 WHERE context_id=?1 AND pass=?2),
+         (SELECT MIN(idx) FROM ori_ardv1_points_v1 WHERE context_id=?1 AND pass=?2),
+         (SELECT MAX(idx) FROM ori_ardv1_points_v1 WHERE context_id=?1 AND pass=?2)",
+        params![pass.context, pass.number],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    let (Some(first), Some(last)) = (first, last) else {
+        return Ok(0);
+    };
+    let (measured, first, last) = (measured as usize, first as usize, last as usize);
+    let total = pass.grid.total;
+    if last >= total {
+        return Err(ArchiveError::Corrupt("receiver point index".into()));
+    }
+    let columns = bins.len();
+    if measured == last - first + 1 {
+        // Unique integer indices and one read snapshot prove every bit in
+        // this span came from a measured point, including both endpoints.
+        coverage[first / 8..=last / 8].fill(u8::MAX);
+        coverage[first / 8] &= u8::MAX << (first % 8);
+        coverage[last / 8] &= u8::MAX >> (7 - last % 8);
+        let mut strongest = db.prepare(
+            "SELECT best_level,best_seq,idx FROM ori_ardv1_points_v1
+             WHERE context_id=?1 AND pass=?2 AND idx>=?3 AND idx<?4
+             ORDER BY best_level,best_seq,idx LIMIT 1",
+        )?;
+        for (i, bin) in bins.iter_mut().enumerate() {
+            let range = bin_range(total, columns, i);
+            let start = range.start.max(first);
+            let end = range.end.min(last + 1);
+            if start < end {
+                bin.measured = end - start;
+                bin.best = Some(strongest.query_row(
+                    params![pass.context, pass.number, start as i64, end as i64],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, u32>(2)? as usize)),
+                )?);
+            }
+        }
+    } else {
+        let mut points = db.prepare(
+            "SELECT idx,best_level,best_seq FROM ori_ardv1_points_v1
+             WHERE context_id=? AND pass=? ORDER BY idx",
+        )?;
+        let mut cursor = points.query(params![pass.context, pass.number])?;
+        while let Some(row) = cursor.next()? {
+            let index = row.get::<_, u32>(0)? as usize;
+            coverage[index / 8] |= 1 << (index % 8);
+            let bin = &mut bins[index * columns / total];
+            let candidate = (row.get(1)?, row.get(2)?, index);
+            bin.measured += 1;
+            if bin.best.is_none_or(|best| candidate < best) {
+                bin.best = Some(candidate);
+            }
+        }
+    }
+    Ok(measured)
+}
+
 impl Archive {
     pub async fn latest_receiver_scan_point(
         &self,
@@ -192,26 +264,7 @@ impl Archive {
                 let columns = columns.min(grid.total);
                 let mut bins = vec![Bin::default(); columns];
                 let mut coverage = vec![0u8; grid.total.div_ceil(8)];
-                let mut measured = 0;
-                let mut points = db.prepare(
-                    "SELECT idx,best_level,best_seq FROM ori_ardv1_points_v1
-                 WHERE context_id=? AND pass=? ORDER BY idx",
-                )?;
-                let mut cursor = points.query(params![pass.context, pass.number])?;
-                while let Some(row) = cursor.next()? {
-                    let index = row.get::<_, u32>(0)? as usize;
-                    if index >= grid.total {
-                        return Err(ArchiveError::Corrupt("receiver point index".into()));
-                    }
-                    coverage[index / 8] |= 1 << (index % 8);
-                    measured += 1;
-                    let bin = &mut bins[index * columns / grid.total];
-                    let candidate = (row.get(1)?, row.get(2)?, index);
-                    bin.measured += 1;
-                    if bin.best.is_none_or(|best| candidate < best) {
-                        bin.best = Some(candidate);
-                    }
-                }
+                let measured = project_points(db, &pass, &mut bins, &mut coverage)?;
                 let mut winners = db.prepare(
                     "SELECT o.id,o.started_at,o.ended_at FROM ori_ardv1_points_v1 p
                  JOIN observations o ON o.id=COALESCE(p.best_id,p.first_id)
@@ -233,9 +286,9 @@ impl Archive {
                     remaining = remaining
                         .checked_sub(id.len())
                         .ok_or(ArchiveError::QueryBudget)?;
+                    let range = bin_range(grid.total, columns, i);
                     result.push(json!({
-                        "start_index": (i * grid.total).div_ceil(columns),
-                        "end_index": ((i + 1) * grid.total).div_ceil(columns) - 1,
+                        "start_index": range.start, "end_index": range.end - 1,
                         "measured_points": bin.measured,
                         "frequency_hz": grid.frequency(index),
                         "level": level, "observation_id": id,

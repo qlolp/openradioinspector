@@ -100,6 +100,41 @@ async fn compact_panorama_counts_unique_verified_points_and_keeps_original_minim
 }
 
 #[tokio::test]
+async fn contiguous_partial_pass_retains_edge_holes_and_earliest_strongest_originals() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = new_archive(&dir).await;
+    let mut missing_count = point("missing-count", 1, 0, 0, 0);
+    missing_count["level"] = Value::Null;
+    archive
+        .append_observations(vec![
+            missing_count,
+            point("earlier-at-higher-index", 1, 2, 8, 2),
+            point("equal-at-lower-index", 1, 1, 8, 1),
+            point("before-retry", 1, 4, 25, 3),
+            point("stronger-retry", 1, 4, 0, 12),
+            point("later-equal", 1, 3, 0, 4),
+        ])
+        .await
+        .unwrap();
+    let panorama = archive
+        .receiver_panorama("s", "r", Some(1), 2)
+        .await
+        .unwrap();
+    assert_eq!(panorama["measured_points"], 4);
+    assert_eq!(panorama["complete"], false);
+    assert_eq!(panorama["coverage_hex"], "1e");
+    let bins = panorama["bins"].as_array().unwrap();
+    assert_eq!(bins.len(), 2);
+    assert_eq!(bins[0]["measured_points"], 2);
+    assert_eq!(bins[0]["observation_id"], "earlier-at-higher-index");
+    assert_eq!(bins[1]["measured_points"], 2);
+    assert_eq!(bins[1]["observation_id"], "stronger-retry");
+    assert_eq!(bins[1]["level"], 0);
+    assert_eq!(bins[1]["ended_at"], "2026-11-11T00:00:12.000000Z");
+    archive.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn checkpoint_follows_commits_and_new_pass_persists_across_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let a = new_archive(&dir).await;
