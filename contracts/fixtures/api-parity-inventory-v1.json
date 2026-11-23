@@ -789,6 +789,18 @@
         "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
         "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
       }
+    },
+    {
+      "revision": "9597f50002e9d669a713497f50177296dc62c702",
+      "source_sha256": {
+        "radioinspector/web/server.py": "479141afaebb02bd461854dfdd1dfd94d2444f59f131c131d242053c8515c347",
+        "radioinspector/web/openapi.py": "e08ac3c975dc35a4ac24da7fa9cd58fe8366fc5a4637e72377f1f0a6add4166e",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "15e75bd770642e7f408ddc62c1c0a9c343fe386a565ef22f7dd2f0b6f2324b87",
+        "radioinspector/cli.py": "a319024d6cdc83c0bb9987271a46b0deda18e0355b83fd41c21a65e054750518",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
     }
   ],
   "source_support_sha256": {
