@@ -20,7 +20,7 @@ const MAX_COLUMNS: usize = 2048;
 // whole if it exceeds its budget; a truncated Max Hold would be misleading.
 const MAX_HOLD_WINDOWS: usize = 65_536;
 const MAX_HOLD_PASSES: usize = 8192;
-const SELECT: &str = "SELECT pass_key,pass_id,plan,signature,started_at,ended_at,received,unique_points,last_sequence,first_seen_at FROM ori_rfe_passes";
+const SELECT: &str = "SELECT pass_key,pass_id,plan,signature,started_at,ended_at,received,unique_points,last_sequence,first_seen_at FROM ori_rfe_passes_v2";
 
 struct Scope {
     session: String,
@@ -160,8 +160,8 @@ impl Pass {
         if !self.follows(db, scope, p)? {
             return Ok(None);
         }
-        let pair = db.prepare("SELECT p.started_at,c.started_at FROM ori_rfe_tiles c
-            JOIN ori_rfe_tiles p ON p.pass_key=? AND p.tile=c.tile WHERE c.pass_key=? ORDER BY c.tile LIMIT 1")?
+        let pair = db.prepare("SELECT p.started_at,c.started_at FROM ori_rfe_tiles_v2 c
+            JOIN ori_rfe_tiles_v2 p ON p.pass_key=? AND p.tile=c.tile WHERE c.pass_key=? ORDER BY c.tile LIMIT 1")?
             .query_row(params![p.key,self.key], |r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
         Ok(pair.and_then(|(a, b)| seconds(&a, &b)))
     }
@@ -206,7 +206,7 @@ impl Archive {
                     // The sort time is fixed at first ingestion. A late earlier
                     // tile can refine the observed interval without moving the cursor.
                     let issued: bool = db.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM ori_rfe_passes
+                        "SELECT EXISTS(SELECT 1 FROM ori_rfe_passes_v2
                          WHERE pass_key=? AND session_id=? AND stream_id=? AND first_seen_at=?)",
                         params![key, scope.session, scope.stream, time],
                         |row| row.get(0),
@@ -269,7 +269,7 @@ impl Archive {
             .read(move |db| {
                 let pass = Pass::get(db, &scope, &id)?;
                 let mut query = db.prepare(
-                    "SELECT tile,sweep_id,started_at,ended_at FROM ori_rfe_tiles
+                    "SELECT tile,sweep_id,started_at,ended_at FROM ori_rfe_tiles_v2
                  WHERE pass_key=? AND tile>? ORDER BY tile LIMIT ?",
                 )?;
                 let mut rows = query.query(params![pass.key, after, limit as i64 + 1])?;
@@ -458,7 +458,7 @@ impl Work {
             return Err(ArchiveError::QueryBudget);
         }
         const SOURCES: &str =
-            "SELECT tile,started_at,ended_at,samples FROM ori_rfe_tiles WHERE pass_key=?1";
+            "SELECT tile,started_at,ended_at,samples FROM ori_rfe_tiles_v2 WHERE pass_key=?1";
         let constraint = if self.tiles.is_some() {
             " AND tile IN (?2,?3)"
         } else {

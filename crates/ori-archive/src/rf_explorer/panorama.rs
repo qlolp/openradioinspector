@@ -33,7 +33,7 @@ struct Peak {
     byte: u8,
 }
 
-const ORIGINAL: &str = "SELECT sweep_id FROM ori_rfe_tiles WHERE pass_key=? AND tile=?";
+const ORIGINAL: &str = "SELECT sweep_id FROM ori_rfe_tiles_v2 WHERE pass_key=? AND tile=?";
 
 impl Peak {
     fn consider(

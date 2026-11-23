@@ -514,3 +514,79 @@ async fn exact_marker_uses_original_frequency_with_tail_reset_holes_and_instance
     ));
     archive.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn readback_identity_ignores_object_key_order_at_every_depth_and_preserves_array_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = open(&dir.path().join("key-order.sqlite")).await;
+    let mut first = window("ordered-1", 1, 115, 1, 1);
+    let mut second = window("ordered-1", 1, 115, 2, 3);
+    first["settings"]["extension"] = json!({"outer":{"z":1,"a":[{"x":2,"b":3},4]}});
+    second["settings"]["extension"] = json!({"outer":{"a":[{"b":3,"x":2},4],"z":1}});
+    archive.append_sweeps(vec![first, second]).await.unwrap();
+    assert_eq!(
+        detail(&archive, "ordered-1", 8, None).await["summary"]["complete"],
+        true
+    );
+
+    let mut first = window("changed-1", 1, 115, 1, 5);
+    let mut second = window("changed-1", 1, 115, 2, 7);
+    first["settings"]["extension"] = json!({"outer":{"a":[{"b":3,"x":2},4]}});
+    second["settings"]["extension"] = json!({"outer":{"a":[4,{"b":3,"x":2}]}});
+    archive.append_sweeps(vec![first, second]).await.unwrap();
+    assert!(matches!(
+        archive
+            .rf_explorer_pass("session", "rf", "changed-1", 8, None)
+            .await,
+        Err(ArchiveError::Conflict)
+    ));
+    archive.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn version_one_quarantine_is_rebuilt_from_originals_despite_its_completed_watermark() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("upgrade.sqlite");
+    let archive = open(&path).await;
+    let first = window("upgrade-1", 1, 115, 1, 1);
+    let mut second = window("upgrade-1", 1, 115, 2, 3);
+    second["levels"][0] = json!(-12.5);
+    archive.append_sweeps(vec![first, second]).await.unwrap();
+    archive.close().await.unwrap();
+
+    let db = rusqlite::Connection::open(&path).unwrap();
+    // Recreate the previous release's persisted index, including its false
+    // quarantine and watermark past the second, valid canonical measurement.
+    db.execute_batch(
+        "DROP INDEX ori_rfe_valid_history_v2;
+        DROP INDEX ori_rfe_history_v2;
+        ALTER TABLE ori_rfe_passes_v2 RENAME TO ori_rfe_passes;
+        ALTER TABLE ori_rfe_tiles_v2 RENAME TO ori_rfe_tiles;
+        ALTER TABLE ori_rfe_ingestion_v2 RENAME TO ori_rfe_ingestion;
+        UPDATE ori_rfe_passes SET signature=NULL;
+        DELETE FROM ori_rfe_tiles WHERE tile=2;",
+    )
+    .unwrap();
+    let originals = |db: &rusqlite::Connection| -> Vec<(String, String, String)> {
+        db.prepare("SELECT settings_json,frequencies_json,levels_json FROM sweeps ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    };
+    let original_rows = originals(&db);
+    drop(db);
+
+    for _ in 0..2 {
+        let archive = Archive::open(ArchiveConfig::new(&path)).unwrap();
+        let data = detail(&archive, "upgrade-1", 115, None).await;
+        assert_eq!(data["summary"]["complete"], true);
+        assert_eq!(data["summary"]["received_tiles"], 2);
+        assert_eq!(data["columns"][3]["sweep_id"], "upgrade-1/2/3");
+        assert_eq!(data["columns"][3]["level_dbm"], -12.5);
+        archive.close().await.unwrap();
+    }
+    let db = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(originals(&db), original_rows);
+}

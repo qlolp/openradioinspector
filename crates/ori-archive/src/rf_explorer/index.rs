@@ -13,29 +13,32 @@ use serde::{
 use serde_json::{Number, Value, value::RawValue};
 use std::fmt;
 
+// V1 hashed the insertion order of nested JSON objects. Its checkpoint may
+// already be past a falsely quarantined pass. Separate tables and watermarks
+// let either generation reopen and catch up from immutable sweep_ingestion.
 const DDL: &str = "
-CREATE TABLE IF NOT EXISTS ori_rfe_passes(
+CREATE TABLE IF NOT EXISTS ori_rfe_passes_v2(
     pass_key INTEGER PRIMARY KEY, session_id TEXT NOT NULL, stream_id TEXT NOT NULL,
     pass_id TEXT NOT NULL, last_sequence INTEGER NOT NULL, first_seen_at TEXT NOT NULL, plan TEXT, signature BLOB, started_at TEXT NOT NULL, ended_at TEXT NOT NULL,
     received INTEGER NOT NULL DEFAULT 0, unique_points INTEGER NOT NULL DEFAULT 0,
     UNIQUE(session_id,stream_id,pass_id),
     FOREIGN KEY(stream_id,session_id) REFERENCES streams(id,session_id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ori_rfe_history ON ori_rfe_passes(session_id,stream_id,started_at,pass_key);
-CREATE INDEX IF NOT EXISTS ori_rfe_valid_history ON ori_rfe_passes(session_id,stream_id,first_seen_at,pass_key)
+CREATE INDEX IF NOT EXISTS ori_rfe_history_v2 ON ori_rfe_passes_v2(session_id,stream_id,started_at,pass_key);
+CREATE INDEX IF NOT EXISTS ori_rfe_valid_history_v2 ON ori_rfe_passes_v2(session_id,stream_id,first_seen_at,pass_key)
     WHERE signature IS NOT NULL;
-CREATE TABLE IF NOT EXISTS ori_rfe_tiles(
-    pass_key INTEGER NOT NULL REFERENCES ori_rfe_passes(pass_key) ON DELETE CASCADE, tile INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS ori_rfe_tiles_v2(
+    pass_key INTEGER NOT NULL REFERENCES ori_rfe_passes_v2(pass_key) ON DELETE CASCADE, tile INTEGER NOT NULL,
     sweep_id TEXT NOT NULL UNIQUE REFERENCES sweeps(id) ON DELETE CASCADE,
     started_at TEXT NOT NULL, ended_at TEXT NOT NULL, samples BLOB NOT NULL CHECK(length(samples)=112),
     PRIMARY KEY(pass_key,tile)
 ) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS ori_rfe_ingestion(singleton INTEGER PRIMARY KEY CHECK(singleton=1), sequence INTEGER NOT NULL);
-INSERT OR IGNORE INTO ori_rfe_ingestion VALUES(1,0);";
+CREATE TABLE IF NOT EXISTS ori_rfe_ingestion_v2(singleton INTEGER PRIMARY KEY CHECK(singleton=1), sequence INTEGER NOT NULL);
+INSERT OR IGNORE INTO ori_rfe_ingestion_v2 VALUES(1,0);";
 
 pub(crate) fn checkpoint(db: &Connection, sequence: i64) -> Result<()> {
     db.execute(
-        "UPDATE ori_rfe_ingestion SET sequence=? WHERE singleton=1",
+        "UPDATE ori_rfe_ingestion_v2 SET sequence=? WHERE singleton=1",
         [sequence],
     )?;
     Ok(())
@@ -59,7 +62,7 @@ fn record(db: &Connection, source: Source<'_>, tile: Option<Tile>) -> Result<()>
     let signature = tile.as_ref().map(|t| t.signature.as_slice());
     // A NULL signature permanently quarantines a malformed or mixed pass.
     // Ordinary canonical archival and access by raw sweep ID remain available.
-    let (key,valid) = db.prepare("INSERT INTO ori_rfe_passes(pass_key,session_id,stream_id,pass_id,plan,signature,started_at,ended_at,last_sequence,first_seen_at)
+    let (key,valid) = db.prepare("INSERT INTO ori_rfe_passes_v2(pass_key,session_id,stream_id,pass_id,plan,signature,started_at,ended_at,last_sequence,first_seen_at)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?1,?7)
         ON CONFLICT(session_id,stream_id,pass_id) DO UPDATE SET
             last_sequence=MAX(last_sequence,excluded.last_sequence),
@@ -72,9 +75,9 @@ fn record(db: &Connection, source: Source<'_>, tile: Option<Tile>) -> Result<()>
         return Ok(());
     };
     let num = tile.number as i64;
-    let previous = db.prepare("SELECT tile,ended_at FROM ori_rfe_tiles WHERE pass_key=? AND tile<=? ORDER BY tile DESC LIMIT 1")?
+    let previous = db.prepare("SELECT tile,ended_at FROM ori_rfe_tiles_v2 WHERE pass_key=? AND tile<=? ORDER BY tile DESC LIMIT 1")?
         .query_row(params![key,num], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?))).optional()?;
-    let next = db.prepare("SELECT tile,started_at FROM ori_rfe_tiles WHERE pass_key=? AND tile>? ORDER BY tile LIMIT 1")?
+    let next = db.prepare("SELECT tile,started_at FROM ori_rfe_tiles_v2 WHERE pass_key=? AND tile>? ORDER BY tile LIMIT 1")?
         .query_row(params![key,num], |r| Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?))).optional()?;
     if previous
         .as_ref()
@@ -82,7 +85,7 @@ fn record(db: &Connection, source: Source<'_>, tile: Option<Tile>) -> Result<()>
         || next.as_ref().is_some_and(|(_, t)| t.as_str() < source.end)
     {
         db.execute(
-            "UPDATE ori_rfe_passes SET signature=NULL WHERE pass_key=?",
+            "UPDATE ori_rfe_passes_v2 SET signature=NULL WHERE pass_key=?",
             [key],
         )?;
         return Ok(());
@@ -96,9 +99,9 @@ fn record(db: &Connection, source: Source<'_>, tile: Option<Tile>) -> Result<()>
     } else {
         0
     };
-    db.prepare("INSERT INTO ori_rfe_tiles(pass_key,tile,sweep_id,started_at,ended_at,samples) VALUES(?,?,?,?,?,?)")?
+    db.prepare("INSERT INTO ori_rfe_tiles_v2(pass_key,tile,sweep_id,started_at,ended_at,samples) VALUES(?,?,?,?,?,?)")?
         .execute(params![key,num,source.sweep,source.start,source.end,tile.samples.as_slice()])?;
-    db.prepare("UPDATE ori_rfe_passes SET received=received+1,unique_points=unique_points+? WHERE pass_key=?")?
+    db.prepare("UPDATE ori_rfe_passes_v2 SET received=received+1,unique_points=unique_points+? WHERE pass_key=?")?
         .execute(params![(POINTS-overlap) as i64,key])?;
     Ok(())
 }
@@ -167,7 +170,7 @@ fn archived_points(raw: &str) -> Option<Value> {
 pub(crate) fn install(db: &Connection) -> Result<()> {
     db.execute_batch(DDL)?;
     let after: i64 = db.query_row(
-        "SELECT sequence FROM ori_rfe_ingestion WHERE singleton=1",
+        "SELECT sequence FROM ori_rfe_ingestion_v2 WHERE singleton=1",
         [],
         |r| r.get(0),
     )?;

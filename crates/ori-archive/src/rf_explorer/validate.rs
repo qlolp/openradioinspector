@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 
 pub(super) const POINTS: usize = 112;
 pub(super) const STEP: u64 = 10_000;
@@ -151,11 +150,18 @@ pub(super) fn tile(settings: &Value, hz: &Value, levels: &Value, unit: &str) -> 
     }
     // Include unknown readback extensions as well. Only the requested survey
     // identity and the physical tile endpoints legitimately vary.
-    let readback: BTreeMap<_, _> = settings
-        .as_object()?
-        .iter()
-        .filter(|(key, _)| !matches!(key.as_str(), "survey" | "start_hz" | "stop_hz"))
-        .collect();
+    let mut readback = Value::Object(
+        settings
+            .as_object()?
+            .iter()
+            .filter(|(key, _)| !matches!(key.as_str(), "survey" | "start_hz" | "stop_hz"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    );
+    // JSON object membership is independent of insertion order. The live
+    // adapter and the canonical archive parser may produce different orders,
+    // including in objects nested inside extension arrays.
+    readback.sort_all_objects();
     let signature = Sha256::digest(serde_json::to_vec(&(start, stop, readback)).ok()?).to_vec();
     Some(Tile {
         plan,
