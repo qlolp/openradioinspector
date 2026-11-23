@@ -193,12 +193,40 @@ async fn receiver_reference_requires_distinct_verified_passes_then_detects_orien
             &armed,
             pass,
             1,
-            if pass == 2 { 33 } else { 40 },
+            match pass {
+                2 => 33,
+                3 | 4 => 36,
+                _ => 40,
+            },
         ));
     }
+    let later = captures.split_off(4);
     h.archive.append_observations(captures).await.unwrap();
+    let first = h.service.analyze(id).await.unwrap();
+    assert_eq!(first["events_updated"], 1);
+    let impulse_id = first["event_ids"][0].as_str().unwrap();
+    let impulse = h
+        .archive
+        .monitoring("event", impulse_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(impulse["kind"], "impulse");
+    h.archive.append_observations(later).await.unwrap();
     let detected = h.service.analyze(id).await.unwrap();
     assert_eq!(detected["events_updated"], 2, "{detected}");
+    let confirmed = h
+        .archive
+        .monitoring("event", impulse_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        confirmed["source_count"], 3,
+        "every independent above-threshold pass remains linked"
+    );
+    assert_eq!(confirmed["kind"], "new_signal");
+    assert_eq!(confirmed["impulse_detected"], true);
     let rows = h
         .service
         .list_records("event", Some(id), "", 20, false)
@@ -208,7 +236,7 @@ async fn receiver_reference_requires_distinct_verified_passes_then_detects_orien
         .as_array()
         .unwrap()
         .iter()
-        .find(|v| v["kind"] == "new_signal")
+        .find(|v| v["kind"] == "new_signal" && v["id"] != impulse_id)
         .unwrap();
     assert_eq!(sustained["peak_level"], 96);
     assert_eq!(sustained["source_count"], 3);

@@ -510,8 +510,9 @@ impl GuardService {
             .filter(|v| !v.is_null())
             .cloned()
             .collect::<Vec<_>>();
+        let sustained = evidence.len() >= 3;
         let active = sample.above
-            && (sample.impulse || evidence.len() >= 3)
+            && (sample.impulse || sustained || state["event_id"].is_string())
             && !rule.is_some_and(|r| r["watch_changes"] == false);
         if !active {
             if !sample.above && state["event_id"].is_null() {
@@ -544,6 +545,12 @@ impl GuardService {
                 "run_session_id":obs["session_id"],"scan_plan_id":obs["metadata"]["scan_plan_key"],"receiver_context_key":b["context_key"],"first_seen":evidence[0]["interval"]["started_at"],"baseline_id":b["id"],
                 "start_frequency_hz":hz,"center_frequency_hz":hz,"end_frequency_hz":hz,"level_unit":"s_meter_count","source_count":0,"source_refs":[],"detector_version":"ardv1-counts-v1"}))?
         };
+        if sample.impulse {
+            event["impulse_detected"] = json!(true);
+        }
+        if sustained && event["kind"] == "impulse" {
+            event["kind"] = json!("new_signal");
+        }
         let key = s(&event, "id")?.to_owned();
         let peak = if existing.is_some() {
             &source
@@ -568,7 +575,6 @@ impl GuardService {
             event["peak_source"] = peak.clone();
         }
         event["last_seen"] = obs["interval"]["ended_at"].clone();
-        let evidence_count = evidence.len();
         let new_sources = if existing.is_some() {
             vec![source]
         } else {
@@ -595,7 +601,7 @@ impl GuardService {
             changes.push(Mutation::EnqueueNotification(
                 self.event_notification(p, &event)?,
             ));
-            let occurrence = if evidence_count >= 3 {
+            let occurrence = if sustained {
                 "sustained"
             } else if existing.is_some() {
                 "repeat"
