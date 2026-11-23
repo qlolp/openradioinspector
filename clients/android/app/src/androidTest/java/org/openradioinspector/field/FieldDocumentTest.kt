@@ -1,5 +1,6 @@
 package org.openradioinspector.field
 
+import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
@@ -8,9 +9,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.CancellationException
+import java.util.UUID
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -75,11 +78,97 @@ class FieldDocumentTest {
         }
     }
 
-    @Test fun oversizedRecordFailsWithAnExplicitLimitAndCleansStaging() = inCache { root ->
-        val bytes = repack { it.replaceText("events.ndjson", "Synthetic marker", "a".repeat(mobileLineLimit)) }
-        val error = assertThrows(IllegalArgumentException::class.java) { FieldDocument.open(root, bytes.inputStream()) }
-        assertTrue(error.message.orEmpty().contains("1 МиБ"))
+    @Test fun originalAndGpsFieldsLargerThanSqliteCursorWindowKeepTheirContentsAndLinks() = inCache { root ->
+        val text = "x".repeat(2 * 1024 * 1024 + 31) + " край"
+        val bytes = repack { members ->
+            members.replaceText("measurements.ndjson", "\"settings\":{", "\"settings\":{\"instrument_log\":\"$text\",")
+            for (name in listOf("events.ndjson", "track.geojson")) {
+                members.replaceText(name, "\"accuracy_m\":5.5", "\"accuracy_m\":5.5,\"provider_log\":\"$text\"")
+            }
+        }
+        FieldDocument.open(root, bytes.inputStream()).use { doc ->
+            val channel = doc.channels.single { !it.receiver }
+            val reader = doc.reader(channel)
+            val route = reader.page(channel.profile, ReviewKind.TRACK, PageCursor(), null, 100_000_002L)
+            assertEquals(text, route.items.single().json.getString("provider_log"))
+            val link = route.routeLevels.getValue("fix-1") as RouteReading.Measured
+            val original = reader.source(channel.profile, link.sourceId)!!
+            assertEquals(text, original.getJSONObject("settings").getString("instrument_log"))
+            assertEquals((-0.0).toRawBits(), original.getJSONArray("levels").getDouble(1).toRawBits())
+        }
         assertTrue(root.listFiles()!!.isEmpty())
+    }
+
+    @Test fun recordAboveTheV1LimitIsRejectedBeforeDecoding() {
+        val input = ByteArray(FieldExporter.maxLine) { 32 }.inputStream()
+        val error = assertThrows(IllegalArgumentException::class.java) { FieldLines(input, 0L) {}.next() }
+        assertTrue(error.message.orEmpty().contains("V1"))
+    }
+
+    @Test fun verifiedOffsetsDetectChangedSourceBeforeShowingTheOriginal() = inCache { root ->
+        val bytes = fixture()
+        FieldDocument.open(root, bytes.inputStream()).use { doc ->
+            val copy = File(root, "field-document-review").listFiles()!!.single().resolve("source.orifield")
+            val offset = StoredFieldZip(copy).dataStart("measurements.ndjson")
+            RandomAccessFile(copy, "rw").use { file ->
+                file.seek(offset)
+                file.readLine() // the measurement header
+                val position = file.filePointer + 2
+                file.seek(position)
+                file.write(32)
+            }
+            val channel = doc.channels.single { !it.receiver }
+            assertThrows(IllegalArgumentException::class.java) { doc.reader(channel).source(channel.profile, "fixture-sweep-α") }
+        }
+        assertArrayEquals(fixture(), bytes)
+        assertTrue(root.listFiles()!!.isEmpty())
+    }
+
+    @Test fun exportedTrackOver128MiBReopensAndResolvesTheLastOriginal() = inCache { root ->
+        val captureRoot = File(root, "captures")
+        val id = UUID.randomUUID().toString()
+        val config = FieldConfig(1, "tinysa", 100_000_000, 101_000_000, 10_000)
+        FieldArchive.create(captureRoot, id, FieldDevice(1, "synthetic", listOf("tinysa")), config).use { it.finish(null) }
+        val database = FieldArchive.database(captureRoot, id)
+        val fixes = 1030
+        val detail = "x".repeat(64 * 1024)
+        val utc = "2026-11-11T12:00:00Z"
+        SQLiteDatabase.openDatabase(database.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            val stream = db.rawQuery("SELECT stream_id FROM sessions", null).use { it.moveToFirst(); it.getString(0) }
+            db.beginTransaction()
+            try {
+                val gps = JSONObject().put("kind", "gps").put("session_id", id).put("stream_id", stream)
+                    .put("time_utc", utc).put("latitude", 1.5).put("longitude", 2.5).put("provider_log", detail)
+                repeat(fixes) { n ->
+                    val fix = "point-$n"
+                    db.execSQL("INSERT INTO events(id,kind,json) VALUES(?,'gps',?)", arrayOf(fix, gps.put("id", fix).toString()))
+                }
+                val fix = "point-${fixes - 1}"
+                val sweep = """{"id":"last","session_id":"$id","stream_id":"$stream","interval":{"started_at":"$utc","ended_at":"$utc"},"frequencies_hz":[100000000],"levels":[-73.125],"level_unit":"dBm","settings":{"field_fix_id":"$fix"}}"""
+                db.execSQL("INSERT INTO sweeps(id,fix_id,json) VALUES('last',?,?)", arrayOf(fix, sweep))
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+        }
+        val exported = FieldExporter.build(database, File(root, "export").apply { mkdir() })
+        assertTrue(exported.length() > 128L * 1024 * 1024)
+        exported.inputStream().use { input -> FieldDocument.open(root, input).use { doc ->
+            val channel = doc.channels.single()
+            val reader = doc.reader(channel)
+            val page = reader.page(channel.profile, ReviewKind.TRACK, PageCursor(fixes - 1L), null, 100_000_000L)
+            val last = page.items.single().json
+            assertEquals("point-${fixes - 1}", last.getString("id"))
+            assertEquals(detail, last.getString("provider_log"))
+            val reading = page.routeLevels.getValue(last.getString("id")) as RouteReading.Measured
+            assertEquals(-73.125, reading.level, 0.0)
+            assertEquals("last", reader.source(channel.profile, reading.sourceId)!!.getString("id"))
+            val first = reader.page(channel.profile, ReviewKind.TRACK, PageCursor(), null)
+            assertTrue(first.newer)
+            assertTrue(first.items.size in 1 until 128)
+            val stage = File(root, "field-document-review").listFiles()!!.single()
+            assertTrue(File(stage, "review.sqlite").length() < exported.length() / 10)
+        } }
+        assertTrue(exported.isFile)
+        assertFalse(File(root, "field-document-review").exists())
     }
 
     @Test fun actualAndroidExportCanOpenTwiceWithoutReplacingAnExistingSession() = inCache { root ->

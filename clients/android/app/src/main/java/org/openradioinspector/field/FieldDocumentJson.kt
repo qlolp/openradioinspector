@@ -7,7 +7,7 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 
 // Android's JSONObject accepts non-JSON syntax and silently replaces duplicate keys.
-internal class FieldDocumentJson(private val text: String) {
+internal class FieldDocumentJson(private val text: String, private val checkpoint: () -> Unit = {}) {
     private var at = 0
     private var tokens = 0
     private val number = numberPattern.matcher(text)
@@ -28,6 +28,7 @@ internal class FieldDocumentJson(private val text: String) {
 
     private fun value(depth: Int): Any {
         require(depth <= 64 && ++tokens <= 100_000) { "Слишком сложная запись JSON" }
+        if (tokens % 256 == 0) checkpoint()
         spaces()
         require(at < text.length)
         return when (text[at]) {
@@ -85,22 +86,27 @@ internal class FieldDocumentJson(private val text: String) {
 
     private fun string(): String {
         require(take('"'))
-        val out = StringBuilder()
+        var out: StringBuilder? = null
+        var start = at
         while (at < text.length) {
+            if (at % 16384 == 0) checkpoint()
             val c = text[at++]
             when (c) {
                 '"' -> {
+                    val decoded = out?.append(text, start, at - 1)?.toString() ?: text.substring(start, at - 1)
                     var index = 0
-                    while (index < out.length) {
-                        val ch = out[index++]
-                        if (ch.isHighSurrogate()) require(index < out.length && out[index++].isLowSurrogate())
+                    while (index < decoded.length) {
+                        val ch = decoded[index++]
+                        if (ch.isHighSurrogate()) require(index < decoded.length && decoded[index++].isLowSurrogate())
                         else require(!ch.isLowSurrogate())
                     }
-                    return out.toString()
+                    return decoded
                 }
                 '\\' -> {
                     require(at < text.length)
-                    out.append(when (val escape = text[at++]) {
+                    val escaped = out ?: StringBuilder().also { out = it }
+                    escaped.append(text, start, at - 1)
+                    escaped.append(when (val escape = text[at++]) {
                         '"', '\\', '/' -> escape
                         'b' -> '\b'
                         'f' -> '\u000c'
@@ -116,11 +122,9 @@ internal class FieldDocumentJson(private val text: String) {
                         }
                         else -> throw IllegalArgumentException("Некорректная escape-последовательность JSON")
                     })
+                    start = at
                 }
-                else -> {
-                    require(c >= ' ')
-                    out.append(c)
-                }
+                else -> require(c >= ' ')
             }
         }
         throw IllegalArgumentException("Незавершённая строка JSON")

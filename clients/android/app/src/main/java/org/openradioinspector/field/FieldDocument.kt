@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream
+import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.LinkOption
 
@@ -34,7 +35,7 @@ internal class FieldDocument private constructor(private val directory: File, va
                         if (n < 0) break
                         require(n > 0)
                         total += n
-                        require(total <= mobileDocumentLimit) { "Размер файла превышает 128 МиБ" }
+                        require(total <= FieldExporter.maxArchive) { "Размер файла превышает предел ZIP V1" }
                         output.write(block, 0, n)
                     }
                 }
@@ -43,11 +44,10 @@ internal class FieldDocument private constructor(private val directory: File, va
                 val manifest = zip.read(fieldManifest) { FieldDocumentJson(strictUtf8(it.readBytes())).parse() }
                 val dbFile = File(work, "review.sqlite")
                 val indexed = SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
-                    db.maximumSize = 384L * 1024 * 1024
                     db.beginTransaction()
                     try {
                         val index = DocumentIndex(db, zip, manifest, checkpoint)
-                        val channels = index.build()
+                        val channels = RandomAccessFile(copy, "r").use(index::build)
                         checkpoint()
                         db.setTransactionSuccessful()
                         FieldDocument(work, index.session, channels, manifest.opt("started_at") as? String ?: "")
@@ -99,7 +99,7 @@ private class DocumentIndex(private val db: SQLiteDatabase, private val zip: Sto
     private val sweeps = mutableSetOf<String>()
     private val observations = mutableSetOf<String>()
 
-    fun build(): List<DocumentChannel> {
+    fun build(source: RandomAccessFile): List<DocumentChannel> {
         require(manifest.text("format") == "openradioinspector-field" && manifest.count("format_version") == 1L) {
             "Неподдерживаемый формат выезда"
         }
@@ -117,10 +117,11 @@ private class DocumentIndex(private val db: SQLiteDatabase, private val zip: Sto
         val files = manifest.getJSONObject("files")
         require(files.keys().asSequence().toSet() == fieldPayloads.toSet())
         for (table in listOf("sweeps", "observations")) {
-            db.execSQL("CREATE TABLE $table(seq INTEGER PRIMARY KEY,stream_id TEXT NOT NULL,id TEXT NOT NULL,fix_id TEXT,json TEXT NOT NULL,UNIQUE(stream_id,id))")
+            db.execSQL("CREATE TABLE $table(seq INTEGER PRIMARY KEY,stream_id TEXT NOT NULL,id TEXT NOT NULL,fix_id TEXT,source_offset INTEGER NOT NULL,source_length INTEGER NOT NULL,source_hash BLOB NOT NULL,UNIQUE(stream_id,id))")
             db.execSQL("CREATE INDEX ${table}_fix ON $table(stream_id,fix_id,seq)")
+            db.execSQL("CREATE INDEX ${table}_page ON $table(stream_id,seq)")
         }
-        db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY,stream_id TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,json TEXT NOT NULL,UNIQUE(stream_id,kind,id))")
+        db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY,stream_id TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,source_offset INTEGER NOT NULL,source_length INTEGER NOT NULL,source_hash BLOB NOT NULL,UNIQUE(stream_id,kind,id))")
         db.execSQL("CREATE INDEX events_kind ON events(stream_id,kind,seq)")
         db.execSQL("CREATE INDEX events_track ON events(kind,seq)")
         db.execSQL("CREATE TABLE refs(stream_id TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL)")
@@ -130,20 +131,26 @@ private class DocumentIndex(private val db: SQLiteDatabase, private val zip: Sto
             val digest = receipt.text("sha256")
             require(digest.matches(Regex("[0-9a-f]{64}")) && receipt.count("bytes") == zip.size(name))
             val count = zip.read(name, digest) {
-                val lines = FieldLines(it)
+                val lines = FieldLines(it, zip.dataStart(name), checkpoint)
                 when (name) {
                     "measurements.ndjson" -> measurements(lines)
                     "events.ndjson" -> events(lines)
-                    else -> track(lines)
+                    else -> track(lines, source)
                 }
             }
             require(count == receipt.count("records")) { "Неверное число записей $name" }
         }
+        val lastRef = db.rawQuery("SELECT COALESCE(MAX(rowid),0) FROM refs", null).use { it.moveToFirst(); it.getLong(0) }
         for ((kind, table) in listOf("gps" to "events", "sweep" to "sweeps", "observation" to "observations")) {
-            checkpoint()
             val gps = if (kind == "gps") " AND t.kind='gps'" else ""
-            val query = "SELECT 1 FROM refs r WHERE r.kind=? AND NOT EXISTS (SELECT 1 FROM $table t WHERE t.stream_id=r.stream_id AND t.id=r.id$gps) LIMIT 1"
-            db.rawQuery(query, arrayOf(kind)).use { require(!it.moveToFirst()) { "Отсутствует исходная запись в потоке" } }
+            val query = "SELECT 1 FROM refs r WHERE r.rowid BETWEEN ? AND ? AND r.kind=? AND NOT EXISTS " +
+                "(SELECT 1 FROM $table t WHERE t.stream_id=r.stream_id AND t.id=r.id$gps) LIMIT 1"
+            for (first in 1L..lastRef step 4096L) {
+                checkpoint()
+                db.rawQuery(query, arrayOf(first.toString(), (first + 4095).toString(), kind)).use {
+                    require(!it.moveToFirst()) { "Отсутствует исходная запись в потоке" }
+                }
+            }
         }
         db.execSQL("DROP TABLE refs")
         return streams.values.flatMap { channel ->
@@ -179,7 +186,7 @@ private class DocumentIndex(private val db: SQLiteDatabase, private val zip: Sto
         while (true) {
             checkpoint()
             val raw = lines.next() ?: break
-            val entry = FieldDocumentJson(raw).parse()
+            val entry = FieldDocumentJson(raw, checkpoint).parse()
             val kind = entry.text("kind")
             val record = entry.getJSONObject("measurement")
             val stream = stream(record)
@@ -216,8 +223,8 @@ private class DocumentIndex(private val db: SQLiteDatabase, private val zip: Sto
                 else -> throw IllegalArgumentException("Неизвестный тип измерения")
             }
             val fix = if (record.has(linkKey)) ref(stream, "gps", record.getJSONObject(linkKey), "field_fix_id") else null
-            // Keep the complete source envelope, including signed zero, settings and unknown fields.
-            db.execSQL("INSERT INTO $table(stream_id,id,fix_id,json) VALUES(?,?,?,?)", arrayOf(stream, id, fix, raw))
+            db.execSQL("INSERT INTO $table(stream_id,id,fix_id,source_offset,source_length,source_hash) VALUES(?,?,?,?,?,?)",
+                arrayOf(stream, id, fix, lines.position, lines.length, lines.hash()))
         }
         require(sweepCount == manifest.count("sweep_count") && observationCount == manifest.count("observation_count"))
         return sweepCount + observationCount
@@ -228,7 +235,7 @@ private class DocumentIndex(private val db: SQLiteDatabase, private val zip: Sto
         while (true) {
             checkpoint()
             val raw = lines.next() ?: break
-            val event = FieldDocumentJson(raw).parse()
+            val event = FieldDocumentJson(raw, checkpoint).parse()
             val stream = stream(event)
             val id = event.text("id")
             val kind = event.text("kind")
@@ -247,22 +254,23 @@ private class DocumentIndex(private val db: SQLiteDatabase, private val zip: Sto
                 "gap" -> event.text("reason")
                 else -> throw IllegalArgumentException("Неизвестное событие")
             }
-            db.execSQL("INSERT INTO events(stream_id,kind,id,json) VALUES(?,?,?,?)", arrayOf(stream, kind, id, raw))
+            db.execSQL("INSERT INTO events(stream_id,kind,id,source_offset,source_length,source_hash) VALUES(?,?,?,?,?,?)",
+                arrayOf(stream, kind, id, lines.position, lines.length, lines.hash()))
             count++
         }
         return count
     }
 
-    private fun track(lines: FieldLines): Long {
+    private fun track(lines: FieldLines, source: RandomAccessFile): Long {
         require(lines.next() == "{\"type\":\"FeatureCollection\",\"features\":[")
         var count = 0L
-        db.rawQuery("SELECT json FROM events WHERE kind='gps' ORDER BY seq", null).use { fixes ->
+        db.rawQuery("SELECT source_offset,source_length,source_hash FROM events WHERE kind='gps' ORDER BY seq", null).use { fixes ->
             while (fixes.moveToNext()) {
                 checkpoint()
                 val line = requireNotNull(lines.next())
                 if (count > 0) require(line.startsWith(','))
-                val actual = FieldDocumentJson(if (count == 0L) line else line.substring(1)).parse()
-                val gps = FieldDocumentJson(fixes.getString(0)).parse()
+                val actual = FieldDocumentJson(if (count == 0L) line else line.substring(1), checkpoint).parse()
+                val gps = FieldDocumentJson(source.verifiedFieldText(fixes.getLong(0), fixes.getInt(1), fixes.getBlob(2)), checkpoint).parse()
                 val expected = FieldExporter.feature(gps)
                 val coordinates = JSONArray().put(gps.get("longitude")).put(gps.get("latitude"))
                 if (!gps.isNull("altitude_m")) coordinates.put(gps.get("altitude_m"))

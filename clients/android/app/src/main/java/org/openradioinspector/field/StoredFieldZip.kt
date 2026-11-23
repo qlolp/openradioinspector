@@ -1,6 +1,5 @@
 package org.openradioinspector.field
 
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FilterInputStream
 import java.io.InputStream
@@ -14,8 +13,7 @@ import java.util.zip.CheckedInputStream
 
 internal val fieldPayloads = listOf("measurements.ndjson", "events.ndjson", "track.geojson")
 internal const val fieldManifest = "manifest.json"
-internal const val mobileLineLimit = 1024 * 1024
-internal const val mobileDocumentLimit = 128L * 1024 * 1024
+internal const val reviewPageBytes = 1024 * 1024
 
 private fun ByteBuffer.u16(offset: Int) = getShort(offset).toInt() and 0xffff
 private fun ByteBuffer.u32(offset: Int) = getInt(offset).toLong() and 0xffffffffL
@@ -41,7 +39,7 @@ internal class StoredFieldZip(private val file: File) {
     init {
         RandomAccessFile(file, "r").use { zip ->
             val size = zip.length()
-            require(size in 22..mobileDocumentLimit) { "Недопустимый размер ZIP" }
+            require(size in 22..FieldExporter.maxArchive) { "Недопустимый размер ZIP" }
             zip.seek(size - 22)
             val end = zip.header(22)
             val start = end.u32(16)
@@ -84,6 +82,7 @@ internal class StoredFieldZip(private val file: File) {
     }
 
     fun size(name: String) = members.getValue(name).length
+    fun dataStart(name: String) = members.getValue(name).data
 
     fun <T> read(name: String, sha256: String? = null, consume: (InputStream) -> T): T {
         val member = members.getValue(name)
@@ -119,34 +118,64 @@ internal class StoredFieldZip(private val file: File) {
     }
 }
 
-internal fun strictUtf8(bytes: ByteArray): String = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
+internal fun strictUtf8(bytes: ByteArray, count: Int = bytes.size): String =
+    Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes, 0, count)).toString()
 
-internal class FieldLines(private val input: InputStream) {
-    private val buffer = ByteArray(16 * 1024)
+/** Index absolute offsets into the private verified STORED archive. A row never crosses a member. */
+internal class FieldLines(private val input: InputStream, start: Long, private val checkpoint: () -> Unit) {
+    private val buffer = ByteArray(32 * 1024)
     private var offset = 0
     private var end = 0
+    private var line = ByteArray(1024)
+    private val sha = MessageDigest.getInstance("SHA-256")
+    var position = start
+        private set
+    var length = 0
+        private set
+    private var nextStart = start
+
+    fun hash(): ByteArray {
+        sha.update(line, 0, length)
+        return sha.digest()
+    }
 
     fun next(): String? {
         if (end < 0) return null
-        val line = ByteArrayOutputStream()
+        position = nextStart
+        length = 0
         while (true) {
             if (offset == end) {
+                checkpoint()
                 offset = 0
                 end = input.read(buffer)
                 if (end < 0) {
-                    require(line.size() == 0) { "У записи отсутствует завершающий LF" }
+                    require(length == 0) { "У записи отсутствует завершающий LF" }
                     return null
                 }
+                require(end > 0)
             }
             val begin = offset
             while (offset < end && buffer[offset] != 10.toByte()) offset++
-            val n = offset - begin
-            require(line.size() + n < mobileLineLimit) { "Запись превышает предел 1 МиБ" }
-            line.write(buffer, begin, n)
+            val total = length + offset - begin
+            require(total < FieldExporter.maxLine) { "Запись превышает предел строки формата V1" }
+            if (total > line.size) line = line.copyOf(maxOf(total, line.size * 2).coerceAtMost(FieldExporter.maxLine))
+            buffer.copyInto(line, length, begin, offset)
+            length = total
             if (offset < end) {
                 offset++
-                return strictUtf8(line.toByteArray())
+                nextStart += length + 1L
+                return strictUtf8(line, length)
             }
         }
     }
+}
+
+internal fun RandomAccessFile.verifiedFieldText(offset: Long, size: Int, expectedHash: ByteArray): String {
+    require(offset >= 0 && size in 1 until FieldExporter.maxLine && offset + size < length())
+    seek(offset)
+    val bytes = bytes(size)
+    require(read() == 10 && MessageDigest.isEqual(MessageDigest.getInstance("SHA-256").digest(bytes), expectedHash)) {
+        "Содержимое выезда изменилось после проверки"
+    }
+    return strictUtf8(bytes)
 }
