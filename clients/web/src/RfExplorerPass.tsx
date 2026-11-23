@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Api } from './api';
 import { hz, utc } from './components';
 import { getLocale, t } from './i18n';
@@ -50,14 +50,14 @@ type Context = {
 
 const passComplete = (data: PassDetail) => data.summary.complete;
 
+type Inspection = { marker?: number; source?: { passId: string; point: PassPoint } };
+
 function PassEvidence({
   api,
   session,
   stream,
   running,
   paused,
-  bookmarks,
-  readOnly,
   openOriginal,
   passId,
   base,
@@ -65,11 +65,19 @@ function PassEvidence({
   setHold,
   listedStart,
   pin,
+  inspection,
+  setInspection,
+  held,
+  setHeld,
 }: Context & {
   passId: string;
   base: string;
   listedStart?: string;
   pin: () => void;
+  inspection: Inspection;
+  setInspection: Dispatch<SetStateAction<Inspection>>;
+  held: boolean;
+  setHeld: (value: boolean) => void;
 }) {
   const { since: holdSince, visible: showHold } = hold;
   const path = base + '/' + encodePathSegment(passId);
@@ -88,21 +96,23 @@ function PassEvidence({
   );
   const data = request?.value,
     s = data?.summary;
-  const [point, setPoint] = useState<PassPoint | null>(null),
-    [held, setHeld] = useState(false);
-  const [marker, setMarker] = useState<number>();
+  const { marker, source } = inspection;
+  const point = source?.passId === passId ? source.point : null;
   const [note, setNote] = useState(''),
     [review, setReview] = useState(false);
   const [sourceError, setSourceError] = useState(''),
     [reading, setReading] = useState(false);
   const sourceRead = useRef<AbortController | null>(null);
-  useEffect(() => () => sourceRead.current?.abort(), []);
+  useEffect(() => {
+    setSourceError('');
+    setReading(false);
+    return () => sourceRead.current?.abort();
+  }, [marker]);
   function select(p: PassPoint | null) {
     sourceRead.current?.abort();
     setReading(false);
     setSourceError('');
-    setPoint(p);
-    setMarker(undefined);
+    setInspection(p ? { source: { passId, point: p } } : {});
     setNote(p ? '' : 'No original point at this frequency');
   }
   const summaryStart = useRef<string | undefined>(listedStart);
@@ -153,8 +163,11 @@ function PassEvidence({
     probe?.error === 'Core HTTP 404';
   const markerPoint = exact ?? (unavailable ? column : null);
   useEffect(() => {
-    if (marker !== undefined && !point && markerPoint) setPoint(markerPoint);
-  }, [marker, markerPoint, point]);
+    if (marker !== undefined && !point && markerPoint)
+      setInspection((current) =>
+        current.marker === marker ? { marker, source: { passId, point: markerPoint } } : current,
+      );
+  }, [marker, markerPoint, point, passId, setInspection]);
   const latestReading =
     exact?.last_measured_at ?? column?.last_measured_at ?? point?.last_measured_at;
   async function openPoint(p: PassPoint) {
@@ -280,9 +293,6 @@ function PassEvidence({
         )}
         <button
           onClick={() => {
-            setPoint(null);
-            setNote('');
-            setHeld(false);
             resetHold();
           }}
         >
@@ -291,8 +301,6 @@ function PassEvidence({
         {holdSince && (
           <button
             onClick={() => {
-              setPoint(null);
-              setHeld(false);
               toggleHold();
             }}
           >
@@ -340,10 +348,9 @@ function PassEvidence({
           )}
         </p>
       )}
-      {note && (
+      {note && marker === undefined && (
         <p className="muted" role="status">
           {t(note)}
-          {marker !== undefined && <> · {hz(marker)}</>}
         </p>
       )}
       {point && (
@@ -372,19 +379,6 @@ function PassEvidence({
         <p className="error-text" role="alert">
           {t(sourceError)}
         </p>
-      )}
-      {bookmarks && (
-        <RfPassMarkers
-          api={api}
-          session={session}
-          point={point}
-          readOnly={readOnly}
-          select={(f) => {
-            select(null);
-            setNote('');
-            setMarker(f);
-          }}
-        />
       )}
       <dl className="status-list">
         <div>
@@ -468,6 +462,8 @@ export function RfExplorerPass(props: Context) {
   const [pages, setPages] = useState<string[]>([]),
     [selected, setSelected] = useState('');
   const [revision, setRevision] = useState(0);
+  const [inspection, setInspection] = useState<Inspection>({});
+  const [held, setHeld] = useState(false);
   const before = pages.at(-1);
   const path = base + '?' + new URLSearchParams({ limit: '12', ...(before && { before }) });
   const page = useArchiveRead<PassPage>(
@@ -530,11 +526,28 @@ export function RfExplorerPass(props: Context) {
           base={base}
           listedStart={page?.value?.items.find((p) => p.pass_id === passId)?.started_at}
           pin={() => setSelected(passId)}
+          inspection={inspection}
+          setInspection={setInspection}
+          held={held}
+          setHeld={setHeld}
         />
       ) : (
         <p className="empty">
           {t(page?.value ? 'No archived survey passes' : 'Loading survey passes…')}
         </p>
+      )}
+      {props.bookmarks && (
+        <RfPassMarkers
+          api={api}
+          session={session}
+          point={
+            inspection.source && inspection.source.passId === passId
+              ? inspection.source.point
+              : null
+          }
+          readOnly={props.readOnly}
+          select={(marker) => setInspection({ marker })}
+        />
       )}
     </section>
   );
