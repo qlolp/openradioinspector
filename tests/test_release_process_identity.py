@@ -441,6 +441,27 @@ class LaunchBoundaryTests(unittest.TestCase):
 
 
 class NumericKernelTests(unittest.TestCase):
+    def test_linux_session_reads_full_identity_only_for_possible_members(self):
+        kernel = ownership.LinuxKernel()
+        pids = (80, 81, 82, 83, 84)
+        snapshots = {
+            80: ProcessIdentity(80, 2, 80, 80, 1),
+            81: ProcessIdentity(81, 1, 81, 81, 2),
+            82: None,
+            83: ProcessIdentity(83, 1, 83, 83, 4),
+            84: ProcessIdentity(84, 80, 84, 80, 5),
+        }
+        # 81 moved or was reused after the SID lookup, 82 exited,
+        # 83 is unrelated, and 84 requires the full procfs lookup.
+        with (
+            patch.object(Path, "iterdir", return_value=[Path(str(pid)) for pid in pids]),
+            patch.object(ownership.os, "getsid", create=True,
+                         side_effect=[80, 80, ProcessLookupError(), 83, PermissionError()]),
+            patch.object(kernel, "identity", side_effect=snapshots.get) as read,
+        ):
+            self.assertEqual(kernel.session(80), [snapshots[80], snapshots[84]])
+        self.assertEqual([args[0] for args, _ in read.call_args_list], [80, 81, 84])
+
     def test_linux_numeric_identity_does_not_decode_the_opaque_comm_bytes(self):
         with tempfile.TemporaryDirectory(prefix="ori-proc-bytes-") as temporary:
             root = Path(temporary)
