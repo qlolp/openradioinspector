@@ -252,7 +252,7 @@ counts each submitted batch once, including a partially filled final batch.
 | `offered_to_request_ms` | Ledger offer timestamp through entry into the ingest HTTP call | Every POST started, including failed requests. Scheduled input includes ledger insertion, queue wait and source preparation. History assembles the batch before offering it. |
 | `request_to_response_ms` | Start of the ingest HTTP call through receipt and decoding of the complete expected 201 JSON envelope | Every call that returns its response data, including a response whose canonical acknowledgement later fails. This includes request encoding and response body reading. |
 | `ack_verification_ms` | Return of the decoded response through successful validation, before the outcome is written to the producer ledger | Every response passing the source identity and content checks. The WAV check uses its ID and SHA256. A batch must pass for every member. |
-| `request_ms` | Start of the request operation through outcome handling in the producer ledger | Every attempted request, including HTTP errors, failed transports and invalid acknowledgements. |
+| `request_ms` | Start of the request operation through its final timing check. Outcomes handled inside the operation include the ledger update. | Every attempted request, including HTTP errors, failed transports and invalid acknowledgements. |
 | `offered_to_ack_ms` | Ledger offer timestamp through successful acknowledgement validation and ledger update | Every accepted scheduled input or accepted History batch. |
 
 The four diagnostic stages use fixed-size histograms. They retain only elapsed
