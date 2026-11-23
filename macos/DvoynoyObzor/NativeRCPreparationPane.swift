@@ -131,7 +131,8 @@ struct NativeRCPreparationPane: View {
                         HStack {
                             Button("0,1–1300 МГц") { startMHz = "0,1"; stopMHz = "1300"; flow.draft.stepHz = "10000" }
                             Button("100–400 МГц") { startMHz = "100"; stopMHz = "400"; flow.draft.stepHz = "10000" }
-                            if let grid = try? flow.draft.receiverGrid() { Text("\(grid.pointCount) точек за проход").monospacedDigit() }
+                            if let grid = try? flow.draft.receiverGrid() { Text("\(grid.pointCount) точек за проход").monospacedDigit()
+                                .accessibilityIdentifier("duty.grid-count").accessibilityValue(String(grid.pointCount)) }
                         }
                         Text("Последовательный FM-приём с проверкой RX. Период возврата рассчитывается по архивным наблюдениям.").font(.caption)
                     }

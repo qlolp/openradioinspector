@@ -244,6 +244,37 @@ final class WorkbenchUITests: XCTestCase {
         XCTAssertFalse(hint.exists)
     }
 
+    @MainActor func testFirstDutyOffersThreeIndependentSources() throws {
+        let app = try launch(test: #function); defer { app.terminate() }
+        preparation(in: app)
+        let create = app.buttons["preparation.create"]
+        replace(app.textFields["preparation.tinysa-port"], with: fixtureAnalyzerPort)
+        XCTAssertTrue(create.isEnabled)
+        choose("AOR AR-DV1", in: app)
+        let receiver = app.textFields["preparation.receiver-port"]
+        replace(receiver, with: fixtureReceiverPort)
+        app.buttons["0,1–1300 МГц"].click()
+        let count = element("duty.grid-count", in: app)
+        expectation(for: NSPredicate(format: "value == %@", "129991"), evaluatedWith: count)
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(app.textFields["preparation.tinysa-port"].exists)
+        XCTAssertTrue(create.isEnabled)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "macos-first-duty-ardv1"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        app.buttons["100–400 МГц"].click()
+        expectation(for: NSPredicate(format: "value == %@", "30001"), evaluatedWith: count)
+        waitForExpectations(timeout: 10)
+        choose("RF Explorer 3G Combo", in: app)
+        let explorer = app.textFields["duty.rf-explorer-port"]
+        replace(explorer, with: fixtureAnalyzerPort)
+        replace(receiver, with: "")
+        XCTAssertTrue(create.isEnabled)
+        replace(receiver, with: fixtureAnalyzerPort)
+        XCTAssertFalse(create.isEnabled)
+    }
+
     @MainActor func testReplayFixtureCannotBePresentedAsLiveHardwarePreparation() throws {
         let app = try launch(test: #function); defer { app.terminate() }; preparation(in: app)
         enterPreparationPorts(in: app)

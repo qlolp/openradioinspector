@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 CASES = {
     'testNavigationPreservesSessionAndCoreConnection',
     'testPreparationRejectsDuplicatePortsAndAmbiguousFrequency',
+    'testFirstDutyOffersThreeIndependentSources',
     'testReplayFixtureCannotBePresentedAsLiveHardwarePreparation',
     'testArchiveOpensOriginalSpectrumAndMarksHistory',
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
