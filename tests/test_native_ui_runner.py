@@ -10,6 +10,7 @@ from macos.ci.ui_smoke import collect_training_images, configure_test_run, passe
 CASES = (
     'testNavigationPreservesSessionAndCoreConnection',
     'testPreparationRejectsDuplicatePortsAndAmbiguousFrequency',
+    'testFirstDutyOffersThreeIndependentSources',
     'testReplayFixtureCannotBePresentedAsLiveHardwarePreparation',
     'testArchiveOpensOriginalSpectrumAndMarksHistory',
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
@@ -194,7 +195,10 @@ class NativeUIRunnerTests(unittest.TestCase):
     def test_success_requires_each_real_ui_case_and_no_failed_attempt(self):
         output = '\n'.join(f"Test Case '-[DvoynoyObzorUITests.WorkbenchUITests {name}]' passed (1 seconds)." for name in CASES)
         self.assertEqual(passed_cases(output), sorted(CASES))
+        duty_name = 'testFirstDutyOffersThreeIndependentSources'
+        duty_line = next(line for line in output.splitlines() if duty_name in line)
         for invalid in [output.splitlines()[0], output.replace(CASES[0], 'testDifferent'),
+                        output.replace(duty_line, ''), output + '\n' + duty_line,
                         output + "\nTest Case '-[WorkbenchUITests testExample]' failed (1 seconds)."]:
             with self.assertRaises(ValueError):
                 passed_cases(invalid)
