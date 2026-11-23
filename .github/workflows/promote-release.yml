@@ -20,7 +20,7 @@ on:
         type: string
         default: '1'
       receipt_b64:
-        description: Base64 of the sanitized signed platform acceptance JSON (prerelease only)
+        description: Base64 of the sanitized schema-v2 platform acceptance covering five physical shifts (prerelease only)
         type: string
       signature_b64:
         description: Optional SSH witness signature in base64; omit for a GitHub-attested receipt

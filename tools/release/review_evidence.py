@@ -39,7 +39,7 @@ def main():
         summary.write('## Target bench evidence for operator review\n\n')
         summary.write(f"Package `{name}` from `{repo.revision}`\n\nSHA-256 `{build['artifact']['sha256']}`\n\n")
         summary.write(f"Receipt SHA-256 `{digest(args.out)}`\n\n")
-        summary.write('Compare the following measurements and report hashes to the private bench originals before approving.\n\n')
+        summary.write('Before approval, run bench_receipt check with --private-reports on the bench. Compare all five physical shifts and the remaining original reports to these exact hashes.\n\n')
         # The strict schema accepts no operator-provided prose, paths or private identifiers.
         import json
         summary.write('```json\n' + json.dumps(receipt, indent=2, sort_keys=True) + '\n```\n')
