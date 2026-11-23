@@ -776,7 +776,7 @@ export function DutySetup({
                   <select value={board} onChange={(e) => setBoard(e.target.value as typeof board)}>
                     {Object.entries(boardProfiles).map(([id, b]) => (
                       <option key={id} value={id}>
-                        {t(b.label)} · {b.low / 1e6}–{b.high / 1e6} MHz
+                        {t(b.label)} · {b.low / 1e6}–{b.high / 1e6} {t('MHz')}
                       </option>
                     ))}
                   </select>
@@ -803,7 +803,7 @@ export function DutySetup({
                     setHigh('400');
                   }}
                 >
-                  100–400 MHz
+                  100–400 {t('MHz')}
                 </button>
               </div>
               <div className="form-grid">

@@ -129,6 +129,24 @@ test('operator can select a receiver alone and validate a wide inclusive plan be
   expect(posts).toEqual([]);
 });
 
+test('Russian receiver setup shows the first range and inclusive point count', async ({ page }) => {
+  await openDesk(page);
+  await page.getByTestId('locale-select').selectOption('ru');
+  await page.getByRole('button', { name: 'Подготовить проект' }).click();
+  const wizard = page.getByRole('dialog', { name: 'Подготовка проекта только для приёма' });
+  await wizard.getByLabel('Название проекта').fill('Первое дежурство');
+  await wizard.getByLabel('Объект или место').fill('Учебный стенд');
+  await wizard.getByLabel('Основной прибор').selectOption('ardv1');
+  await wizard.getByLabel('Последовательный порт AR-DV1').fill('COM28');
+  await wizard.getByRole('button', { name: 'Далее', exact: true }).click();
+  await expect(wizard.getByLabel('Начало (МГц)')).toHaveValue('100');
+  await expect(wizard.getByLabel('Конец (МГц)')).toHaveValue('100.2');
+  await expect(wizard.getByLabel('Шаг (кГц)')).toHaveValue('10');
+  await expect(wizard.getByRole('button', { name: '100–400 МГц' })).toBeVisible();
+  await expect(wizard.getByText('21', { exact: true })).toBeVisible();
+  await wizard.screenshot({ path: test.info().outputPath('first-duty-ardv1-range-ru.png') });
+});
+
 test('a stopped project can correct a port without creating another project or starting a worker', async ({
   page,
 }) => {
