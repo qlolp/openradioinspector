@@ -1137,6 +1137,7 @@ def supervise_anchor(command, directory, shutdown_timeout, cleanup_nested):
     interrupted = False
     abandoned = False
     eof = False
+    wake_prefix = b""
     status_unavailable = False
 
     def interrupt(_signum, _frame):
@@ -1303,12 +1304,20 @@ def supervise_anchor(command, directory, shutdown_timeout, cleanup_nested):
                 [] if eof else [sys.stdin.fileno()], [], [], 0.02
             )
             if readable:
-                line = sys.stdin.buffer.readline(33)
-                if line == b"":
+                # A read-ready pipe may contain only part of a notification.
+                # Return to the durable control record without waiting for LF.
+                chunk = sys.stdin.buffer.read1(32)
+                if not chunk:
+                    if wake_prefix:
+                        failed()
                     eof = True
                     abandoned = True
-                elif line != b"wake\n":
-                    failed()
+                else:
+                    lines = (wake_prefix + chunk).split(b"\n")
+                    wake_prefix = lines.pop()
+                    if any(line != b"wake" for line in lines) or not b"wake".startswith(wake_prefix):
+                        wake_prefix = b""
+                        failed()
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)

@@ -295,6 +295,53 @@ if os.name == "posix" and sys.platform in ("linux", "darwin"):
                 if owner is not None and owner.directory.exists():
                     owner.stop(2)
 
+        if sys.platform.startswith("linux"):
+            def test_partial_wakeup_keeps_independent_recovery_record_responsive(self):
+                import array
+                import fcntl
+                import termios
+                import time
+
+                with tempfile.TemporaryDirectory(prefix="ori-owner-wake-") as temporary:
+                    root = Path(temporary)
+                    with (root / "anchor.log").open("w") as log:
+                        owner = release.process_ownership.OwnedCommand.start(
+                            [sys.executable, "-c", "import time; time.sleep(30)"],
+                            environment=release.child_environment(), registry=root, root=release.ROOT,
+                            log=log, shutdown_timeout=3,
+                        )
+                        try:
+                            ready_by = time.monotonic() + 5
+                            while owner.status() is None and time.monotonic() < ready_by:
+                                time.sleep(.01)
+                            self.assertEqual(owner.status()["phase"], "running")
+                            writer = owner.process.stdin
+                            writer.write(b"wa")
+                            writer.flush()
+                            pending = array.array("i", [2])
+                            while pending[0] and time.monotonic() < ready_by:
+                                fcntl.ioctl(writer.fileno(), termios.FIONREAD, pending, True)
+                                if pending[0]:
+                                    time.sleep(.01)
+                            self.assertEqual(pending[0], 0, "the anchor must have consumed the fragment")
+                            # An independent recoverer can publish a control record
+                            # even when it has no copy of the original parent's pipe.
+                            peer = release.process_ownership.OwnedCommand(owner.directory)
+                            peer.process = None
+                            deadline = time.monotonic() + 2
+                            serial = peer.request("cancel", deadline)
+                            while time.monotonic() < deadline:
+                                status = owner.status()
+                                if status["phase"] == "quiescent" and status["control_serial"] == serial:
+                                    break
+                                time.sleep(.01)
+                            else:
+                                self.fail("the partial wake blocked the private cancellation record")
+                        finally:
+                            owner.process.stdin.write(b"ke\n")
+                            owner.process.stdin.flush()
+                            owner.stop(5)
+
         def test_actual_child_keeps_stdin_eof_and_negative_signal_exit(self):
             with tempfile.TemporaryDirectory(prefix="ori-owner-contract-") as temporary:
                 registry = Path(temporary)
