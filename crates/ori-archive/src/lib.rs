@@ -6,7 +6,7 @@ mod candidate_precision;
 mod checkpoint;
 mod domains;
 mod duty_outbox;
-pub use duty_outbox::{DutyChannel, DutyKind, DutyOccurrence, ClaimedDutyDelivery};
+pub use duty_outbox::{ClaimedDutyDelivery, DutyChannel, DutyKind, DutyOccurrence};
 mod error;
 mod export_indexes;
 mod json;

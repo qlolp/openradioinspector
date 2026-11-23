@@ -453,10 +453,16 @@ pub(crate) fn apply(
                 result.items.push(value);
             }
             Mutation::DutyOccurrence(item) => crate::duty_outbox::record(&tx, &item, None)?,
-            Mutation::TestDutyChannel {occurrence,channel} => crate::duty_outbox::record(&tx,&occurrence,Some(channel))?,
-            Mutation::DisableDutyChannel {project_id,channel}=>crate::duty_outbox::disable(&tx,&project_id,channel)?,
+            Mutation::TestDutyChannel {
+                occurrence,
+                channel,
+            } => crate::duty_outbox::record(&tx, &occurrence, Some(channel))?,
+            Mutation::DisableDutyChannel {
+                project_id,
+                channel,
+            } => crate::duty_outbox::disable(&tx, &project_id, channel)?,
             Mutation::EnqueueNotification(value) => {
-                crate::duty_outbox::record_fault(&tx,&value)?;
+                crate::duty_outbox::record_fault(&tx, &value)?;
                 let actual = crate::outbox::insert(&tx, &value, capture_budget)?;
                 result.items.push(serde_json::to_value(actual)?);
             }

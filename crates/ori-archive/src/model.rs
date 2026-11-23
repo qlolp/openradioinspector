@@ -155,8 +155,14 @@ pub enum Mutation {
     Notification(Value),
     EnqueueNotification(crate::NotificationRow),
     DutyOccurrence(crate::DutyOccurrence),
-    TestDutyChannel { occurrence: crate::DutyOccurrence, channel: crate::DutyChannel },
-    DisableDutyChannel { project_id: String, channel: crate::DutyChannel },
+    TestDutyChannel {
+        occurrence: crate::DutyOccurrence,
+        channel: crate::DutyChannel,
+    },
+    DisableDutyChannel {
+        project_id: String,
+        channel: crate::DutyChannel,
+    },
 }
 
 impl std::fmt::Debug for Mutation {

@@ -4,7 +4,11 @@ use jiff::{Timestamp, tz::TimeZone};
 use ori_contracts::UtcTimestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::BTreeSet, sync::Mutex, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Mutex,
+    time::Duration,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DutyTrigger {
@@ -128,9 +132,34 @@ pub(crate) struct DutyRuntime {
     ids: Mutex<BTreeSet<String>>,
     sampled: Mutex<Option<(i64, Duration)>>,
     pending_wakes: Mutex<BTreeSet<String>>,
+    stops: Mutex<BTreeMap<String, usize>>,
     channel_projects: Mutex<BTreeSet<(String, &'static str)>>,
 }
+pub(crate) struct StopIntent<'a> {
+    duty: &'a DutyRuntime,
+    project: &'a str,
+}
+impl Drop for StopIntent<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut stops) = self.duty.stops.lock()
+            && let Some(count) = stops.get_mut(self.project)
+        {
+            *count -= 1;
+            if *count == 0 {
+                stops.remove(self.project);
+            }
+        }
+    }
+}
 impl DutyRuntime {
+    pub(crate) fn stopping<'a>(&'a self, project: &'a str) -> Result<StopIntent<'a>> {
+        let mut stops = self.stops.lock().map_err(|_| invalid("duty intent"))?;
+        *stops.entry(project.to_owned()).or_default() += 1;
+        Ok(StopIntent {
+            duty: self,
+            project,
+        })
+    }
     pub(crate) fn channels(&self, project: &str, value: &Value) -> Result<()> {
         let mut entries = self
             .channel_projects
@@ -197,6 +226,14 @@ fn off() -> Value {
 }
 impl GuardService {
     pub(crate) fn require_duty_window(&self, project: &Value) -> Result<()> {
+        if project["id"].as_str().is_some_and(|id| {
+            self.duty_runtime
+                .stops
+                .lock()
+                .map_or(true, |stops| stops.contains_key(id))
+        }) {
+            return Err(GuardError::Conflict("Отмена дежурства".into()));
+        }
         if project["duty"]["enabled"] == true {
             let schedule: Schedule = serde_json::from_value(project["duty"]["schedule"].clone())
                 .map_err(|_| invalid("Сохранённое расписание дежурства"))?;
@@ -307,9 +344,9 @@ impl GuardService {
             state["status"] = json!("interrupted");
         } else if window == Window::Closed {
             state["status"] = json!("waiting");
-        } else if prior["status"] == "preflight_failed" && !interrupted {
-            return Ok(());
-        } else if !interrupted && running && prior["status"] == "armed" {
+        } else if !interrupted
+            && (prior["status"] == "preflight_failed" || running && prior["status"] == "armed")
+        {
             return Ok(());
         } else {
             if held(&self.project(id).await?) {

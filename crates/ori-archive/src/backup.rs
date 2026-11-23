@@ -773,13 +773,15 @@ fn portable(source: &Connection, destination: &Path, timeout: Duration) -> Resul
                 project["resume_requested"] = json!(false);
                 project["webhook_enabled"] = json!(false);
                 project["coverage"] = json!("stopped");
-                if let Some(duty)=project.get_mut("duty").filter(|v|v.is_object()) {
-                    duty["enabled"]=json!(false);
-                    duty["resume_after_restart"]=json!(false);
-                    duty["status"]=json!("disarmed");
-                    duty["last_error"]=Value::Null;
+                if let Some(duty) = project.get_mut("duty").filter(|v| v.is_object()) {
+                    duty["enabled"] = json!(false);
+                    duty["resume_after_restart"] = json!(false);
+                    duty["status"] = json!("disarmed");
+                    duty["last_error"] = Value::Null;
                 }
-                if let Some(object)=project.as_object_mut() {object.remove("notification_channels");}
+                if let Some(object) = project.as_object_mut() {
+                    object.remove("notification_channels");
+                }
                 if ["armed", "searching", "degraded", "collecting"]
                     .contains(&project["state"].as_str().unwrap_or(""))
                 {

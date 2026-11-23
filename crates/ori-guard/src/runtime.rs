@@ -756,6 +756,8 @@ impl GuardService {
     }
     pub async fn disarm(&self, id: &str, payload: Value) -> Result<Value> {
         fields(&payload, &[], true)?;
+        self.fence_stopping_runtime(id)?;
+        let _stop = self.duty_runtime.stopping(id)?;
         let _operation = self.lock_project(&format!("duty/{id}")).await?;
         let cancelled = self.cancel_duty(id).await;
         let stopped = self.disarm_runtime(id).await;
@@ -773,9 +775,9 @@ impl GuardService {
         }
         Ok(stopped)
     }
-    pub(crate) async fn disarm_runtime(&self, id: &str) -> Result<Value> {
+    fn fence_stopping_runtime(&self, id: &str) -> Result<()> {
         self.ensure_open()?;
-        if self.runtime_snapshot(id)?.is_some() {
+        if self.runtime_snapshot(id)?.is_some_and(|r| !r.stopped) {
             self.update_runtime(id, |r| {
                 r.stopped = true;
                 r.epoch = r
@@ -790,6 +792,10 @@ impl GuardService {
             })?;
         }
         self.wake.notify_waiters();
+        Ok(())
+    }
+    pub(crate) async fn disarm_runtime(&self, id: &str) -> Result<Value> {
+        self.fence_stopping_runtime(id)?;
         let persisted = async {
             let _life = self.lock_project(id).await?;
             let _tx = self.coordinator.lock().await;

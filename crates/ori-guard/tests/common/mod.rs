@@ -147,8 +147,8 @@ impl FakeControl {
 impl InstrumentControl for FakeControl {
     fn preflight<'a>(&'a self, _: &'a Session) -> ControlFuture<'a, InstrumentPreflight> {
         Box::pin(async {
-            let gate=self.preflight_gate.lock().unwrap().clone();
-            if let Some(gate)=gate {
+            let gate = self.preflight_gate.lock().unwrap().clone();
+            if let Some(gate) = gate {
                 gate.entered.notify_one();
                 gate.release.notified().await;
             }

@@ -194,3 +194,31 @@ async fn a_preflight_that_finishes_after_the_window_cannot_start_instruments() {
     assert!(f.control.permits.lock().unwrap().is_empty());
     f.close().await;
 }
+
+#[tokio::test]
+async fn disarm_during_preflight_prevents_a_late_worker_start() {
+    let f = Harness::new().await;
+    let id = f.prepared().await;
+    let gate = TuneGate::new();
+    *f.control.preflight_gate.lock().unwrap() = Some(gate.clone());
+    let owner = f.service.clone();
+    let target = id.clone();
+    let arming = tokio::spawn(async move {
+        owner
+            .arm_duty(&target, json!({"schedule":{"mode":"continuous"}}))
+            .await
+    });
+    gate.entered.notified().await;
+    let mut stop = Box::pin(f.service.disarm(&id, json!({})));
+    std::future::poll_fn(|cx| {
+        assert!(std::future::Future::poll(stop.as_mut(), cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    gate.release.notify_one();
+    arming.await.unwrap().unwrap();
+    stop.await.unwrap();
+    assert!(f.control.permits.lock().unwrap().is_empty());
+    assert_eq!(f.service.duty(&id).await.unwrap()["enabled"], false);
+    f.close().await;
+}

@@ -181,21 +181,23 @@ fn delivery_completion(
         }
         Err(_) => ("network_error".into(), None),
     };
-    if row.attempts >= 5 {
+    if row.attempts >= 5 && error != "HTTP 429" {
         return Ok(NotificationCompletion::Failed { error });
     }
-    let backoff = (5_i64 << row.attempts.min(5)).min(300);
-    // Never retry before a server's deadline. An unreasonable deadline fails closed.
-    if retry.is_some_and(|s| s > 7 * 86400) {
-        return Ok(NotificationCompletion::Failed {
-            error: "retry_window_exceeded".into(),
-        });
-    }
-    let delay = backoff.max(retry.unwrap_or(0) as i64);
-    Ok(NotificationCompletion::Retry {
-        error,
-        next_at: crate::operations::plus_seconds(&now, delay)?,
-    })
+    let backoff = (5_u64 << row.attempts.min(5)).min(300);
+    let delay = backoff.max(retry.unwrap_or(0));
+    // Even a terminal attempt applies the destination's cooldown to its other pending rows.
+    let latest = "9999-12-31T23:59:59.999999Z";
+    let limit = latest
+        .parse::<ori_contracts::UtcTimestamp>()
+        .expect("canonical UTC limit");
+    let available = limit.unix_micros().saturating_sub(now.unix_micros()).max(0) as u64 / 1_000_000;
+    let next_at = if delay <= available {
+        crate::operations::plus_seconds(&now, delay as i64)?
+    } else {
+        latest.to_owned()
+    };
+    Ok(NotificationCompletion::Retry { error, next_at })
 }
 
 #[cfg(test)]
@@ -262,6 +264,92 @@ mod tests {
             .unwrap();
         assert_eq!(summary.row.payload["impulses"], 1);
         assert_eq!(summary.row.payload["repeats"], 1);
+        h.close().await;
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_tests {
+    use super::*;
+    use crate::test_common::Harness;
+
+    #[tokio::test]
+    async fn final_429_keeps_other_notifications_waiting_for_the_server_deadline() {
+        let h = Harness::new().await;
+        let project = h.prepared().await;
+        let mut settings = h.service.project(&project).await.unwrap();
+        settings["notification_channels"] = json!({"telegram":{"enabled":true,"configured":true}});
+        h.archive.put_monitoring("project", settings).await.unwrap();
+        let now = "2026-11-23T10:00:00Z";
+        for id in ["one", "two"] {
+            h.archive
+                .apply(vec![Mutation::DutyOccurrence(DutyOccurrence {
+                    id: id.into(),
+                    project_id: project.clone(),
+                    at: now.into(),
+                    kind: DutyKind::CoverageLost,
+                    event_id: None,
+                    frequency_hz: None,
+                    delta: None,
+                    delta_unit: None,
+                })])
+                .await
+                .unwrap();
+        }
+        for attempt in 1..=5 {
+            let claim = h
+                .archive
+                .claim_duty_delivery(DutyChannel::Telegram, now, "2026-11-23T10:00:30Z")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(claim.row.attempts, attempt);
+            let completion = if attempt == 5 {
+                delivery_completion(
+                    Ok(DutyDeliveryReceipt {
+                        status: Some(429),
+                        delivered: false,
+                        retry_after_seconds: Some(8 * 86400),
+                    }),
+                    &claim.row,
+                    now.parse().unwrap(),
+                )
+                .unwrap()
+            } else {
+                NotificationCompletion::Retry {
+                    next_at: now.into(),
+                    error: "network_error".into(),
+                }
+            };
+            h.archive
+                .finish_duty_delivery(&claim.row, completion)
+                .await
+                .unwrap();
+        }
+        let rows = h.archive.duty_delivery_journal(&project, 5).await.unwrap();
+        assert_eq!(rows.iter().filter(|r| r["state"] == "failed").count(), 1);
+        assert!(
+            h.archive
+                .claim_duty_delivery(
+                    DutyChannel::Telegram,
+                    "2026-12-01T09:59:59Z",
+                    "2026-12-01T10:00:29Z"
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            h.archive
+                .claim_duty_delivery(
+                    DutyChannel::Telegram,
+                    "2026-12-01T10:00:00Z",
+                    "2026-12-01T10:00:30Z"
+                )
+                .await
+                .unwrap()
+                .is_some()
+        );
         h.close().await;
     }
 }
