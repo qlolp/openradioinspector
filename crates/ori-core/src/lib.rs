@@ -361,7 +361,12 @@ impl Core {
             .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(())));
         let (shutdown, _) = watch::channel(false);
         let devices = archive.as_ref().map(|archive| {
-            devices::DeviceManager::new(archive.clone(), config.devices.clone(), config.mode)
+            devices::DeviceManager::new(
+                archive.clone(),
+                config.devices.clone(),
+                config.mode,
+                config.data_directory.clone(),
+            )
         });
         let audio = if archive.is_some() {
             audio::Audio::open(&config.audio)?
