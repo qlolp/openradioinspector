@@ -330,7 +330,6 @@ async fn historical_and_rollback_writer_originals_are_indexed_without_changes_to
 }
 
 #[tokio::test]
-#[ignore = "full 129,991-original SQLite scale fixture"]
 async fn full_grid_remains_bounded_and_its_last_original_is_exact() {
     let dir = tempfile::tempdir().unwrap();
     new_archive(&dir).await.close().await.unwrap();
