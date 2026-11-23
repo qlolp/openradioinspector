@@ -42,6 +42,16 @@ fn survey_error(error: ArchiveError) -> ApiError {
     }
 }
 
+fn hold_since(query: &Query) -> ApiResult<Option<String>> {
+    query
+        .get("hold_since")
+        .map(|raw| {
+            ori_contracts::normalize_utc(raw)
+                .map_err(|_| ApiError::invalid("hold_since requires a UTC timestamp"))
+        })
+        .transpose()
+}
+
 pub(crate) async fn read(
     core: &Core,
     id: &str,
@@ -67,15 +77,23 @@ pub(crate) async fn read(
         [pass] => {
             only(query, &["columns", "hold_since"])?;
             let columns = number(query, "columns", 512, 1, 2048)?;
-            let since = query
-                .get("hold_since")
-                .map(|raw| {
-                    ori_contracts::normalize_utc(raw)
-                        .map_err(|_| ApiError::invalid("hold_since requires a UTC timestamp"))
-                })
-                .transpose()?;
             archive
-                .rf_explorer_pass(id, stream, pass, columns, since)
+                .rf_explorer_pass(id, stream, pass, columns, hold_since(query)?)
+                .await
+        }
+        [pass, "point"] => {
+            only(query, &["frequency_hz", "hold_since"])?;
+            let frequency = query
+                .get("frequency_hz")
+                .and_then(|raw| raw.parse::<u64>().ok())
+                .filter(|&value| value <= 9_007_199_254_740_991)
+                .ok_or_else(|| {
+                    ApiError::invalid(
+                        "frequency_hz requires a nonnegative integer in the supported range",
+                    )
+                })?;
+            archive
+                .rf_explorer_point(id, stream, pass, frequency, hold_since(query)?)
                 .await
         }
         [pass, "windows"] => {

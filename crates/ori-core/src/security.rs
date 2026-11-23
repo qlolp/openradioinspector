@@ -92,7 +92,7 @@ impl AuthContext {
                         "rf-explorer",
                         "passes",
                         _,
-                        "windows"
+                        "windows" | "point"
                     ]
                 )
                 | ("POST", ["security", "credentials", "current", "revoke"])

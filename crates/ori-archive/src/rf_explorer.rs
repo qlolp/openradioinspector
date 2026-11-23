@@ -4,7 +4,7 @@ mod panorama;
 mod validate;
 pub(crate) use index::{checkpoint, insert, install};
 
-use self::panorama::{Panorama, Window};
+use self::panorama::{Marker, Panorama, Window};
 use self::validate::{Plan, STEP};
 use crate::{Archive, ArchiveError, Result, error::invalid, validate::utc, validate_limit};
 use chrono::DateTime;
@@ -100,11 +100,17 @@ impl Pass {
         let (Some(plan), Some(earlier)) = (&self.plan, &previous.plan) else {
             return Ok(false);
         };
-        // A missing ordinal or new acquisition instance may conceal changed
-        // settings even when both visible endpoint readbacks are identical.
+        // Production IDs end in "-<ordinal>". Only a shared, nonempty
+        // acquisition instance proves continuity across two archived passes.
+        let Some(instance) = self
+            .id
+            .strip_suffix(&format!("-{}", plan.pass))
+            .filter(|prefix| !prefix.trim().is_empty())
+        else {
+            return Ok(false);
+        };
         if earlier.pass.checked_add(1) != Some(plan.pass)
-            || self.id.strip_suffix(&format!("-{}", plan.pass))
-                != previous.id.strip_suffix(&format!("-{}", earlier.pass))
+            || previous.id.strip_suffix(&format!("-{}", earlier.pass)) != Some(instance)
         {
             return Ok(false);
         }
@@ -306,11 +312,7 @@ impl Archive {
         let maximum = self.inner.config.max_response_bytes;
         self.inner
             .read(move |db| {
-                let mut work = Work {
-                    started: Instant::now(),
-                    timeout,
-                    windows: 0,
-                };
+                let mut work = Work::new(timeout, None);
                 let pass = Pass::get(db, &scope, &id)?;
                 let plan = pass.plan()?;
                 let previous = pass.before(db, &scope)?;
@@ -318,42 +320,20 @@ impl Archive {
                 let mut current = Panorama::new(plan, columns);
                 let mut hold = reset.as_ref().map(|_| Panorama::new(plan, columns));
 
-                work.visit(db, &pass, |window, samples| {
-                    current.add(plan, window, samples)?;
-                    if let (Some(held), Some(since)) = (&mut hold, &reset)
-                        && window.start >= *since
-                    {
-                        held.add(plan, window, samples)?;
-                    }
-                    Ok(())
-                })?;
-                if let (Some(held), Some(since)) = (&mut hold, &reset) {
-                    let mut previous = previous;
-                    let mut newer = None;
-                    let mut count = 1;
-                    while let Some(older) = previous {
-                        if !newer
-                            .as_ref()
-                            .unwrap_or(&pass)
-                            .follows(db, &scope, &older)?
-                            || older.end < *since
-                        {
-                            break;
-                        }
-                        if count >= MAX_HOLD_PASSES {
-                            return Err(ArchiveError::QueryBudget);
-                        }
-                        work.visit(db, &older, |window, samples| {
-                            if window.start >= *since {
-                                held.add(plan, window, samples)?;
-                            }
-                            Ok(())
-                        })?;
-                        count += 1;
-                        previous = older.before(db, &scope)?;
-                        newer = Some(older);
-                    }
-                }
+                work.series(
+                    db,
+                    &scope,
+                    &pass,
+                    previous,
+                    reset.as_deref(),
+                    |trace, window, samples| match trace {
+                        Trace::Current => current.add(plan, window, samples),
+                        Trace::Held => hold
+                            .as_mut()
+                            .expect("requested Max Hold")
+                            .add(plan, window, samples),
+                    },
+                )?;
                 let mut budget = maximum;
                 let (columns, coverage) = current.render(db, plan, &mut budget)?;
                 let (hold_columns, hold_coverage) = hold
@@ -367,29 +347,130 @@ impl Archive {
             })
             .await
     }
+
+    pub async fn rf_explorer_point(
+        &self,
+        session: &str,
+        stream: &str,
+        pass_id: &str,
+        frequency_hz: u64,
+        hold_since: Option<String>,
+    ) -> Result<Value> {
+        let reset = hold_since.as_deref().map(utc).transpose()?;
+        let (scope, id) = (Scope::new(session, stream), pass_id.to_owned());
+        let timeout = self.inner.config.read_timeout;
+        let maximum = self.inner.config.max_response_bytes;
+        self.inner.read(move |db| {
+            let pass = Pass::get(db, &scope, &id)?;
+            let plan = pass.plan()?;
+            if !(plan.start_hz..=plan.stop_hz).contains(&frequency_hz)
+                || !(frequency_hz - plan.start_hz).is_multiple_of(STEP) {
+                return Ok(json!({"current":null,"held":null}));
+            }
+            let index = ((frequency_hz - plan.start_hz) / STEP) as usize;
+            let mut work = Work::new(timeout, Some(plan.source_tiles(index)));
+            let previous = if reset.is_some() { pass.before(db, &scope)? } else { None };
+            let mut current = Marker::new(index);
+            let mut held = Marker::new(index);
+            work.series(db, &scope, &pass, previous, reset.as_deref(), |trace, window, samples| {
+                match trace {
+                    Trace::Current => current.add(plan, window, samples),
+                    Trace::Held => held.add(plan, window, samples),
+                }
+            })?;
+            let mut budget = maximum;
+            Ok(json!({"current":current.render(db,plan,&mut budget)?,"held":held.render(db,plan,&mut budget)?}))
+        }).await
+    }
+}
+
+enum Trace {
+    Current,
+    Held,
 }
 
 struct Work {
+    tiles: Option<[usize; 2]>,
     started: Instant,
     timeout: Duration,
     windows: usize,
 }
 impl Work {
+    fn new(timeout: Duration, tiles: Option<[usize; 2]>) -> Self {
+        Self {
+            tiles,
+            started: Instant::now(),
+            timeout,
+            windows: 0,
+        }
+    }
+
+    fn series(
+        &mut self,
+        db: &Connection,
+        scope: &Scope,
+        pass: &Pass,
+        mut previous: Option<Pass>,
+        reset: Option<&str>,
+        mut add: impl FnMut(Trace, &Arc<Window>, &[u8]) -> Result<()>,
+    ) -> Result<()> {
+        self.visit(db, pass, |window, samples| {
+            add(Trace::Current, window, samples)?;
+            if reset.is_some_and(|since| window.start.as_str() >= since) {
+                add(Trace::Held, window, samples)?;
+            }
+            Ok(())
+        })?;
+        let Some(since) = reset else { return Ok(()) };
+        let mut newer = None;
+        let mut count = 1;
+        while let Some(older) = previous {
+            if older.end.as_str() < since
+                || !newer.as_ref().unwrap_or(pass).follows(db, scope, &older)?
+            {
+                break;
+            }
+            if count >= MAX_HOLD_PASSES {
+                return Err(ArchiveError::QueryBudget);
+            }
+            self.visit(db, &older, |window, samples| {
+                if window.start.as_str() >= since {
+                    add(Trace::Held, window, samples)?;
+                }
+                Ok(())
+            })?;
+            count += 1;
+            previous = older.before(db, scope)?;
+            newer = Some(older);
+        }
+        Ok(())
+    }
     fn visit(
         &mut self,
         db: &Connection,
         pass: &Pass,
         mut accept: impl FnMut(&Arc<Window>, &[u8]) -> Result<()>,
     ) -> Result<()> {
-        if pass.received > MAX_HOLD_WINDOWS.saturating_sub(self.windows) {
+        if self.started.elapsed() > self.timeout
+            || (self.tiles.is_none()
+                && pass.received > MAX_HOLD_WINDOWS.saturating_sub(self.windows))
+        {
             return Err(ArchiveError::QueryBudget);
         }
-        let mut query = db.prepare(
-            "SELECT tile,started_at,ended_at,samples FROM ori_rfe_tiles WHERE pass_key=? ORDER BY tile",
-        )?;
-        let mut rows = query.query([pass.key])?;
+        const SOURCES: &str =
+            "SELECT tile,started_at,ended_at,samples FROM ori_rfe_tiles WHERE pass_key=?1";
+        let constraint = if self.tiles.is_some() {
+            " AND tile IN (?2,?3)"
+        } else {
+            ""
+        };
+        let mut query = db.prepare(&format!("{SOURCES}{constraint} ORDER BY tile"))?;
+        let mut rows = match self.tiles {
+            Some([first, tail]) => query.query(params![pass.key, first as i64, tail as i64])?,
+            None => query.query([pass.key])?,
+        };
         while let Some(row) = rows.next()? {
-            if self.started.elapsed() > self.timeout {
+            if self.started.elapsed() > self.timeout || self.windows >= MAX_HOLD_WINDOWS {
                 return Err(ArchiveError::QueryBudget);
             }
             let window = Arc::new(Window {

@@ -36,6 +36,16 @@ impl Plan {
     pub fn tiles(&self) -> usize {
         self.count().div_ceil(POINTS)
     }
+    /// At most two physical windows cover a frequency on the inclusive grid.
+    pub fn source_tiles(&self, index: usize) -> [usize; 2] {
+        let primary = index / POINTS + 1;
+        let tail = if index >= self.count() - POINTS {
+            self.tiles()
+        } else {
+            primary
+        };
+        [primary, tail]
+    }
     pub fn first(&self, tile: usize) -> usize {
         ((tile - 1) * POINTS).min(self.count() - POINTS)
     }

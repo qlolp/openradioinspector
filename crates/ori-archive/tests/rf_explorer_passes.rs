@@ -337,6 +337,19 @@ async fn full_standard_board_panorama_and_last_peak_fit_the_default_reader_budge
     assert_eq!(data["columns"][1023]["sweep_id"], "full-1/2398/2398");
     assert_eq!(data["columns"][1023]["point_index"], 111);
     assert_eq!(data["hold_columns"][1023], data["columns"][1023]);
+    let edge = archive
+        .rf_explorer_point("session", "rf", "full-1", 2_700_000_000, Some(stamp(0)))
+        .await
+        .unwrap();
+    assert_eq!(edge["current"], data["columns"][1023]);
+    assert_eq!(edge["held"], edge["current"]);
+    let neighbor = archive
+        .rf_explorer_point("session", "rf", "full-1", 2_699_990_000, None)
+        .await
+        .unwrap();
+    assert_eq!(neighbor["current"]["point_index"], 110);
+    assert_eq!(neighbor["current"]["frequency_hz"], 2_699_990_000_u64);
+    assert_eq!(neighbor["current"]["level_dbm"], -90.0);
     archive.close().await.unwrap();
 }
 
@@ -409,6 +422,95 @@ async fn cursors_require_the_original_scope_and_survive_a_late_earlier_tile() {
             .rf_explorer_passes("session", "rf", 1, Some(format!("{}|999999", stamp(10))))
             .await,
         Err(ArchiveError::Invalid(_))
+    ));
+    archive.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn joining_passes_requires_a_shared_nonempty_acquisition_instance() {
+    for (earlier, current) in [("capture-A", "capture-B"), ("-1", "-2")] {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = open(&dir.path().join("unproven.sqlite")).await;
+        let mut first = window(earlier, 1, 112, 1, 1);
+        first["levels"][0] = json!(-10);
+        archive
+            .append_sweeps(vec![first, window(current, 2, 112, 1, 4)])
+            .await
+            .unwrap();
+
+        let data = detail(&archive, current, 1, Some(0)).await;
+        assert!(data["summary"]["revisit_s"].is_null(), "{current}");
+        assert_eq!(data["columns"][0]["sweep_id"], format!("{current}/1/4"));
+        assert_eq!(data["hold_columns"], data["columns"]);
+        assert_eq!(
+            detail(&archive, earlier, 1, None).await["columns"][0]["level_dbm"],
+            -10.0
+        );
+        archive.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn exact_marker_uses_original_frequency_with_tail_reset_holes_and_instance_boundaries() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = open(&dir.path().join("markers.sqlite")).await;
+    let mut old = window("run-1", 1, 339, 3, 3);
+    old["levels"][6] = json!(-20);
+    let mut penultimate = window("run-2", 2, 339, 3, 9);
+    penultimate["levels"][6] = json!(-40);
+    penultimate["levels"][7] = json!(-4);
+    let mut tail = window("run-2", 2, 339, 4, 11);
+    tail["levels"][3] = json!(-40);
+    archive
+        .append_sweeps(vec![
+            window("run-1", 1, 339, 2, 1),
+            old,
+            window("run-2", 2, 339, 1, 7),
+            penultimate,
+            tail,
+            window("separate-3", 3, 339, 3, 20),
+        ])
+        .await
+        .unwrap();
+
+    let hz = (START + 230 * STEP) as u64;
+    let point =
+        |id, frequency, reset| archive.rf_explorer_point("session", "rf", id, frequency, reset);
+    let panorama = detail(&archive, "run-2", 1, Some(0)).await;
+    assert_ne!(panorama["columns"][0]["frequency_hz"], hz);
+    let marker = point("run-2", hz, Some(stamp(0))).await.unwrap();
+    assert_eq!(
+        marker["current"],
+        json!({"frequency_hz":hz, "level_dbm":-40.0, "sweep_id":"run-2/3/9",
+        "tile":3,"point_index":6, "started_at":stamp(9),"ended_at":stamp(10),"last_measured_at":stamp(12)})
+    );
+    assert_eq!(
+        marker["held"],
+        json!({"frequency_hz":hz, "level_dbm":-20.0, "sweep_id":"run-1/3/3",
+        "tile":3,"point_index":6, "started_at":stamp(3),"ended_at":stamp(4),"last_measured_at":stamp(12)})
+    );
+    let reset = point("run-2", hz, Some(stamp(11))).await.unwrap();
+    assert_eq!(reset["held"]["sweep_id"], "run-2/4/11");
+    assert_eq!(reset["held"]["point_index"], 3);
+    assert!(point("run-2", hz, None).await.unwrap()["held"].is_null());
+    let hole = point("run-2", (START + 112 * STEP) as u64, Some(stamp(0)))
+        .await
+        .unwrap();
+    assert!(hole["current"].is_null());
+    assert_eq!(hole["held"]["sweep_id"], "run-1/2/1");
+    let restart = point("separate-3", hz, Some(stamp(0))).await.unwrap();
+    assert_eq!(restart["held"]["sweep_id"], "separate-3/3/20");
+    for outside in [0, hz + 1, u64::MAX] {
+        assert_eq!(
+            point("run-2", outside, Some(stamp(0))).await.unwrap(),
+            json!({"current":null,"held":null})
+        );
+    }
+    assert!(matches!(
+        archive
+            .rf_explorer_point("session", "other", "run-2", hz, None)
+            .await,
+        Err(ArchiveError::NotFound)
     ));
     archive.close().await.unwrap();
 }

@@ -1676,6 +1676,31 @@ public struct RFExplorerCoverage: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct RFExplorerMarkerReading: ContractModel, Equatable, Sendable {
+    public var current: RFExplorerPassPoint?
+    public var held: RFExplorerPassPoint?
+    public var extra: JSONObject
+    public init(current: RFExplorerPassPoint? = nil, held: RFExplorerPassPoint? = nil, extra: JSONObject = [:]) {
+        self.current = current
+        self.held = held
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let currentValue = object.removeValue(forKey: "current") else { throw ContractError.invalid("Missing current") }
+        current = currentValue == .null ? nil : try RFExplorerPassPoint(json: currentValue)
+        guard let heldValue = object.removeValue(forKey: "held") else { throw ContractError.invalid("Missing held") }
+        held = heldValue == .null ? nil : try RFExplorerPassPoint(json: heldValue)
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        if let value = current { object["current"] = value.json } else { object["current"] = .null }
+        if let value = held { object["held"] = value.json } else { object["held"] = .null }
+        return .object(object)
+    }
+}
+
 public struct RFExplorerPassPage: ContractModel, Equatable, Sendable {
     public var items: [RFExplorerPassSummary]
     public var next_before: String?
@@ -2417,6 +2442,7 @@ RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_recover",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/recover",backends: ["python-legacy"],features: [],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["limit", "before"], pathParameters: ["id", "stream_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["columns", "hold_since"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_point",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/point",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["frequency_hz", "hold_since"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_windows",method: "GET",path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/windows",backends: ["rust-candidate"],features: ["rf_explorer_survey_panorama"],capabilities: [], requestFeatures: [], query: ["limit", "after_tile"], pathParameters: ["id", "stream_id", "pass_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_start",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/start",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_sessions_id_streams_stream_id_stop",method: "POST",path: "/api/v1/sessions/{id}/streams/{stream_id}/stop",backends: ["python-legacy", "rust-candidate"],features: ["independent_worker_commands"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["id", "stream_id"], maxRequestBytes: 65536),

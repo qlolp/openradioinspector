@@ -260,6 +260,35 @@ async fn segmented_survey_archives_each_raw_window_with_a_distinct_pass_identity
     assert_eq!(data["columns"][1]["point_index"], 0);
     assert_eq!(data["columns"][1]["level_dbm"], rows[1]["levels"][0]);
     assert!(data["hold_columns"].is_null());
+    let marker = format!("{path}/point");
+    let (status, result) = server
+        .request("GET", &format!("{marker}?frequency_hz=201130000"), None)
+        .await;
+    assert_eq!(status, 200, "{result}");
+    let current = &result["data"]["current"];
+    assert_eq!(current["sweep_id"], rows[1]["id"]);
+    assert_eq!(current["point_index"], 1);
+    assert_eq!(current["frequency_hz"], 201_130_000);
+    assert_eq!(current["level_dbm"], rows[1]["levels"][1]);
+    assert_eq!(result["data"]["held"], Value::Null);
+    let (status, gap) = server
+        .request("GET", &format!("{marker}?frequency_hz=201130001"), None)
+        .await;
+    assert_eq!(status, 200, "{gap}");
+    assert_eq!(gap["data"], json!({"current":null,"held":null}));
+    for query in [
+        "",
+        "frequency_hz=1.0",
+        "frequency_hz=-1",
+        "frequency_hz=23&frequency_hz=24",
+        "frequency_hz=9007199254740992",
+        "frequency_hz=11&hold_since=wrong",
+    ] {
+        let (status, detail) = server
+            .request("GET", &format!("{marker}?{query}"), None)
+            .await;
+        assert_eq!(status, 400, "{detail}");
+    }
     let (_, windows) = server
         .request("GET", &format!("{path}/windows?limit=1"), None)
         .await;

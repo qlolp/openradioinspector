@@ -1253,6 +1253,24 @@ impl crate::RestoreKeys for RFExplorerCoverage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RFExplorerMarkerReading {
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub current: Option<RFExplorerPassPoint>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub held: Option<RFExplorerPassPoint>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RFExplorerMarkerReading {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.current);
+        crate::RestoreKeys::restore_keys(&mut self.held);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RFExplorerPassPage {
     pub items: Vec<RFExplorerPassSummary>,
     #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
@@ -3410,6 +3428,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         features: &["rf_explorer_survey_panorama"],
         capabilities: &[],
         query: &["columns", "hold_since"],
+        path_parameters: &["id", "stream_id", "pass_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_point",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/point",
+        backends: &["rust-candidate"],
+        features: &["rf_explorer_survey_panorama"],
+        capabilities: &[],
+        query: &["frequency_hz", "hold_since"],
         path_parameters: &["id", "stream_id", "pass_id"],
         max_request_bytes: None,
         request_features: &[],

@@ -346,6 +346,12 @@ export interface RFExplorerCoverage {
   [key: string]: unknown;
 }
 
+export interface RFExplorerMarkerReading {
+  current: RFExplorerPassPoint | null;
+  held: RFExplorerPassPoint | null;
+  [key: string]: unknown;
+}
+
 export interface RFExplorerPassPage {
   items: Array<RFExplorerPassSummary>;
   next_before: string | null;
@@ -2278,6 +2284,35 @@ const schemas = {...baselineSchemas, ...{
     ],
     "type": "object"
   },
+  "RFExplorerMarkerReading": {
+    "properties": {
+      "current": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/RFExplorerPassPoint"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "held": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/RFExplorerPassPoint"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "current",
+      "held"
+    ],
+    "type": "object"
+  },
   "RFExplorerPassPage": {
     "properties": {
       "items": {
@@ -3212,6 +3247,8 @@ export const decodePairingInput = (value: JSONValue): PairingInput => walk(schem
 export const encodePairingInput = (value: PairingInput): string => stringifyJSON(walk(schemas.PairingInput as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeRFExplorerCoverage = (value: JSONValue): RFExplorerCoverage => walk(schemas.RFExplorerCoverage as unknown as Schema,value,false) as unknown as RFExplorerCoverage;
 export const encodeRFExplorerCoverage = (value: RFExplorerCoverage): string => stringifyJSON(walk(schemas.RFExplorerCoverage as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRFExplorerMarkerReading = (value: JSONValue): RFExplorerMarkerReading => walk(schemas.RFExplorerMarkerReading as unknown as Schema,value,false) as unknown as RFExplorerMarkerReading;
+export const encodeRFExplorerMarkerReading = (value: RFExplorerMarkerReading): string => stringifyJSON(walk(schemas.RFExplorerMarkerReading as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeRFExplorerPassPage = (value: JSONValue): RFExplorerPassPage => walk(schemas.RFExplorerPassPage as unknown as Schema,value,false) as unknown as RFExplorerPassPage;
 export const encodeRFExplorerPassPage = (value: RFExplorerPassPage): string => stringifyJSON(walk(schemas.RFExplorerPassPage as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeRFExplorerPassPanorama = (value: JSONValue): RFExplorerPassPanorama => walk(schemas.RFExplorerPassPanorama as unknown as Schema,value,false) as unknown as RFExplorerPassPanorama;
@@ -5955,6 +5992,29 @@ export const runtimeOperations = [
     ],
     "query": [
       "columns",
+      "hold_since"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "rf_explorer_survey_panorama"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_rf_explorer_passes_pass_id_point",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes/{pass_id}/point",
+    "path_parameters": [
+      "id",
+      "stream_id",
+      "pass_id"
+    ],
+    "query": [
+      "frequency_hz",
       "hold_since"
     ],
     "request_features": []

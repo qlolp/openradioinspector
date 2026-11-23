@@ -60,7 +60,8 @@ class RuntimeContractTests(unittest.TestCase):
         runtime = self.composer().compose_runtime_document(baseline, extension)
         base = '/api/v1/sessions/{id}/streams/{stream_id}/rf-explorer/passes'
         for suffix, key, maximum in [('', 'limit', 100), ('/{pass_id}', 'columns', 2048),
-                                    ('/{pass_id}/windows', 'limit', 256)]:
+                                    ('/{pass_id}/windows', 'limit', 256),
+                                    ('/{pass_id}/point', 'frequency_hz', 9_007_199_254_740_991)]:
             self.assertIn(base + suffix, runtime['paths'])
             op = runtime['paths'][base + suffix]['get']
             self.assertIn('rf_explorer_survey_panorama', op['x-ori-feature-requirements'])
@@ -71,6 +72,10 @@ class RuntimeContractTests(unittest.TestCase):
         point = runtime['components']['schemas']['RFExplorerPassPoint']
         self.assertTrue({'frequency_hz', 'level_dbm', 'sweep_id', 'point_index',
                          'started_at', 'ended_at', 'last_measured_at'} <= set(point['required']))
+        lookup = runtime['components']['schemas']['RFExplorerMarkerReading']
+        self.assertEqual(set(lookup['required']), {'current', 'held'})
+        for field in lookup['required']:
+            self.assertIn({'type': 'null'}, lookup['properties'][field]['anyOf'])
 
     def test_nullable_display_columns_round_trip_in_each_generated_sdk(self):
         from tools.contracts import generate

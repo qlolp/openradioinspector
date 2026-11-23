@@ -1,6 +1,6 @@
 use super::validate::{POINTS, Plan, STEP};
 use crate::{ArchiveError, Result};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Statement, params};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -11,6 +11,21 @@ pub(super) struct Window {
     pub end: String,
 }
 
+impl Window {
+    fn first(&self, plan: &Plan, bytes: &[u8]) -> Result<usize> {
+        if bytes.len() != POINTS || !(1..=plan.tiles()).contains(&self.tile) {
+            return Err(ArchiveError::Corrupt("RF Explorer tile index".into()));
+        }
+        Ok(plan.first(self.tile))
+    }
+
+    fn update_latest(&self, latest: &mut Option<String>) {
+        if latest.as_ref().is_none_or(|last| last < &self.end) {
+            *latest = Some(self.end.clone());
+        }
+    }
+}
+
 struct Peak {
     source: Arc<Window>,
     point: usize,
@@ -18,6 +33,109 @@ struct Peak {
     byte: u8,
 }
 
+const ORIGINAL: &str = "SELECT sweep_id FROM ori_rfe_tiles WHERE pass_key=? AND tile=?";
+
+impl Peak {
+    fn consider(
+        bucket: &mut Option<Self>,
+        source: &Arc<Window>,
+        index: usize,
+        point: usize,
+        byte: u8,
+    ) {
+        // A lower device byte is a stronger dBm level. Ties retain the earliest
+        // acquisition, physical tile and original point index.
+        let wins = bucket.as_ref().is_none_or(|peak| {
+            byte < peak.byte
+                || (byte == peak.byte
+                    && (&source.start, source.tile, point, source.pass_key)
+                        < (
+                            &peak.source.start,
+                            peak.source.tile,
+                            peak.point,
+                            peak.source.pass_key,
+                        ))
+        });
+        if wins {
+            *bucket = Some(Self {
+                source: source.clone(),
+                point,
+                index,
+                byte,
+            });
+        }
+    }
+
+    fn value(
+        self,
+        originals: &mut Statement<'_>,
+        plan: &Plan,
+        latest: Option<&String>,
+        budget: &mut usize,
+    ) -> Result<Value> {
+        // Resolve only winning IDs. Keeping a potentially large user-defined
+        // ID per candidate window would defeat the bounded projection state.
+        let source = self.source;
+        let mut rows = originals.query(params![source.pass_key, source.tile as i64])?;
+        let row = rows
+            .next()?
+            .ok_or_else(|| ArchiveError::Corrupt("missing RF Explorer source".into()))?;
+        let id = row
+            .get_ref(0)?
+            .as_str()
+            .map_err(|_| ArchiveError::Corrupt("RF Explorer source ID".into()))?;
+        *budget = budget
+            .checked_sub(id.len())
+            .ok_or(ArchiveError::QueryBudget)?;
+        Ok(json!({
+            "frequency_hz": plan.start_hz + self.index as u64 * STEP,
+            "level_dbm": f64::from(plan.offset_db) - f64::from(self.byte) / 2.0,
+            "sweep_id": id, "point_index": self.point, "tile": source.tile,
+            "started_at": source.start, "ended_at": source.end, "last_measured_at": latest
+        }))
+    }
+}
+
+pub(super) struct Marker {
+    index: usize,
+    peak: Option<Peak>,
+    latest: Option<String>,
+}
+impl Marker {
+    pub fn new(index: usize) -> Self {
+        Self {
+            index,
+            peak: None,
+            latest: None,
+        }
+    }
+
+    pub fn add(&mut self, plan: &Plan, source: &Arc<Window>, bytes: &[u8]) -> Result<()> {
+        let first = source.first(plan, bytes)?;
+        let point = self
+            .index
+            .checked_sub(first)
+            .filter(|i| *i < POINTS)
+            .ok_or_else(|| {
+                ArchiveError::Corrupt("RF Explorer marker outside its source tile".into())
+            })?;
+        source.update_latest(&mut self.latest);
+        Peak::consider(&mut self.peak, source, self.index, point, bytes[point]);
+        Ok(())
+    }
+
+    pub fn render(self, db: &Connection, plan: &Plan, budget: &mut usize) -> Result<Value> {
+        match self.peak {
+            Some(peak) => peak.value(
+                &mut db.prepare(ORIGINAL)?,
+                plan,
+                self.latest.as_ref(),
+                budget,
+            ),
+            None => Ok(Value::Null),
+        }
+    }
+}
 pub(super) struct Panorama {
     columns: Vec<Option<Peak>>,
     // A frequency belongs to one full tile, or to both physical tail tiles.
@@ -34,40 +152,14 @@ impl Panorama {
         }
     }
     pub fn add(&mut self, plan: &Plan, source: &Arc<Window>, bytes: &[u8]) -> Result<()> {
-        if bytes.len() != POINTS || !(1..=plan.tiles()).contains(&source.tile) {
-            return Err(ArchiveError::Corrupt("RF Explorer tile index".into()));
-        }
-        let latest = &mut self.latest[source.tile - 1];
-        if latest.as_ref().is_none_or(|last| last < &source.end) {
-            *latest = Some(source.end.clone());
-        }
-        let first = plan.first(source.tile);
+        let first = source.first(plan, bytes)?;
+        source.update_latest(&mut self.latest[source.tile - 1]);
         let count = plan.count();
         let width = self.columns.len();
         for (point, &byte) in bytes.iter().enumerate() {
             let index = first + point;
             let bucket = &mut self.columns[index * width / count];
-            // A lower device byte is a stronger dBm level. Ties keep the
-            // earliest acquisition, physical tile and original point index.
-            let wins = bucket.as_ref().is_none_or(|peak| {
-                byte < peak.byte
-                    || (byte == peak.byte
-                        && (&source.start, source.tile, point, source.pass_key)
-                            < (
-                                &peak.source.start,
-                                peak.source.tile,
-                                peak.point,
-                                peak.source.pass_key,
-                            ))
-            });
-            if wins {
-                *bucket = Some(Peak {
-                    source: source.clone(),
-                    point,
-                    index,
-                    byte,
-                });
-            }
+            Peak::consider(bucket, source, index, point, byte);
         }
         Ok(())
     }
@@ -97,40 +189,18 @@ impl Panorama {
             .into_iter()
             .map(|(a, b)| json!({"start_hz":frequency(a),"stop_hz":frequency(b)}))
             .collect();
-        let tail = self.latest.last().and_then(Option::as_ref);
         let mut columns = Vec::with_capacity(self.columns.len());
-        let mut originals =
-            db.prepare("SELECT sweep_id FROM ori_rfe_tiles WHERE pass_key=? AND tile=?")?;
+        let mut originals = db.prepare(ORIGINAL)?;
         for peak in self.columns {
             let Some(peak) = peak else {
                 columns.push(Value::Null);
                 continue;
             };
-            let primary = &self.latest[peak.index / POINTS];
-            let latest = if peak.index >= plan.count() - POINTS {
-                primary.as_ref().max(tail)
-            } else {
-                primary.as_ref()
-            };
-            let source = peak.source;
-            // Resolve only winning IDs. Keeping a potentially large user-defined
-            // ID per candidate window would defeat the bounded column state.
-            let mut rows = originals.query(params![source.pass_key, source.tile as i64])?;
-            let row = rows
-                .next()?
-                .ok_or_else(|| ArchiveError::Corrupt("missing RF Explorer source".into()))?;
-            let id = row
-                .get_ref(0)?
-                .as_str()
-                .map_err(|_| ArchiveError::Corrupt("RF Explorer source ID".into()))?;
-            *budget = budget
-                .checked_sub(id.len())
-                .ok_or(ArchiveError::QueryBudget)?;
-            columns.push(json!({
-                "frequency_hz":frequency(peak.index),"level_dbm":f64::from(plan.offset_db)-f64::from(peak.byte)/2.0,
-                "sweep_id":id,"point_index":peak.point,"tile":source.tile,"started_at":source.start,
-                "ended_at":source.end,"last_measured_at":latest
-            }));
+            let [primary, tail] = plan.source_tiles(peak.index);
+            let latest = self.latest[primary - 1]
+                .as_ref()
+                .max(self.latest[tail - 1].as_ref());
+            columns.push(peak.value(&mut originals, plan, latest, budget)?);
         }
         Ok((columns, coverage))
     }
