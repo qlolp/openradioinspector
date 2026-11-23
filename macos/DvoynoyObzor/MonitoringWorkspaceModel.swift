@@ -151,6 +151,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
     // A new profile has its own session and project. Existing workspace
     // mutations still take priority while routine reads may finish in parallel.
     private var readOnlyRequests: Set<UUID> = []
+    // A command may start and finish while profile creation awaits a node reply.
+    private(set) var projectActionGeneration = 0
     var hasPendingProjectAction: Bool {
         (pending && !readOnlyRequests.contains(requestID)) || operationsRequests.values.contains { !readOnlyRequests.contains($0) }
     }
@@ -380,6 +382,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         guard let client, !pending else { return false }
         let current = revision, identifier = selected, token = UUID()
         if readOnly { readOnlyRequests.insert(token) }
+        else { projectActionGeneration += 1 }
         requestID = token; pending = true; error = ""
         defer {
             readOnlyRequests.remove(token)
@@ -422,7 +425,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         let after = projectPages.cursor(for: page)
         guard page == 0 || after != nil else { return }
         let previous = selected
-        let loaded = await run(request: { client, _ in try await client.monitoringProjects(after: after) }) { result in
+        let loaded = await run(readOnly: true, request: { client, _ in try await client.monitoringProjects(after: after) }) { result in
             projectPages.apply(result, page: page)
             projects = projectPages.items
             selected = projectPages.selectedID
@@ -442,10 +445,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
         if created, !Task.isCancelled { await refreshStatus(syncConfiguration: true) }
     }
 
-    func adoptCreatedProject(_ project: MonitoringValue) async {
+    func adoptCreatedProject(_ project: MonitoringValue) {
         projectPages.created(project); projects = projectPages.items; selected = projectPages.selectedID
-        await refreshStatus(syncConfiguration: true)
-        await loadOperationsSettings()
     }
 
     func refreshStatus(syncConfiguration: Bool = false) async {
@@ -499,7 +500,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func loadAudioInputs() async {
-        await run(request: { client, _ in try await client.monitoring("/audio-inputs") }) { result in
+        await run(readOnly: true, request: { client, _ in try await client.monitoring("/audio-inputs") }) { result in
             let oldDevice = chosenDevice
             audioInputs = result
             if oldDevice != chosenDevice { selectedInput = ""; audioConfirmed = false }
@@ -550,7 +551,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func loadEvents() async {
         guard !selected.isEmpty else { return }
-        await run(request: { client, id in try await client.monitoringProject(id, resource: "events") }) { result in
+        await run(readOnly: true, request: { client, id in try await client.monitoringProject(id, resource: "events") }) { result in
             events = result["items"].items
             if !events.contains(where: { PlatformExactID.same($0["id"].text, selectedEvent) }) {
                 selectedEvent = ""; event = .null; stopAudio(); resetAudioEvidence()
@@ -563,7 +564,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         guard !pending else { return }
         stopAudio(); resetAudioEvidence(); selectedEvent = id; event = .null; sources = []; sourcesNext = ""
         researchRequests["sources"] = nil; researchPending.remove("sources")
-        await run(eventID: id, request: { client, project in
+        await run(eventID: id, readOnly: true, request: { client, project in
             try await client.monitoringEvent(projectID: project, eventID: id)
         }) { event = $0 }
     }
@@ -996,6 +997,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         guard let client, !selected.isEmpty, !operationsPending.contains(channel) else { return false }
         let generation = revision, viewGeneration = operationsRevision, projectID = selected, token = UUID()
         if readOnly { readOnlyRequests.insert(token) }
+        else { projectActionGeneration += 1 }
         operationsRequests[channel] = token; operationsPending.insert(channel)
         defer {
             readOnlyRequests.remove(token)
@@ -1200,7 +1202,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     func alertPage(after: String?) async {
         if after == nil { await showLatestAlerts(); return }
         alertsLatest = false
-        await operationsRequest("alerts-page", request: { client, id in try await client.monitoringAlerts(projectID: id, after: after) }) { result in
+        await operationsRequest("alerts-page", readOnly: true, request: { client, id in try await client.monitoringAlerts(projectID: id, after: after) }) { result in
             alerts = result["items"].items; alertsNext = result["next_cursor"].text; alertsPageAfter = after
         }
     }

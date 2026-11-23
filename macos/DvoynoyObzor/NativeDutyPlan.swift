@@ -17,15 +17,16 @@ enum NativeDutyAcquisition: Equatable {
     case rfExplorer(PlatformRFExplorerConfiguration, secondary: String?)
     case ardv1(port: String, grid: PlatformARDV1ScopeConfiguration)
 
-    func create(client: PlatformClient, name: String) async throws -> PlatformSession {
+    func create(client: PlatformClient, name: String,
+                beforePosting: @escaping @Sendable () async throws -> Void) async throws -> PlatformSession {
         switch self {
         case let .tinySA(port, grid, secondary):
             return try await client.createSerialSession(name: name, tinySAPort: port, ardv1Port: secondary ?? "",
-                receive: grid, monitorReceiverProfile: secondary != nil)
+                receive: grid, monitorReceiverProfile: secondary != nil, beforePosting: beforePosting)
         case let .rfExplorer(config, secondary):
-            return try await client.createRFExplorerSession(config, name: name, receiverPort: secondary)
+            return try await client.createRFExplorerSession(config, name: name, receiverPort: secondary, beforePosting: beforePosting)
         case let .ardv1(port, grid):
-            return try await client.createARDV1Scope(port: port, configuration: grid, name: name)
+            return try await client.createARDV1Scope(port: port, configuration: grid, name: name, beforePosting: beforePosting)
         }
     }
 }

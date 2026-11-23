@@ -1037,7 +1037,8 @@ public final class PlatformClient: Sendable {
 
     public func createSerialSession(
         name: String, tinySAPort: String, ardv1Port: String = "",
-        receive: PlatformSerialReceiveConfiguration = .init(), monitorReceiverProfile: Bool = false
+        receive: PlatformSerialReceiveConfiguration = .init(), monitorReceiverProfile: Bool = false,
+        beforePosting: (@Sendable () async throws -> Void)? = nil
     ) async throws -> PlatformSession {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let spectrumPort = tinySAPort.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1079,6 +1080,7 @@ public final class PlatformClient: Sendable {
         if !targetPort.isEmpty {
             streams.append(Self.secondaryReceiver(port: targetPort, monitorProfile: monitorReceiverProfile))
         }
+        try await beforePosting?()
         return try await post("/sessions", body: SessionDraft(name: trimmed, streams: streams))
     }
 
@@ -1098,7 +1100,8 @@ public final class PlatformClient: Sendable {
 
     public func createRFExplorerSession(_ configuration: PlatformRFExplorerConfiguration,
                                         name: String = PlatformRFExplorerConfiguration.device,
-                                        receiverPort: String? = nil) async throws -> PlatformSession {
+                                        receiverPort: String? = nil,
+                                        beforePosting: (@Sendable () async throws -> Void)? = nil) async throws -> PlatformSession {
         if let receiverPort {
             guard !receiverPort.isEmpty, !receiverPort.contains("://"), !receiverPort.contains("\0"),
                   !PlatformExactID.same(receiverPort, configuration.port) else {
@@ -1122,6 +1125,7 @@ public final class PlatformClient: Sendable {
         let analyzer = StreamDraft(device: device, role: "spectrum_analyzer", levelUnit: "dBm",
             port: configuration.port, capabilities: ["sweep", "waterfall"], settings: settings)
         let streams = [analyzer] + (receiverPort.map { [Self.secondaryReceiver(port: $0, monitorProfile: true)] } ?? [])
+        try await beforePosting?()
         let created: PlatformSession = try await post("/sessions", body: SessionDraft(name: name, streams: streams))
         guard !created.id.isEmpty, created.streams.count == streams.count,
               receiverPort == nil || created.streams.contains(where: { $0.isReceiver && PlatformExactID.same($0.port, receiverPort) }),
@@ -1139,7 +1143,8 @@ public final class PlatformClient: Sendable {
     }
 
     public func createARDV1Scope(
-        port: String, configuration: PlatformARDV1ScopeConfiguration, name: String = "Обзор диапазона AR-DV1"
+        port: String, configuration: PlatformARDV1ScopeConfiguration, name: String = "Обзор диапазона AR-DV1",
+        beforePosting: (@Sendable () async throws -> Void)? = nil
     ) async throws -> PlatformSession {
         let selectedPort = port.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedPort.isEmpty, !selectedPort.lowercased().hasPrefix("sim://") else {
@@ -1166,6 +1171,7 @@ public final class PlatformClient: Sendable {
                 "adapter": .string("ardv1-serial"), "receiver_profile": .string("ardv1-monitor-v1"),
                 "mode": .string("FM"), "period_s": .integer(0), "fast_scan": .object(scan)
             ])
+        try await beforePosting?()
         let session: PlatformSession = try await post("/sessions", body: SessionDraft(name: name, streams: [receiver]))
         guard !session.id.isEmpty, session.streams.count == 1,
               let stream = session.streams.first, !stream.id.isEmpty, stream.isReceiver,

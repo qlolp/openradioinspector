@@ -77,6 +77,21 @@ final class NativeRCPreparationModel: ObservableObject {
     func create(workspace: MonitoringWorkspaceModel, onSession: (String) -> Void) async {
         guard let client, canSubmitProfile(in: workspace) else { return }
         let token = revision, requested = draft
+        let projectContext = workspace.signalContext, selectedProject = workspace.selected
+        let actionGeneration = workspace.projectActionGeneration
+        let check: @MainActor @Sendable () throws -> Void = {
+            guard self.current(token) else { throw CancellationError() }
+            guard workspace.signalContext == projectContext,
+                  workspace.matchesOperations(endpoint: self.endpoint, projectID: selectedProject) else {
+                throw PlatformError.invalidCommand("Выбранный проект или узел изменился. Проверьте выбор перед повторной отправкой.")
+            }
+            guard !workspace.isArmed, !workspace.dutyEnabled else {
+                throw PlatformError.invalidCommand("У выбранного проекта включилось дежурство. Проверьте его состояние перед продолжением.")
+            }
+            guard !workspace.hasPendingProjectAction, workspace.projectActionGeneration == actionGeneration else {
+                throw PlatformError.invalidCommand("Во время создания профиля поступила другая команда проекта. Проверьте состояние и повторите отправку.")
+            }
+        }
         busy = true; error = ""
         defer { if revision == token { busy = false } }
         do {
@@ -92,16 +107,19 @@ final class NativeRCPreparationModel: ObservableObject {
             if scanPlan != nil, capabilities["features"]["scan_plan_grid_10khz"].bool != true {
                 throw PlatformError.invalidCommand("Узел не поддерживает сетку tinySA 10 кГц. Выберите одиночный свип или обновите узел.")
             }
-            guard current(token) else { return }
+            try check()
             let sessionID: String
             if let pendingSession, pendingSession.plan == plan, pendingSession.name == requested.name {
                 sessionID = pendingSession.id
             } else {
-                let session = try await plan.create(client: client, name: requested.name)
-                guard current(token), !session.id.isEmpty else { return }
+                let session = try await plan.create(client: client, name: requested.name, beforePosting: check)
+                guard current(token) else { return }
+                guard !session.id.isEmpty else { throw PlatformError.invalidResponse("Ядро не вернуло ID сеанса.") }
                 sessionID = session.id
                 pendingSession = (requested.name, plan, session.id)
             }
+            // Retain each acknowledged ID before checking whether the next write is still authorized.
+            try check()
             let project: MonitoringValue
             let retry: Bool
             if let pendingProject, PlatformExactID.same(pendingProject.session, sessionID),
@@ -110,15 +128,15 @@ final class NativeRCPreparationModel: ObservableObject {
             } else {
                 retry = false
                 project = try await client.monitoring(body: ["name": .string(requested.name), "site": .string(requested.site), "session_id": .string(sessionID)])
-                guard current(token), !project["id"].text.isEmpty else { throw PlatformError.invalidResponse("Ядро не вернуло ID проекта.") }
+                guard current(token) else { return }
+                guard !project["id"].text.isEmpty else { throw PlatformError.invalidResponse("Ядро не вернуло ID проекта.") }
                 pendingProject = (sessionID, requested.site, scanPlan, project)
             }
-            guard current(token) else { return }
+            try check()
             let id = project["id"].text
-            guard !id.isEmpty else { throw PlatformError.invalidResponse("Ядро не вернуло ID проекта.") }
             if let scanPlan, case .object(let fields) = scanPlan {
                 let existing = retry ? try await client.monitoringProject(id, resource: "scan-plan") : .null
-                guard current(token) else { return }
+                try check()
                 // After a response timeout the core may already have committed a revision.
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.sortedKeys]
@@ -130,13 +148,18 @@ final class NativeRCPreparationModel: ObservableObject {
                     }
                 }
             }
-            guard current(token) else { return }
-            pendingSession = nil; pendingProject = nil
+            try check()
+            // Commit both local selections on the main actor before another project or duty can take over.
             projectID = id
-            await workspace.adoptCreatedProject(project)
-            guard current(token), owns(workspace) else { return }
+            workspace.adoptCreatedProject(project)
+            pendingSession = nil; pendingProject = nil
             onSession(sessionID)
             message = "Профиль создан. Подтвердите тракт и запустите пробный приём."
+            let adoptedContext = workspace.signalContext
+            await workspace.refreshStatus(syncConfiguration: true)
+            if current(token), workspace.signalContext == adoptedContext, owns(workspace) {
+                await workspace.loadOperationsSettings()
+            }
         } catch { if current(token) { self.error = error.localizedDescription } }
     }
 
