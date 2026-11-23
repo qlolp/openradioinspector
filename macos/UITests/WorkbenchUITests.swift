@@ -262,10 +262,21 @@ final class WorkbenchUITests: XCTestCase {
         replace(receiver, with: fixtureReceiverPort)
         XCTAssertFalse(app.textFields["preparation.tinysa-port"].exists)
         next.click()
+        let step = app.textFields["duty.receiver-step-khz"]
+        XCTAssertTrue(step.waitForExistence(timeout: 10))
+        XCTAssertEqual(step.value as? String, "10")
+        replace(step, with: "0,")
+        XCTAssertEqual(step.value as? String, "0,")
+        XCTAssertFalse(create.isEnabled)
         app.buttons["0,1–1300 МГц"].click()
         let count = element("duty.grid-count", in: app)
-        expectation(for: NSPredicate(format: "value == %@", "129991"), evaluatedWith: count)
-        waitForExpectations(timeout: 10)
+        let stepInKHz = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@ AND value == %@", "Шаг, кГц", "10"), object: step)
+        let fullGrid = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "129991"), object: count)
+        guard XCTWaiter.wait(for: [stepInKHz, fullGrid], timeout: 10) == .completed else {
+            XCTFail("The AR-DV1 full-range capture requires a 10 kHz step and exactly 129991 planned points")
+            throw CocoaError(.coderValueNotFound)
+        }
         XCTAssertFalse(app.textFields["preparation.tinysa-port"].exists)
         XCTAssertTrue(create.isEnabled)
         let surface = app.sheets.firstMatch.exists ? app.sheets.firstMatch : app.windows.firstMatch

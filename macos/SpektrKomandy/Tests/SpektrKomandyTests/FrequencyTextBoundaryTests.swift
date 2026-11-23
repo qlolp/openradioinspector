@@ -26,6 +26,18 @@ struct FrequencyTextBoundaryTests {
     }
 
     @Test
+    func kilohertzInputConvertsBothDecimalSeparatorsToExactHertz() {
+        for (text, hz): (String, Int64) in [("10", 10_000), ("0,01", 10), ("0.010", 10),
+                                            ("145,125", 145_125), ("1300000", 1_300_000_000)] {
+            #expect(FrequencyText.hertz(fromKHz: text) == hz)
+            #expect(FrequencyText.hertz(fromKHz: FrequencyText.formatKHzRussian(fromHertz: hz)) == hz)
+        }
+        for invalid in ["", "0,", ".01", "-1", "+1", "1e3", "0,0001", "1.2,3", "1 000", "9223372036854776"] {
+            #expect(FrequencyText.hertz(fromKHz: invalid) == nil)
+        }
+    }
+
+    @Test
     func formattingPreservesUnitsAndFractionalPrecision() {
         #expect(FrequencyText.formatMHzRussian(from10Hz: 14_551_250) == "145,5125")
         #expect(FrequencyText.formatKHzRussian(from10Hz: 125) == "1,25")

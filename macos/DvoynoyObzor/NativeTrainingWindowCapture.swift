@@ -39,7 +39,7 @@ enum NativeTrainingWindowCapture {
             draft.source = .ardv1
             draft.name = "Учебное дежурство AR-DV1"; draft.site = "Учебный объект"
             draft.receiverPort = "/dev/cu.ui-fixture-receiver"
-            draft.startHz = "100000000"; draft.stopHz = "400000000"; draft.stepHz = "10000"
+            draft.startHz = "100000000"; draft.stopHz = "400000000"
             presentDuty(draft)
             try await wait { parent.attachedSheet?.isVisible == true }
             guard let sheet = parent.attachedSheet, sheet.sheetParent === parent else {

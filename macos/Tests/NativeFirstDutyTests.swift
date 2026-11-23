@@ -21,11 +21,30 @@ final class NativeFirstDutyTests: XCTestCase {
         guard case let .rfExplorer(_, attached) = try draft.validated() else { return XCTFail("Expected pair") }
         XCTAssertEqual(attached, "COM9")
         draft.source = .ardv1
-        draft.startHz = "100000"; draft.stopHz = "1300000000"; draft.stepHz = "10000"
+        draft.startHz = "100000"; draft.stopHz = "1300000000"
         guard case let .ardv1(port, grid) = try draft.validated() else { return XCTFail("Expected single primary receiver") }
         XCTAssertEqual(port, "COM9")
         XCTAssertEqual(grid.pointCount, 129_991)
         XCTAssertTrue(grid.cyclic)
+    }
+
+    func testReceiverStepEditsAndRestoresKilohertzWhileThePlanUsesIntegralHertz() throws {
+        var draft = NativeRCPreparationDraft()
+        draft.source = .ardv1; draft.receiverPort = "COM9"
+        XCTAssertEqual(draft.receiverStepKHz, "10")
+        XCTAssertEqual(try draft.receiverGrid().stepHz, 10_000)
+        draft.restoreReceiverGrid(.object(["start_hz": .integer(100_000), "stop_hz": .integer(100_100), "step_hz": .integer(10)]))
+        XCTAssertEqual(draft.receiverStepKHz, "0,01")
+        for text in ["0,01", "0.01"] {
+            draft.receiverStepKHz = text
+            guard case let .ardv1(_, grid) = try draft.validated() else { return XCTFail("Expected AR-DV1") }
+            XCTAssertEqual(grid.stepHz, 10); XCTAssertEqual(grid.pointCount, 11)
+        }
+        for text in ["0,", "0.001", "0.0001", "1,2.3", "0", "1300000,01"] {
+            draft.receiverStepKHz = text
+            XCTAssertThrowsError(try draft.validated())
+            XCTAssertEqual(draft.receiverStepKHz, text)
+        }
     }
 
     func testBaselineRequiresFullPerPointOrWindowEvidence() {

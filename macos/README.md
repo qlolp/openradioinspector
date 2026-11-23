@@ -25,8 +25,10 @@ app identity, signing, Info.plist generation, and app bundle packaging.
 From **Наблюдение**, choose **Первое дежурство…** or **Подготовить дежурство…**.
 Connect to the receiving node and choose the primary instrument. An analyzer
 can run alone or use a separate AR-DV1 for event checks. A primary AR-DV1
-uses its own serial port for a cyclic FM plan. The RF Explorer baseline
-requires a confirmed Normal sweep from its active board and input.
+uses its own serial port for a cyclic FM plan. Enter its spacing in kHz. The default
+10 kHz is stored as 10,000 Hz. A value of `0,01` or `0.01` sets a 10 Hz step.
+The RF Explorer baseline requires a confirmed Normal sweep from its active board
+and input.
 
 The archive panel shows the receiving node’s database and free space. To
 change the local Mac archive, stop the service in **Подключение**, choose

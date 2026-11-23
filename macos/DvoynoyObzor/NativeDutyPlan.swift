@@ -34,7 +34,9 @@ struct NativeRCPreparationDraft {
     var name = "Радиомониторинг", site = "Объект проверки"
     var source = NativeDutySource.tinySA
     var tinySAPort = "", receiverPort = ""
-    var startHz = "88000000", stopHz = "108000000", stepHz = "10000"
+    var startHz = "88000000", stopHz = "108000000"
+    static let defaultReceiverStepKHz = FrequencyText.formatKHzRussian(fromHertz: 10_000)
+    var receiverStepKHz = Self.defaultReceiverStepKHz
     var points = 201, rbwHz = 10_000
     var tinyUsesGrid = true
     var explorer = NativeRFExplorerDraft()
@@ -55,7 +57,17 @@ struct NativeRCPreparationDraft {
     }
 
     func receiverGrid() throws -> PlatformARDV1ScopeConfiguration {
-        try PlatformARDV1ScopeConfiguration(startHz: hertz(startHz), stopHz: hertz(stopHz), stepHz: hertz(stepHz), cyclic: true)
+        guard let hertzValue = FrequencyText.hertz(fromKHz: receiverStepKHz), let step = Int(exactly: hertzValue) else {
+            throw PlatformError.invalidCommand("Введите шаг в кГц с точностью до 1 Гц. Минимальный шаг AR-DV1 — 0,01 кГц.")
+        }
+        return try PlatformARDV1ScopeConfiguration(startHz: hertz(startHz), stopHz: hertz(stopHz), stepHz: step, cyclic: true)
+    }
+
+    mutating func restoreReceiverGrid(_ settings: MonitoringValue) {
+        guard let start = settings["start_hz"].integer, let stop = settings["stop_hz"].integer,
+              let step = settings["step_hz"].integer, step > 0 else { return }
+        startHz = String(start); stopHz = String(stop)
+        receiverStepKHz = FrequencyText.formatKHzRussian(fromHertz: step)
     }
 
     func validatedPorts() throws -> (primary: String, secondary: String?) {

@@ -161,7 +161,12 @@ struct NativeRCPreparationPane: View {
                     let settings = workspace.project["profile"][role]["settings"]
                     let range = band ?? (flow.draft.source == .ardv1 ? settings["fast_scan"] : settings)
                     if let start = range["start_hz"].integer, let stop = range["stop_hz"].integer {
-                        Text("\(start)–\(stop) Гц · шаг \(range["step_hz"].scalar) Гц · точек \(range["points"].scalar)")
+                        if flow.draft.source == .ardv1, let step = range["step_hz"].integer, step > 0 {
+                            let points = (try? flow.draft.receiverGrid()).map { String($0.pointCount) } ?? range["points"].scalar
+                            Text("\(start)–\(stop) Гц · шаг \(FrequencyText.formatKHzRussian(fromHertz: step)) кГц · точек \(points)")
+                        } else {
+                            Text("\(start)–\(stop) Гц · шаг \(range["step_hz"].scalar) Гц · точек \(range["points"].scalar)")
+                        }
                     }
                 } else {
                     Text(flow.draft.source.title).font(.headline)
@@ -183,7 +188,12 @@ struct NativeRCPreparationPane: View {
                             if flow.draft.source == .tinySA {
                                 Picker("RBW", selection: $flow.draft.rbwHz) { Text("10 кГц").tag(10_000); Text("30 кГц").tag(30_000) }
                             } else {
-                                LabeledContent("Шаг, Гц") { TextField("10000", text: $flow.draft.stepHz).frame(width: 80) }
+                                LabeledContent("Шаг, кГц") {
+                                    TextField("10", text: $flow.draft.receiverStepKHz)
+                                        .frame(width: 80)
+                                        .accessibilityLabel("Шаг, кГц")
+                                        .accessibilityIdentifier("duty.receiver-step-khz")
+                                }
                             }
                         }.monospacedDigit()
                         if flow.draft.source == .tinySA {
@@ -207,8 +217,8 @@ struct NativeRCPreparationPane: View {
                         }
                         if flow.draft.source == .ardv1 {
                             HStack {
-                                Button("0,1–1300 МГц") { startMHz = "0,1"; stopMHz = "1300"; flow.draft.stepHz = "10000" }
-                                Button("100–400 МГц") { startMHz = "100"; stopMHz = "400"; flow.draft.stepHz = "10000" }
+                                Button("0,1–1300 МГц") { startMHz = "0,1"; stopMHz = "1300"; flow.draft.receiverStepKHz = NativeRCPreparationDraft.defaultReceiverStepKHz }
+                                Button("100–400 МГц") { startMHz = "100"; stopMHz = "400"; flow.draft.receiverStepKHz = NativeRCPreparationDraft.defaultReceiverStepKHz }
                                 if let grid = try? flow.draft.receiverGrid() { Text("\(grid.pointCount) точек за проход").monospacedDigit()
                                     .accessibilityIdentifier("duty.grid-count").accessibilityValue(String(grid.pointCount)) }
                             }

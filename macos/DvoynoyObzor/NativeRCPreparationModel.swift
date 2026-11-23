@@ -38,6 +38,8 @@ final class NativeRCPreparationModel: ObservableObject {
                 draft.tinyUsesGrid = project["scan_plan"]["config"]["bands"].items.first?["step_hz"].integer == 10_000
             } else if draft.source == .rfExplorer {
                 draft.explorer.port = profile["analyzer"]["port"].text
+            } else {
+                draft.restoreReceiverGrid(profile["receiver"]["settings"]["fast_scan"])
             }
             message = "Продолжение выбранного проекта. Приборы не переподключаются при открытии мастера."
         }
