@@ -499,13 +499,53 @@ async fn explorer_actual_normal_readback_and_calibration_settings_gate_start() {
     assert!(h.service.arm(id, json!({})).await.is_err());
     assert_eq!(h.service.guard_status(id).await.unwrap()["active"], false);
     h.service.disarm(id, json!({})).await.unwrap();
+    let max_hold =
+        json!({"detector":"max_hold","detector_code":4,"artifact_kind":"processed_trace"});
+    let mut no_readback = max_hold.clone();
+    no_readback["settings_readback"] = json!(false);
+    let mut unverified_profile = max_hold.clone();
+    unverified_profile["profile_verified"] = json!(false);
+    for (override_fields, verified_max_hold) in [
+        (max_hold, true),
+        (json!({"detector":"max_hold"}), false),
+        (json!({"detector":null,"detector_code":null}), false),
+        (no_readback, false),
+        (unverified_profile, false),
+    ] {
+        *h.control.rfe_readback_override.lock().unwrap() =
+            serde_json::from_value(override_fields).unwrap();
+        for arming in [false, true] {
+            let error = if arming {
+                h.service.arm(id, json!({})).await.unwrap_err()
+            } else {
+                h.service
+                    .start_preparation(id, json!({}))
+                    .await
+                    .unwrap_err()
+            };
+            assert_eq!(error.http_status(), 409);
+            assert_eq!(error.api_code(), "monitoring_conflict");
+            let message = error.to_string();
+            assert!(
+                message.contains("RF Explorer") && message.contains("Normal"),
+                "{message}"
+            );
+            assert_eq!(message.contains("Max Hold"), verified_max_hold, "{message}");
+            let status = h.service.guard_status(id).await.unwrap();
+            assert_eq!(status["active"], false);
+            let workers = status["workers"].as_array().unwrap();
+            assert_eq!(workers.len(), 1);
+            assert_eq!(workers[0]["alive"], false);
+            if arming {
+                assert_eq!(status["error"], message);
+                h.service.disarm(id, json!({})).await.unwrap();
+            } else {
+                assert_eq!(status["project"]["coverage"], "stopped");
+            }
+        }
+    }
     h.control.rfe_readback_override.lock().unwrap().clear();
-    h.control
-        .rfe_readback_override
-        .lock()
-        .unwrap()
-        .insert("detector".into(), json!("max_hold"));
-    assert!(h.service.start_preparation(id, json!({})).await.is_err());
-    assert_eq!(h.service.project(id).await.unwrap()["coverage"], "stopped");
+    h.service.start_preparation(id, json!({})).await.unwrap();
+    h.service.stop_preparation(id, json!({})).await.unwrap();
     h.close().await;
 }

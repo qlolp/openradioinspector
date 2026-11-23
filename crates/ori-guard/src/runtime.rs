@@ -76,22 +76,42 @@ impl ProjectRuntime {
     }
 }
 
-fn workers_started(session: &Value, workers: &[WorkerStatus]) -> bool {
-    let Some(streams) = session["streams"].as_array() else {
-        return false;
-    };
-    workers.len() == streams.len()
-        && streams.iter().all(|stream| {
-            workers.iter().any(|worker| {
+fn check_started_workers(
+    session: &Value,
+    workers: &[WorkerStatus],
+    unavailable: &'static str,
+) -> std::result::Result<(), &'static str> {
+    let streams = session["streams"].as_array().ok_or(unavailable)?;
+    if workers.len() != streams.len() {
+        return Err(unavailable);
+    }
+    let mut detector_check = Ok(());
+    for stream in streams {
+        let worker = workers
+            .iter()
+            .find(|worker| {
                 worker.session_id == session["id"]
                     && worker.stream_id == stream["id"]
                     && worker.alive
                     && worker.state != "error"
-                    && (stream["settings"]["adapter"] != "rf-explorer-3g-serial"
-                        || worker.current.get("profile_verified") == Some(&json!(true))
-                            && ori_monitoring::rfe::normal_readback(&json!(worker.current)))
             })
-        })
+            .ok_or(unavailable)?;
+        if stream["settings"]["adapter"] == "rf-explorer-3g-serial" {
+            let current = json!(worker.current);
+            let verified = current["profile_verified"] == true;
+            if verified && ori_monitoring::rfe::normal_readback(&current) {
+                continue;
+            }
+            detector_check = Err(
+                if verified && ori_monitoring::rfe::max_hold_readback(&current) {
+                    "RF Explorer подтвердил аппаратный режим Max Hold. Выберите Normal на приборе и повторите запуск."
+                } else {
+                    "RF Explorer не подтвердил режим Normal. Проверьте подключение и режим детектора на приборе."
+                },
+            );
+        }
+    }
+    detector_check
 }
 
 pub(crate) struct RuntimeState {
@@ -569,17 +589,21 @@ impl GuardService {
             event_dispatch: None,
             idle_dispatch: None,
         };
+        let unavailable = "Не удалось начать приём; проверьте исполнителей";
         let result = self
             .control
             .start_session(&decode::<Session>(&session)?, permit)
-            .await;
+            .await
+            .map_err(|_| unavailable)
+            .and_then(|statuses| {
+                check_started_workers(&session, &statuses, unavailable)?;
+                Ok(statuses)
+            });
         let statuses = match result {
-            Ok(statuses) if workers_started(&session, &statuses) => statuses,
-            _ => {
+            Ok(statuses) => statuses,
+            Err(message) => {
                 self.stop_preparation_locked(id).await?;
-                return Err(GuardError::Conflict(
-                    "Не удалось начать приём; проверьте исполнителей".into(),
-                ));
+                return Err(GuardError::Conflict(message.into()));
             }
         };
         self.ensure_open()?;
@@ -848,7 +872,15 @@ impl GuardService {
             .start_session(&decode::<Session>(&session)?, self.permit(id, &runtime))
             .await
         {
-            Ok(statuses) if workers_started(&session, &statuses) => {
+            Ok(statuses) => {
+                if let Err(message) = check_started_workers(
+                    &session,
+                    &statuses,
+                    "Не удалось запустить приборы; проверьте журнал исполнителей",
+                ) {
+                    self.fail_runtime(id, message).await?;
+                    return Err(GuardError::Conflict(message.into()));
+                }
                 self.ensure_open()?;
                 if let Err(error) = self.check_rfe_start(&p, &statuses).await {
                     self.fail_runtime(id, &error.to_string()).await?;
@@ -870,11 +902,6 @@ impl GuardService {
                 }
                 self.fail_runtime(id, &e.to_string()).await?;
                 Err(e.into())
-            }
-            _ => {
-                let message = "Не удалось запустить приборы; проверьте журнал исполнителей";
-                self.fail_runtime(id, message).await?;
-                Err(GuardError::Conflict(message.into()))
             }
         }
     }

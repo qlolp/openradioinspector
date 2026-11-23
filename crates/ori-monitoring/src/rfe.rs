@@ -72,7 +72,7 @@ pub fn normal_sweep(sweep: &Sweep) -> bool {
         })
 }
 
-pub fn normal_readback(s: &Value) -> bool {
+fn detector_readback(s: &Value, detector: &str, code: u8, kind: &str) -> bool {
     s["adapter"] == "rf-explorer-3g-serial"
         && s["device_mode"] == "spectrum_analyzer"
         && s["device_identity"]["main_model"] == 3
@@ -80,9 +80,17 @@ pub fn normal_readback(s: &Value) -> bool {
         && s["device_identity"]["firmware"] == "01.34"
         && s["receive_profile"] == "rf-explorer-3g-combo-standard-1.34"
         && s["simulated"] == false
-        && s["detector"] == "normal"
-        && s["detector_code"] == 0
-        && s["artifact_kind"] == "raw_spectrum"
+        && s["detector"] == detector
+        && s["detector_code"] == code
+        && s["artifact_kind"] == kind
         && s["settings_source"] == "device_readback"
         && s["settings_readback"] == true
+}
+
+pub fn normal_readback(s: &Value) -> bool {
+    detector_readback(s, "normal", 0, "raw_spectrum")
+}
+
+pub fn max_hold_readback(s: &Value) -> bool {
+    detector_readback(s, "max_hold", 4, "processed_trace")
 }
