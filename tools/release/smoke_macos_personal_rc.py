@@ -14,9 +14,9 @@ import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 if __package__:
-    from .macos_rc_package import PROFILES, release_profile, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
+    from .macos_rc_package import PROFILES, profile_for_version, release_profile, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
 else:
-    from macos_rc_package import PROFILES, release_profile, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
+    from macos_rc_package import PROFILES, profile_for_version, release_profile, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
 
 
 def request(url, method, path, body=None):
@@ -89,20 +89,24 @@ def main():
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--report-dir', type=Path, required=True)
     parser.add_argument('--profile', choices=PROFILES, default='rc1')
+    parser.add_argument('--release-version', help='Expected version of the mounted distribution image')
     args = parser.parse_args()
     selected = release_profile(args.profile)
+    version = args.release_version or selected['version']
     args.app = args.app.resolve(strict=True)
     args.manifest = args.manifest.resolve(strict=True)
     args.report_dir = args.report_dir.resolve()
     args.report_dir.mkdir(parents=True, exist_ok=False)
-    outcome = {'release_version': selected['version'], 'package_profile': args.profile, 'successful': False,
+    outcome = {'release_version': version, 'package_profile': args.profile, 'successful': False,
         'scope': 'relocated packaged-code/inventory, cold archive restore; no SM registration, native rendering or physical acceptance',
         'hardware_validation': 'not_run', 'target_macos_27_3': 'not_run', 'audio_capture_validation': 'not_run'}
     try:
         validate_runtime_profile(args.app)
         manifest = read_json(args.manifest, 32 * 1024 * 1024)
-        if manifest['release_version'] != selected['version'] or manifest['build_info']['release_version'] != selected['version']:
-            raise RuntimeError('package differs from explicitly selected RC profile')
+        if (profile_for_version(version) != args.profile or manifest['release_version'] != version
+                or manifest['build_info']['release_version'] != version
+                or manifest['build_info'].get('package_profile') != args.profile):
+            raise RuntimeError('package differs from explicitly selected version or profile')
         verify_inventory(args.app, manifest['files'])
         # No checkout/module environment or package manager is available to the
         # child. Preserve the actual login HOME; data is explicitly temporary.
@@ -117,7 +121,7 @@ def main():
                 if actual[key] != expected[key]: raise RuntimeError('packaged component metadata mismatch: ' + name)
         outcome['native_self_check'] = json.loads(subprocess.check_output(
             [str(args.app/'Contents/MacOS'/UI_EXECUTABLE), '--self-check'], env=env, cwd=args.report_dir))
-        if outcome['native_self_check']['release_version'] != selected['version']:
+        if outcome['native_self_check']['release_version'] != version:
             raise RuntimeError('native UI reports a different RC profile')
         if outcome['native_self_check'].get('native_audio_capture') != selected['audio']:
             raise RuntimeError('native UI audio admission differs from package profile')
