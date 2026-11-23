@@ -231,6 +231,39 @@ final class SecurityClientTests: XCTestCase {
         XCTAssertEqual(requests.map(\.scheme), ["https"])
     }
 
+    func testVerifiedReaderSessionSnapshotReturnsTheArchivedSpectrumUsingReaderRoutes() async throws {
+        let client = try api(credential: credential())
+        let time = "2026-11-23T09:00:00Z"
+        Stub.handle = { stub, request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            switch request.url?.path {
+            case "/api/v1/security/status":
+                try stub.reply(["mode": "lan_tls", "pairing_required": false, "access_scope": "reader"])
+            case "/api/v1/sessions/run":
+                try stub.reply(["id": "run", "name": "Survey", "state": "running", "streams": [
+                    ["id": "rf", "device": "RF Explorer 3G Combo", "role": "spectrum_analyzer",
+                     "level_unit": "dBm", "state": "connected", "capabilities": ["sweep"],
+                     "settings": ["adapter": "rf-explorer-3g-serial", "survey_step_hz": 10000]]]])
+            case "/api/v1/sessions/run/sweeps":
+                try stub.reply([["id": "window", "session_id": "run", "stream_id": "rf",
+                    "frequencies_hz": [100000000, 100010000], "levels": [-80, -35.5], "level_unit": "dBm",
+                    "interval": ["started_at": time, "ended_at": time]]])
+            default:
+                XCTFail("Reader snapshot requested \(request.url!.path)")
+                try stub.reply([:], status: 403)
+            }
+        }
+        _ = try await client.securityStatus()
+        let snapshot = try await client.snapshot(sessionID: "run")
+        XCTAssertEqual(snapshot.session.streams.first?.id, "rf")
+        XCTAssertEqual(snapshot.sweeps.first?.id, "window")
+        XCTAssertEqual(snapshot.sweeps.first?.levels, [-80, -35.5])
+        XCTAssertTrue(snapshot.workers.isEmpty)
+        let metadata = try await client.snapshot(sessionID: "run", includeMeasurements: false)
+        XCTAssertEqual(metadata.session.id, "run")
+        XCTAssertTrue(metadata.sweeps.isEmpty)
+    }
+
     func testRFReaderCanRecallMarkersButCannotRunScientificPOSTsOrSaveMarkers() async throws {
         let credential = try PlatformBearerCredential(token: "fixture")
         let client = try api(credential: credential)

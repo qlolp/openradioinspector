@@ -142,7 +142,7 @@ struct RemoteUltraPane: View {
                                     client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
                                     hasTinySAControls: model.tinySAAnalyzer != nil, rfExplorer: model.analyzer?.isRFExplorer3G == true,
                                     openRFExplorerWindow: openRaw, analyzeRFExplorerSweep: analyze,
-                                    liveReceiving: model.worker(for: model.analyzer?.id)?.alive == true && model.coreReachable && !model.measurementsStale,
+                                    liveReceiving: model.followAnalyzerMeasurements && !model.measurementsStale,
                                     measurementsStale: model.measurementsStale,
                                     presentationPaused: model.spectrumPresentation.paused,
                                     setPresentationPaused: { model.setSpectrumPaused($0) },
@@ -192,7 +192,7 @@ struct RemoteUltraPane: View {
                 if let client = model.client, let analyzer = model.analyzer, analyzer.isRFExplorer3G {
                     NativeRFExplorerWorkbench(client: client, session: model.selectedSessionID, stream: analyzer.id,
                         survey: analyzer.rfExplorerSurveyStepHz != nil || model.displayInspectorSweeps.last?.settings?["survey"] != nil,
-                        currentWindow: model.displayInspectorSweeps.last, live: model.worker(for: analyzer.id)?.alive == true && model.coreReachable,
+                        currentWindow: model.displayInspectorSweeps.last, live: model.followAnalyzerMeasurements,
                         paused: model.spectrumPresentation.paused, setPaused: { model.setSpectrumPaused($0) },
                         memory: model.spectrumViewMemory) { openRaw, analyze in inspector(openRaw: openRaw, analyze: analyze) }
                         .id(ObjectIdentifier(client))

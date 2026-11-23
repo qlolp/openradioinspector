@@ -939,8 +939,16 @@ test('paired reader sees a newly committed raw window and its original with oper
     contract_version: 1,
     data,
   });
+  const sweepEvent = (sequence: number, sweep: typeof source | typeof later) =>
+    'event: sweep.received\nid: ' +
+    sequence +
+    '\ndata: ' +
+    JSON.stringify(envelope({ sequence, event_type: 'sweep.received', payload: { sweep } })) +
+    '\n\n';
   let release!: () => void,
     nextWindow!: () => void,
+    sendGaps!: () => void,
+    revisit!: () => void,
     lastEvent = 0,
     wrongInterval = true,
     subscribed = false;
@@ -949,6 +957,12 @@ test('paired reader sees a newly committed raw window and its original with oper
   });
   const windowReady = new Promise<void>((r) => {
     release = r;
+  });
+  const gapsReady = new Promise<void>((r) => {
+    sendGaps = r;
+  });
+  const revisitReady = new Promise<void>((r) => {
+    revisit = r;
   });
   const denied: string[] = [],
     reads: string[] = [];
@@ -1005,24 +1019,40 @@ test('paired reader sees a newly committed raw window and its original with oper
       if (p === '/api/v1/events') {
         subscribed = true;
         lastEvent = Number(url.searchParams.get('after'));
-        const sequence = Number(url.searchParams.get('after')) + 1;
-        if (sequence > 12)
+        const sequence = lastEvent + 1;
+        if (sequence > 270)
           return route.fulfill({ contentType: 'text/event-stream', body: ': heartbeat\n\n' });
+        if (sequence >= 13 && sequence < 270) {
+          await gapsReady;
+          let body = '';
+          for (let id = sequence; id < 270; id++) {
+            const time = new Date(Date.UTC(2026, 10, 22, 0, 0, id)).toISOString();
+            body += sweepEvent(id, {
+              ...later,
+              id: 'gap-' + id,
+              interval: { started_at: time, ended_at: time },
+              frequencies_hz: [80000000, 80020000],
+              levels: [-78, -74],
+            });
+          }
+          return route.fulfill({ contentType: 'text/event-stream', body });
+        }
+        if (sequence === 270) {
+          await revisitReady;
+          const time = '2026-11-22T00:05:00.000000Z';
+          return route.fulfill({
+            contentType: 'text/event-stream',
+            body: sweepEvent(sequence, {
+              ...later,
+              id: 'exact-revisit',
+              interval: { started_at: time, ended_at: time },
+            }),
+          });
+        }
         await (sequence === 11 ? windowReady : nextReady);
         return route.fulfill({
           contentType: 'text/event-stream',
-          body:
-            'event: sweep.received\nid: ' +
-            sequence +
-            '\ndata: ' +
-            JSON.stringify(
-              envelope({
-                sequence,
-                event_type: 'sweep.received',
-                payload: { sweep: sequence === 11 ? source : later },
-              }),
-            ) +
-            '\n\n',
+          body: sweepEvent(sequence, sequence === 11 ? source : later),
         });
       }
       denied.push(p);
@@ -1056,6 +1086,19 @@ test('paired reader sees a newly committed raw window and its original with oper
   await expect(page.getByTestId('source-id')).toHaveText(later.id);
   await expect(page.locator('.rf-evidence')).toContainText(source.id);
   await expect(page.locator('.rf-evidence')).toContainText('00:00:05.000000 UTC');
+  sendGaps();
+  await expect(page.getByTestId('source-id')).toHaveText('gap-269', { timeout: 15000 });
+  const selectedTime = page
+    .locator('.rf-evidence p')
+    .filter({ hasText: 'Selected frequency last measured' });
+  try {
+    await expect(selectedTime).toContainText('00:00:05.000000 UTC');
+  } finally {
+    revisit();
+  }
+  await expect(page.getByTestId('source-id')).toHaveText('exact-revisit');
+  await expect(selectedTime).toContainText('00:05:00.000000 UTC');
+  await expect(page.locator('.rf-evidence')).toContainText(source.id);
   await page.getByText('Acquisition preview', { exact: true }).click();
   const inputReadback = page
     .locator('.rf-draft-preview dt')

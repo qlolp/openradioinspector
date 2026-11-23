@@ -85,8 +85,9 @@ timing. **Пауза показа** freezes the display while the core keeps acq
 **Маркеры** places up to four named frequencies on the graph. When the core
 advertises frequency bookmarks, a set can be saved in the session and opened
 on another client. Recalling a marker queries its exact frequency, including
-when the display column has a stronger neighbouring peak. Read-only clients
-can recall saved sets. Saving sets and submitting scientific calculations
+when the display column has a stronger neighbouring peak. A paired reader can
+follow a running survey, recall a saved set and open the marker's original sweep.
+Saving sets and submitting scientific calculations
 require operator access.
 
 **Анализ свипа** and **Анализ исходника** run the analyses offered by the core.

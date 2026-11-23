@@ -116,8 +116,12 @@ function Acquisition({
   const [history, setHistory] = useState<Sweep[]>();
   const [hold, setHold] = useState<LocalHold>({ since: '', visible: false });
   const [view, setView] = useState<'window' | 'pass'>('window');
-  const [frozen, setFrozen] = useState<Pick<Desk['live'], 'rows' | 'presentation'>>();
+  const [frozen, setFrozen] =
+    useState<Pick<Desk['live'], 'rows' | 'presentation' | 'selectedFrequency'>>();
   const [cursor, setCursor] = useState<{ row: DisplaySweep; index: number }>();
+  useEffect(() => {
+    if (cursor) return desk.followFrequency(cursor.row, cursor.index);
+  }, [cursor, desk.followFrequency]);
   const [sourceError, setSourceError] = useState('');
   const sourceRead = useRef<AbortController | null>(null);
   useEffect(() => () => sourceRead.current?.abort(), []);
@@ -235,15 +239,18 @@ function Acquisition({
       (worker?.last_measurement_at && worker.last_measurement_at >= savedReadback.at))
       ? workerReadback
       : savedReadback?.readback;
+  const selectedFrequency = (frozen ?? desk.live).selectedFrequency;
   const lastMeasured = useMemo(() => {
     if (!cursor) return;
-    let last = cursor.row.interval.ended_at;
     const frequency = cursor.row.frequencies_hz[cursor.index];
+    let last = cursor.row.interval.ended_at;
+    if (selectedFrequency?.hz === frequency && selectedFrequency.lastMeasuredAt >= last)
+      return selectedFrequency.lastMeasuredAt;
     for (const row of rows)
       if (row.interval.ended_at > last && row.frequencies_hz.includes(frequency))
         last = row.interval.ended_at;
     return last;
-  }, [cursor, rows]);
+  }, [cursor, rows, selectedFrequency]);
   async function inspectCursor() {
     if (!cursor) return;
     sourceRead.current?.abort();
@@ -347,7 +354,11 @@ function Acquisition({
                 setFrozen(
                   frozen
                     ? undefined
-                    : { rows: desk.live.rows, presentation: desk.live.presentation },
+                    : {
+                        rows: desk.live.rows,
+                        presentation: desk.live.presentation,
+                        selectedFrequency: desk.live.selectedFrequency,
+                      },
                 )
               }
             >

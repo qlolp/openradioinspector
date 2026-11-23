@@ -271,6 +271,11 @@ final class RemoteDualModel {
     }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
+    var followAnalyzerMeasurements: Bool {
+        guard coreReachable, let analyzer else { return false }
+        if client?.readsMeasurementsOnly == true { return session?.state == "running" }
+        return worker(for: analyzer.id)?.alive == true
+    }
     var tinySAAnalyzer: PlatformStream? { analyzer.flatMap { $0.isTinySAAnalyzer ? $0 : nil } }
     var isStandaloneRFExplorer: Bool { analyzer?.isRFExplorer3G == true && session?.streams.count == 1 }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
@@ -339,7 +344,8 @@ final class RemoteDualModel {
         frequencyRounding.reset()
         do {
             client = try preparedClient ?? makeClient(serverURL)
-            resetComparisonScope()
+            if client?.readsMeasurementsOnly == true { clearMeasurements() }
+            else { resetComparisonScope() }
             connectedServerURL = serverURL
             connectionGeneration += 1
             archiveCapacity = nil
@@ -550,7 +556,7 @@ final class RemoteDualModel {
     }
 
     private func refreshArchiveCapacity(_ client: PlatformClient) async {
-        guard self.client === client else { return }
+        guard self.client === client, !client.readsMeasurementsOnly else { return }
         let connection = connectionGeneration
         capacityRequestRevision += 1
         let revision = capacityRequestRevision
@@ -612,7 +618,7 @@ final class RemoteDualModel {
                 if expireAuthorization(error, client: client) { return }
                 markCoreUnavailable(); errorText = describeSession(error)
             }
-            await refreshTaskScheduler(client)
+            if !client.readsMeasurementsOnly { await refreshTaskScheduler(client) }
             return
         }
         sessionRefreshRevision += 1
@@ -698,7 +704,7 @@ final class RemoteDualModel {
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             recordCoreContact()
             observeMeasurementTime(snapshot)
-            applyWorkflow(snapshot, schedulerRevision: schedulerRevision)
+            if !client.readsMeasurementsOnly { applyWorkflow(snapshot, schedulerRevision: schedulerRevision) }
             if streamingEnabled, !measurementStream.isActive, let watermark {
                 let streamGeneration = requestGeneration
                 let transport = negotiatedMeasurementTransport ?? .serverSentEvents
@@ -1033,6 +1039,8 @@ final class RemoteDualModel {
         // them only after the corresponding off-main display preparation finishes.
         guard await prepareSpectrum(scope: scope, incoming: snapshot.sweeps),
               requestGeneration == generation, sourceClient === client else { return false }
+        latestObservation = snapshot.observations.last
+        if sourceClient?.readsMeasurementsOnly == true { return true }
         comparisonSweeps = selectedSweeps
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id {
             sweepContext.configure(client: client,
@@ -1058,7 +1066,6 @@ final class RemoteDualModel {
         if !selectedSweeps.contains(where: { PlatformExactID.same($0.id, comparisonSelectionID) }) {
             comparisonSelectionID = selectedSweeps.last?.id ?? ""
         }
-        latestObservation = snapshot.observations.last
         return true
     }
 
