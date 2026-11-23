@@ -12,6 +12,7 @@ mod rfe;
 pub use audio_evidence::AudioClip;
 mod duty;
 mod duty_notifications;
+mod receiver_duty;
 pub use duty::DutyTrigger;
 mod grants;
 pub use grants::InstrumentControlGrant;

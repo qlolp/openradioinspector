@@ -266,6 +266,10 @@ impl GuardService {
         if state["enabled"] == true && held(&p) {
             state["status"] = json!("manual_hold");
         }
+        state
+            .as_object_mut()
+            .expect("duty object")
+            .remove("receiver_run_id");
         state["deliveries"] = json!(self.archive.duty_delivery_journal(id, 32).await?);
         Ok(state)
     }
@@ -368,15 +372,22 @@ impl GuardService {
             if held(&self.project(id).await?) {
                 state["status"] = json!("manual_hold");
             } else {
-                let attempt = self.arm(id, json!({})).await;
-                match schedule.window(&self.clock.now())? {
-                    Window::Closed => state["status"] = json!("waiting"),
-                    Window::Expired => {
+                let resume_receiver = interrupted
+                    && (prior["status"] == "armed" || prior["receiver_run_id"].is_string());
+                let attempt = self.arm_project(id, resume_receiver).await;
+                match (schedule.window(&self.clock.now())?, attempt) {
+                    (Window::Closed, _) => state["status"] = json!("waiting"),
+                    (Window::Expired, _) => {
                         state["status"] = json!("expired");
                         state["enabled"] = json!(false);
                     }
-                    Window::Open if attempt.is_ok() => state["status"] = json!("armed"),
-                    Window::Open => {
+                    (Window::Open, Ok(armed)) => {
+                        state["status"] = json!("armed");
+                        if armed["primary_source_kind"] == "ardv1" {
+                            state["receiver_run_id"] = armed["active_session_id"].clone();
+                        }
+                    }
+                    (Window::Open, Err(_)) => {
                         self.ensure_open()?;
                         state["status"] = json!("preflight_failed");
                         state["last_error"] =
@@ -391,6 +402,12 @@ impl GuardService {
                 }
             }
         }
+        if state["status"] == "waiting" || state["enabled"] != true {
+            state
+                .as_object_mut()
+                .expect("duty object")
+                .remove("receiver_run_id");
+        }
         if state != prior {
             self.store_duty(id, &state).await?;
         } else {
@@ -404,6 +421,10 @@ impl GuardService {
         if let Some(mut state) = p.get("duty").cloned() {
             state["enabled"] = json!(false);
             state["status"] = json!("disarmed");
+            state
+                .as_object_mut()
+                .expect("duty object")
+                .remove("receiver_run_id");
             state["last_error"] = Value::Null;
             self.store_duty(id, &state).await?;
         }

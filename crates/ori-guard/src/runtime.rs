@@ -669,6 +669,9 @@ impl GuardService {
     }
     pub async fn arm(&self, id: &str, payload: Value) -> Result<Value> {
         fields(&payload, &[], true)?;
+        self.arm_project(id, false).await
+    }
+    pub(crate) async fn arm_project(&self, id: &str, resume_receiver: bool) -> Result<Value> {
         let _life = self.lock_project(id).await?;
         self.ensure_open()?;
         let mut original = self.project(id).await?;
@@ -704,22 +707,33 @@ impl GuardService {
         let context = self.guard_acquisition_context(&original).await?;
         let old = s(&original, "active_session_id")?.to_owned();
         self.ensure_session_unclaimed(id, &old, true)?;
+        let recovery = if resume_receiver && original["primary_source_kind"] == "ardv1" {
+            Some(self.receiver_duty_run(&original).await?)
+        } else {
+            None
+        };
         self.control.stop_session(&old).await?;
         self.stop_archived_session(&old).await?;
-        let mut created = self.clone_session(&original, false, None)?;
-        if plan
-            .as_ref()
-            .is_some_and(|p| p.bands.iter().any(|band| band.step_hz.is_some()))
-        {
-            created["metadata"]["scan_baselines"] = json!({"plan_id":original["scan_plan"]["id"],
+        let (session, mut mutations) = if let Some(run) = &recovery {
+            run.reopen(self.clock.now().as_str())?
+        } else {
+            let mut created = self.clone_session(&original, false, None)?;
+            if plan
+                .as_ref()
+                .is_some_and(|p| p.bands.iter().any(|band| band.step_hz.is_some()))
+            {
+                created["metadata"]["scan_baselines"] = json!({"plan_id":original["scan_plan"]["id"],
                 "revision":original["scan_plan"]["revision"],"windows":original["band_baselines"]});
-        }
-        if let Some(context) = context {
-            created["streams"][0]["settings"]["monitoring_instrument_context"] = json!(context);
-        }
-        let (session, mut mutations) = self.running_mutations(created)?;
+            }
+            if let Some(context) = context {
+                created["streams"][0]["settings"]["monitoring_instrument_context"] = json!(context);
+            }
+            self.running_mutations(created)?
+        };
         let mut p = original;
-        Self::select_project_session(&mut p, &session)?;
+        if recovery.is_none() {
+            Self::select_project_session(&mut p, &session)?;
+        }
         p["state"] = json!("armed");
         reset_detectors(&mut p);
         p["detector_cursor"] = Value::Null;
@@ -727,7 +741,17 @@ impl GuardService {
         p["last_error"] = Value::Null;
         p["coverage"] = json!("wide");
         if p["primary_source_kind"] == "ardv1" {
-            p["receiver_detector_generation"] = session["id"].clone();
+            if p["duty"]["enabled"] == true {
+                p["duty"]["receiver_run_id"] = session["id"].clone();
+            }
+            if let Some(run) = &recovery {
+                p["coverage"] = json!("restoring");
+                p["detector_rowid"] = json!(run.boundary);
+                p["detector_cursor"] = json!(run.last.as_ref().map(|o| &o["id"]));
+                p["receiver_detector_generation"] = json!(self.ids.next_id(IdKind::Owner));
+            } else {
+                p["receiver_detector_generation"] = session["id"].clone();
+            }
         }
         if crate::rfe::survey(&p) {
             p["survey_generation"] = session["id"].clone();

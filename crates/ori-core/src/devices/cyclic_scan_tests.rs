@@ -460,3 +460,279 @@ async fn guard_profiles_validate_the_selected_receiver_or_rf_explorer_without_op
     assert_eq!(factory.opens.load(Ordering::Acquire), 0);
     live.close().await.unwrap();
 }
+
+async fn open_duty_node(path: &std::path::Path, factory: &Arc<Factory>) -> Arc<Core> {
+    let mut config = CoreConfig::replay(path);
+    config.devices.transport = Some(factory.clone());
+    Core::open(config).await.unwrap()
+}
+
+async fn receiver_duty_fixture(node: &Core) -> String {
+    let mut template = cyclic_session("reference", 115_010);
+    template["streams"][0]["settings"]["period_s"] = json!(10);
+    let archive = node.archive().unwrap();
+    archive.create_session(template.clone()).await.unwrap();
+    let guard = &node.domains.get().unwrap().guard;
+    let project = guard
+        .create(json!({"name":"Cyclic duty","site":"Fixture","session_id":"reference"}))
+        .await
+        .unwrap();
+    let id = project["id"].as_str().unwrap();
+    guard
+        .update_settings(
+            id,
+            json!({"archive":{"minimum_free_bytes":1048576,"minimum_retention_seconds":60}}),
+        )
+        .await
+        .unwrap();
+    guard.save_preparation(id, json!({"antenna_notes":"Fixture","receive_path_confirmed":true,"location_confirmed":true})).await.unwrap();
+    let archived = archive.get_session("reference").await.unwrap().unwrap();
+    let key = ori_guard::ardv1_plan_key(&parse_session(&archived).unwrap().streams[0]).unwrap();
+    let mut rows = vec![];
+    for pass in 1..=20 {
+        for (index, hz) in [100_000_u64, 110_000, 115_010].into_iter().enumerate() {
+            let time = chrono::DateTime::from_timestamp(1_777_000_000 + 4 * pass + index as i64, 0)
+                .unwrap()
+                .to_rfc3339();
+            rows.push(json!({"id":format!("ref-{pass}-{index}"),"session_id":"reference","stream_id":"reference-r",
+                "interval":{"started_at":time,"ended_at":time},"frequency_hz":hz,"mode":"FM","level_unit":"s_meter_count","level":137,
+                "metadata":{"adapter":"ardv1-serial","receiver_profile":"ardv1-monitor-v1","receiver_firmware":"2504A",
+                    "scan_plan_key":key,"scan_strategy_requested":"auto","scope_source":"sequential_receiver_readback",
+                    "scan_pass":pass,"scan_index":index,"scan_total":3,"scan_start_hz":100000,"scan_stop_hz":115010,
+                    "scan_step_hz":10000,"scan_segment_index":0,"settle_s":0.0,"frequency_readback":true,"simulated":false,
+                    "observed_frequency_hz":hz,"requested_frequency_hz":hz,"observed_mode":"FM","requested_mode":"FM",
+                    "frequency_source":"receiver_RX","mode_source":"receiver_RX",
+                    "raw_receiver_status":format!("RX VFA RF0000.{:05} ST010.00 MD0F0 LM1371",hz/10)}}));
+        }
+    }
+    assert!(
+        ori_archive::verified_receiver_scan_context(&rows[0]).is_some(),
+        "{}",
+        rows[0]
+    );
+    archive.append_observations(rows).await.unwrap();
+    let progress = archive
+        .ardv1_reference_progress("reference", "reference-r")
+        .await
+        .unwrap();
+    let checked = guard.baseline_collection(&project).await.unwrap();
+    assert_eq!(checked["ready"], true, "{progress} {checked} {key}");
+    guard
+        .create_baseline(
+            id,
+            json!({"name":"Reference","location":"Fixture","confirm":true}),
+        )
+        .await
+        .unwrap();
+    id.to_owned()
+}
+
+async fn next_duty_original(node: &Core, sid: &str, stream: &str, n: usize) -> Vec<Value> {
+    tokio::time::timeout(Duration::from_secs(8), async {
+        loop {
+            let rows = node
+                .archive()
+                .unwrap()
+                .list_observations(sid, Some(stream), 10)
+                .await
+                .unwrap();
+            if rows.len() >= n {
+                return rows;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("cyclic duty committed its next RX original")
+}
+
+#[tokio::test]
+async fn opted_in_duty_reopens_its_raw_stream_and_only_fills_the_next_verified_point() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let factory = Factory::new(false);
+    let node = open_duty_node(dir.path(), &factory).await;
+    let id = receiver_duty_fixture(&node).await;
+    let guard = &node.domains.get().unwrap().guard;
+    let policy = |enable| json!({"schedule":{"mode":"continuous"},"resume_after_restart":enable});
+    let duty = guard.arm_duty(&id, policy(true)).await.unwrap();
+    assert_eq!(duty["status"], "armed", "{duty}");
+    let project = guard.get_record("project", &id, None).await.unwrap();
+    let sid = project["active_session_id"].as_str().unwrap();
+    let stream = project["primary_stream_id"].as_str().unwrap();
+    let first = next_duty_original(&node, sid, stream, 1).await.remove(0);
+    assert_eq!(first["metadata"]["scan_index"], 0);
+    let unit = first["metadata"]["receiver_run_unit"].as_str().unwrap();
+    assert_eq!(unit.len(), 64);
+    assert!(!first.to_string().contains("SYNTHETIC"));
+    node.close().await.unwrap();
+
+    let reopened = open_duty_node(dir.path(), &factory).await;
+    let guard = &reopened.domains.get().unwrap().guard;
+    let recovered = guard.get_record("project", &id, None).await.unwrap();
+    assert_eq!(recovered["active_session_id"], sid, "{recovered}");
+    assert_eq!(recovered["primary_stream_id"], stream);
+    assert_eq!(recovered["session_ids"], project["session_ids"]);
+    let rows = next_duty_original(&reopened, sid, stream, 2).await;
+    let after = rows.iter().find(|o| o["id"] != first["id"]).unwrap();
+    assert_eq!(after["frequency_hz"], 110_000);
+    assert_eq!(after["metadata"]["scan_pass"], 1);
+    assert_eq!(after["metadata"]["scan_index"], 1);
+    let recovered_pass = reopened
+        .archive()
+        .unwrap()
+        .receiver_panorama(sid, stream, Some(1), 3)
+        .await
+        .unwrap();
+    assert_eq!(recovered_pass["coverage_hex"], "03");
+    assert_eq!(recovered_pass["complete"], false);
+    assert_eq!(recovered_pass["bins"][0]["observation_id"], first["id"]);
+
+    assert_eq!(after["metadata"]["receiver_run_unit"], unit);
+    let journal = reopened.archive().unwrap().events(0, 256).await.unwrap();
+    let restart = journal
+        .iter()
+        .find(|e| e["session_id"] == sid && e["payload"]["recovery"].is_object())
+        .unwrap();
+    assert_eq!(
+        restart["payload"]["recovery"]["last_observation_id"],
+        first["id"]
+    );
+    assert_eq!(
+        restart["payload"]["recovery"]["last_observation_ended_at"],
+        first["interval"]["ended_at"]
+    );
+
+    // Sleep releases the worker, repeats preflight and keeps the same raw pass.
+    guard
+        .reconcile_duty(&id, ori_guard::DutyTrigger::Wake)
+        .await
+        .unwrap();
+    let woke = next_duty_original(&reopened, sid, stream, 3).await;
+    assert!(
+        woke.iter()
+            .any(|o| o["metadata"]["scan_index"] == 2 && o["frequency_hz"] == 115_010)
+    );
+    assert_eq!(
+        reopened
+            .archive()
+            .unwrap()
+            .receiver_panorama(sid, stream, Some(1), 3)
+            .await
+            .unwrap()["coverage_hex"],
+        "07"
+    );
+
+    // An explicit stop followed by a new duty never borrows the previous cursor.
+    guard.disarm(&id, json!({})).await.unwrap();
+    guard.arm_duty(&id, policy(false)).await.unwrap();
+    let fresh = guard.get_record("project", &id, None).await.unwrap();
+    assert_ne!(fresh["active_session_id"], sid);
+    let fresh_row = next_duty_original(
+        &reopened,
+        fresh["active_session_id"].as_str().unwrap(),
+        fresh["primary_stream_id"].as_str().unwrap(),
+        1,
+    )
+    .await
+    .remove(0);
+    assert_eq!(fresh_row["metadata"]["scan_index"], 0);
+    assert_ne!(fresh_row["metadata"]["receiver_run_unit"], unit);
+    reopened.close().await.unwrap();
+    let opens = factory.opens.load(Ordering::Acquire);
+    let no_resume = open_duty_node(dir.path(), &factory).await;
+    assert_eq!(
+        no_resume
+            .domains
+            .get()
+            .unwrap()
+            .guard
+            .duty(&id)
+            .await
+            .unwrap()["enabled"],
+        false
+    );
+    assert_eq!(factory.opens.load(Ordering::Acquire), opens);
+    no_resume.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn duty_recovery_rejects_a_different_receiver_on_the_same_port_before_scanning() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let factory = Factory::new(false);
+    let node = open_duty_node(dir.path(), &factory).await;
+    let id = receiver_duty_fixture(&node).await;
+    let guard = &node.domains.get().unwrap().guard;
+    guard
+        .arm_duty(
+            &id,
+            json!({"schedule":{"mode":"continuous"},"resume_after_restart":true}),
+        )
+        .await
+        .unwrap();
+    let project = guard.get_record("project", &id, None).await.unwrap();
+    let sid = project["active_session_id"].as_str().unwrap();
+    let stream = project["primary_stream_id"].as_str().unwrap();
+    let original = next_duty_original(&node, sid, stream, 1).await.remove(0);
+    node.close().await.unwrap();
+    *factory.receiver_id.lock().unwrap() = "REPLACEMENT".into();
+    factory.commands.lock().unwrap().clear();
+
+    let reopened = open_duty_node(dir.path(), &factory).await;
+    let guard = &reopened.domains.get().unwrap().guard;
+    assert_eq!(guard.duty(&id).await.unwrap()["status"], "preflight_failed");
+    assert!(!guard.any_armed());
+    let commands = factory.commands.lock().unwrap().clone();
+    assert!(commands.iter().any(|command| command == "RN"));
+    assert!(
+        !commands
+            .iter()
+            .any(|command| command.starts_with("RF") || command == "RX")
+    );
+    let rows = reopened
+        .archive()
+        .unwrap()
+        .list_observations(sid, Some(stream), 8)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["id"], original["id"]);
+    reopened.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn duty_recovery_refuses_an_archive_run_reassigned_to_a_different_project() {
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let factory = Factory::new(false);
+    let node = open_duty_node(dir.path(), &factory).await;
+    let id = receiver_duty_fixture(&node).await;
+    let guard = &node.domains.get().unwrap().guard;
+    guard
+        .arm_duty(
+            &id,
+            json!({"schedule":{"mode":"continuous"},"resume_after_restart":true}),
+        )
+        .await
+        .unwrap();
+    let project = guard.get_record("project", &id, None).await.unwrap();
+    let sid = project["active_session_id"].as_str().unwrap();
+    let stream = project["primary_stream_id"].as_str().unwrap();
+    next_duty_original(&node, sid, stream, 1).await;
+    node.close().await.unwrap();
+
+    let archive = ori_archive::Archive::open(ori_archive::ArchiveConfig::new(
+        dir.path().join("sessions.sqlite3"),
+    ))
+    .unwrap();
+    let mut changed = archive.get_session(sid).await.unwrap().unwrap();
+    changed["metadata"]["monitoring_project_id"] = json!("different-owner");
+    archive.save_session(changed, None).await.unwrap();
+    archive.close().await.unwrap();
+    let opens = factory.opens.load(Ordering::Acquire);
+
+    let reopened = open_duty_node(dir.path(), &factory).await;
+    let guard = &reopened.domains.get().unwrap().guard;
+    assert_eq!(guard.duty(&id).await.unwrap()["status"], "preflight_failed");
+    assert!(!guard.any_armed());
+    assert_eq!(factory.opens.load(Ordering::Acquire), opens);
+    reopened.close().await.unwrap();
+}

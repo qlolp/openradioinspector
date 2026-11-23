@@ -21,6 +21,7 @@ struct Progress {
 pub(super) struct Scan {
     plan: CyclicReceiverScope,
     key: String,
+    pub(super) archived_identity: Option<String>,
     progress: Mutex<Progress>,
 }
 
@@ -34,9 +35,10 @@ impl Scan {
         // Display names and lifecycle state can change between connections.
         let key = ori_guard::ardv1_plan_key(stream)
             .map_err(|error| DeviceError::Invalid(error.to_string()))?;
-        let scan = Self {
+        let mut scan = Self {
             plan,
             key,
+            archived_identity: None,
             progress: Mutex::new(Progress {
                 next: Cursor { pass: 1, index: 0 },
                 last: None,
@@ -76,6 +78,13 @@ impl Scan {
                 || original["id"].as_str().is_none()
             {
                 return Err(invalid());
+            }
+            if let Some(unit) = meta.get("receiver_run_unit") {
+                let tag = unit
+                    .as_str()
+                    .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .ok_or_else(invalid)?;
+                scan.archived_identity = Some(tag.to_owned());
             }
             scan.committed(point, &original);
         }

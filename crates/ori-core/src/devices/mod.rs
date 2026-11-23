@@ -766,7 +766,13 @@ impl DeviceManager {
                             scope_points = Some(scope.points());
                             adapter.with_scope(scope)?
                         }
-                        Some(Scope::Cyclic(plan)) => adapter.with_cyclic_scope(plan)?,
+                        Some(Scope::Cyclic(plan)) => adapter.with_cyclic_stream(
+                            plan,
+                            &stream.id,
+                            cyclic_scan
+                                .as_ref()
+                                .and_then(|scan| scan.archived_identity.clone()),
+                        )?,
                         None if readback => adapter.with_frequency_readback()?,
                         None => adapter,
                     };

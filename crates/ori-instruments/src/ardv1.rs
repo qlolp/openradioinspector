@@ -1,5 +1,6 @@
 use crate::{tinysa::now, transport::Connection, *};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Instant;
@@ -178,6 +179,37 @@ impl ScopeRun {
     }
 }
 
+/// The same physical receiver can be recognized inside one stream without
+/// publishing its serial or linking independent runs through a stable tag.
+struct CyclicStreamIdentity {
+    stream_id: String,
+    fingerprint: Option<String>,
+}
+impl CyclicStreamIdentity {
+    fn confirm(&mut self, serial: &str) -> Result<()> {
+        let mut hash = Sha256::new();
+        hash.update(self.stream_id.as_bytes());
+        hash.update([0]);
+        hash.update(serial.as_bytes());
+        let actual: String = hash
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        if self
+            .fingerprint
+            .as_ref()
+            .is_some_and(|saved| saved != &actual)
+        {
+            return Err(InstrumentError::UnsupportedProfile(
+                "AR-DV1 identity differs from the archived cyclic run".into(),
+            ));
+        }
+        self.fingerprint = Some(actual);
+        Ok(())
+    }
+}
+
 /// Documented receive control only. AUTO excludes TETRA; levels are raw counts.
 pub struct ArDv1<T> {
     connection: Connection<T>,
@@ -195,6 +227,7 @@ pub struct ArDv1<T> {
     settled_at: Option<Instant>,
     scope: Option<ScopeRun>,
     cyclic_scope: Option<CyclicReceiverScope>,
+    cyclic_identity: Option<CyclicStreamIdentity>,
     verified_dv1: bool,
 }
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
@@ -217,6 +250,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             settled_at: None,
             scope: None,
             cyclic_scope: None,
+            cyclic_identity: None,
             verified_dv1: false,
         })
     }
@@ -260,6 +294,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.requested.frequency_hz = plan.start;
         self.cyclic_scope = Some(plan);
         Ok(self)
+    }
+    pub fn with_cyclic_stream(
+        self,
+        plan: CyclicReceiverScope,
+        stream_id: &str,
+        archived_identity: Option<String>,
+    ) -> Result<Self> {
+        let mut adapter = self.with_cyclic_scope(plan)?;
+        adapter.cyclic_identity = Some(CyclicStreamIdentity {
+            stream_id: stream_id.into(),
+            fingerprint: archived_identity,
+        });
+        Ok(adapter)
     }
     /// The owner supplies the next global index from its committed archive cursor.
     /// Re-entry after manual tuning or reconnect prepares the selected VFO explicitly.
@@ -435,6 +482,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                     "missing AR-DV1 serial response".into(),
                 ));
             }
+            if let Some(identity) = &mut self.cyclic_identity {
+                identity.confirm(&serial)?;
+            }
             self.verified_dv1 = serial.len() == 10
                 && serial.starts_with("RN0952")
                 && serial[2..]
@@ -551,6 +601,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             metadata["scan_total"] = json!(scope.config.points);
             metadata["scan_tune_command"] = json!(command);
             metadata["scope_source"] = json!("sequential_receiver_readback");
+            if let Some(identity) = &self.cyclic_identity {
+                metadata["receiver_run_unit"] = json!(identity.fingerprint);
+            }
             metadata["settle_s"] = json!(scope.config.settle.as_secs_f64());
             scope.index += 1;
         }

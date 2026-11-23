@@ -22,6 +22,7 @@ struct RevocationPoint {
 }
 struct Factory {
     reject_firmware_once: AtomicBool,
+    receiver_id: Mutex<String>,
     reject_exit_once: AtomicBool,
     wrong_rx_at: AtomicUsize,
     opens: AtomicUsize,
@@ -39,6 +40,7 @@ impl Factory {
     fn new(shutdown_failure: bool) -> Arc<Self> {
         Arc::new(Self {
             reject_firmware_once: AtomicBool::new(false),
+            receiver_id: Mutex::new("SYNTHETIC".into()),
             reject_exit_once: AtomicBool::new(false),
             wrong_rx_at: AtomicUsize::new(0),
             opens: AtomicUsize::new(0),
@@ -113,6 +115,7 @@ impl TransportFactory for Factory {
             let release = self.poll_release.clone();
             let analyzer = stream.role == DeviceRole::SpectrumAnalyzer;
             let wrong_rx_at = self.wrong_rx_at.load(Ordering::Acquire);
+            let receiver_id = self.receiver_id.lock().unwrap().clone();
             let reject_firmware =
                 !analyzer && self.reject_firmware_once.swap(false, Ordering::AcqRel);
             let reject_exit = !analyzer && self.reject_exit_once.swap(false, Ordering::AcqRel);
@@ -152,7 +155,7 @@ impl TransportFactory for Factory {
                             "VR" if reject_firmware => "60?\r\n".into(),
                             "EX" if reject_exit => "60?\r\n".into(),
                             "VR" => "20VR2504A\r\n".into(),
-                            "RN" => "20RNSYNTHETIC\r\n".into(),
+                            "RN" => format!("20RN{receiver_id}\r\n"),
                             "LM" => {
                                 if pause.load(Ordering::Acquire) {
                                     started.fetch_add(1, Ordering::AcqRel);
