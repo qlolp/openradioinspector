@@ -84,60 +84,26 @@ impl GuardService {
         &self,
         p: &Value,
     ) -> Result<ori_archive::BaselineSelection> {
-        let candidates = self
-            .archive
-            .rfe_guard_candidates(s(p, "active_session_id")?, s(p, "analyzer_stream_id")?)
-            .await?;
-        let mut selected = Vec::new();
-        let mut wanted = None;
-        let mut next_start = None;
-        for raw in candidates.iter().rev() {
-            let sweep: Sweep = decode(raw)?;
-            if !source_qualification(p, &sweep)?.eligible() {
-                continue;
-            }
-            let fingerprint = ori_monitoring::fingerprint(&sweep)?;
-            if *wanted.get_or_insert(fingerprint.clone()) != fingerprint
-                || next_start.is_some_and(|next| {
-                    sweep.interval.ended_at.unix_micros() > next
-                        || sweep.interval.started_at.unix_micros() >= next
+        let settings = &p["profile"]["analyzer"]["settings"];
+        let bound = |key: &str| {
+            settings
+                .get(key)
+                .map(|value| {
+                    value
+                        .as_i64()
+                        .ok_or_else(|| invalid("RF Explorer frequency range"))
                 })
-            {
-                continue;
-            }
-            next_start = Some(sweep.interval.started_at.unix_micros());
-            selected.push(sweep);
-        }
-        selected.reverse();
-        let first = selected
-            .first()
-            .map(|s| s.interval.started_at.as_str().to_owned());
-        let last = selected
-            .last()
-            .map(|s| s.interval.ended_at.as_str().to_owned());
-        let span = first
-            .as_ref()
-            .zip(last.as_ref())
-            .map(|(a, b)| elapsed(a, b))
-            .transpose()?
-            .unwrap_or(0.);
-        let periods = selected
-            .windows(2)
-            .map(|pair| {
-                elapsed(
-                    pair[0].interval.started_at.as_str(),
-                    pair[1].interval.started_at.as_str(),
-                )
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(ori_archive::BaselineSelection {
-            sweep_ids: selected.iter().map(|s| s.id.clone()).collect(),
-            count: selected.len() as u64,
-            first_started_at: first,
-            last_ended_at: last,
-            elapsed_seconds: span,
-            sweep_period_seconds: median(periods),
-        })
+                .transpose()
+        };
+        Ok(self
+            .archive
+            .rfe_fixed_guard_selection(
+                s(p, "active_session_id")?,
+                s(p, "analyzer_stream_id")?,
+                bound("start_hz")?,
+                bound("stop_hz")?,
+            )
+            .await?)
     }
 
     pub(crate) async fn rfe_collection(&self, p: &Value) -> Result<Value> {

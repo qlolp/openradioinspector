@@ -41,7 +41,7 @@ pub(crate) fn checkpoint(db: &Connection, sequence: i64) -> Result<()> {
         "UPDATE ori_rfe_ingestion_v2 SET sequence=? WHERE singleton=1",
         [sequence],
     )?;
-    Ok(())
+    super::fixed_guard::checkpoint(db, sequence)
 }
 
 struct Source<'a> {
@@ -107,6 +107,7 @@ fn record(db: &Connection, source: Source<'_>, tile: Option<Tile>) -> Result<()>
 }
 
 pub(crate) fn insert(db: &Connection, sequence: i64, raw: &Value) -> Result<()> {
+    super::fixed_guard::insert(db, raw)?;
     let settings = &raw["settings"];
     let Some(pass) = settings["survey"]["pass_id"]
         .as_str()
@@ -168,6 +169,7 @@ fn archived_points(raw: &str) -> Option<Value> {
 }
 
 pub(crate) fn install(db: &Connection) -> Result<()> {
+    super::fixed_guard::install(db)?;
     db.execute_batch(DDL)?;
     let after: i64 = db.query_row(
         "SELECT sequence FROM ori_rfe_ingestion_v2 WHERE singleton=1",

@@ -1,4 +1,5 @@
 //! Indexed read model for committed RF Explorer Standard 10 kHz survey passes.
+mod fixed_guard;
 mod guard;
 mod index;
 mod panorama;
