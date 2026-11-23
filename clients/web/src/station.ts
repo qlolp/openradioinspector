@@ -1,5 +1,9 @@
 import { getLocale, t } from './i18n';
-import type { GuardStatus, StorageReport, WorkerStatus } from './types';
+import type { GuardStatus, Preflight, StorageReport, WorkerStatus } from './types';
+
+export function preparationReady(preflight?: Preflight): boolean {
+  return preflight?.preparation_ready ?? preflight?.ready ?? false;
+}
 
 export function formatQuantity(value: number, digits = 1): string {
   return value.toLocaleString(getLocale(), { maximumFractionDigits: digits });

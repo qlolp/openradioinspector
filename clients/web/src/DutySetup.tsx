@@ -9,7 +9,7 @@ import {
 import { Modal, utc } from './components';
 import { boardProfiles, surveyCounts } from './rf-explorer';
 import { t } from './i18n';
-import { formatBytes, formatQuantity, measuredRate } from './station';
+import { formatBytes, formatQuantity, measuredRate, preparationReady } from './station';
 import { useArchiveRead } from './RfExplorerOriginals';
 import { encodePathSegment } from './wire';
 import { message, type Desk } from './useDesk';
@@ -330,7 +330,7 @@ export function DutySetup({
         await desk.loadProjects('', [], project);
         setPrepared(project);
         const preflight = await desk.api.project<Preflight>(project.id, 'preflight');
-        if (!preflight.ready)
+        if (!preparationReady(preflight))
           throw Error(
             preflight.checks
               .filter((c) => !c.ok)
@@ -736,7 +736,7 @@ export function DutySetup({
             {p?.state !== 'collecting' && !acct?.baseline_ready && (
               <button
                 type="button"
-                disabled={desk.busy || !acct?.ready}
+                disabled={desk.busy || !preparationReady(acct)}
                 onClick={() => void desk.command('preparation/start')}
               >
                 {t('Start receive collection')}

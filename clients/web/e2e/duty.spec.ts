@@ -342,6 +342,9 @@ test('five steps require an archived sample and confirmed baseline before schedu
     sampled = false,
     progress = false,
     scheduled = false;
+  let webhookEnabled = false;
+  let webhookConfigured = false;
+  let testReceipt = false;
   let allowSchedule: () => void;
   const scheduleRead = new Promise<void>((resolve) => {
     allowSchedule = resolve;
@@ -392,6 +395,21 @@ test('five steps require an archived sample and confirmed baseline before schedu
       if (path === 'preparation/start') collecting = true;
       if (path === 'baselines') baseline = true;
       if (path === 'duty') scheduled = true;
+      if (path === 'settings') {
+        const update = r.request().postDataJSON().notifications.webhook;
+        webhookEnabled = update.enabled;
+        if (update.url) webhookConfigured = true;
+      }
+      if (path === 'notifications/test') {
+        testReceipt = true;
+        return r.fulfill({
+          json: envelope({
+            notification_id: 'synthetic-queued-test',
+            channel: 'webhook',
+            state: 'pending',
+          }),
+        });
+      }
       return r.fulfill({
         json: envelope(
           path === 'duty'
@@ -439,17 +457,28 @@ test('five steps require an archived sample and confirmed baseline before schedu
             ? { active: false, marks: [], series: [] }
             : path === 'duty'
               ? {
-                  enabled: false,
-                  status: 'off',
+                  enabled: scheduled,
+                  status: scheduled ? 'waiting' : 'off',
                   schedule: { mode: 'continuous' },
                   resume_after_restart: false,
-                  deliveries: [],
+                  deliveries: testReceipt
+                    ? [
+                        {
+                          id: 'synthetic-queued-test',
+                          channel: 'webhook',
+                          kind: 'test',
+                          state: 'pending',
+                          attempts: 0,
+                          created_at: started,
+                        },
+                      ]
+                    : [],
                 }
               : path === 'settings'
                 ? {
                     notifications: {
                       telegram: { enabled: false, configured: false },
-                      webhook: { enabled: false, configured: false },
+                      webhook: { enabled: webhookEnabled, configured: webhookConfigured },
                     },
                   }
                 : path === 'storage'
@@ -527,4 +556,159 @@ test('five steps require an archived sample and confirmed baseline before schedu
       timezone: 'Europe/Moscow',
     },
   });
+  // Only the explicit, routed webhook test queues this synthetic receipt.
+  await page.getByRole('button', { name: 'Duty setup' }).click();
+  await wizard.getByText('Webhook · Disabled', { exact: true }).click();
+  await wizard.getByLabel('Enable Webhook for this project').check();
+  await wizard.getByLabel('Webhook URL').fill('https://example.invalid/synthetic');
+  await wizard.getByLabel('Webhook secret').fill('synthetic-local-fixture');
+  const webhook = wizard.locator('details').filter({ hasText: 'Webhook URL' });
+  await webhook.getByRole('button', { name: 'Save channel' }).click();
+  await expect(webhook.getByText('Webhook · Enabled', { exact: true })).toBeVisible();
+  expect(testReceipt).toBe(false);
+  await webhook.getByRole('button', { name: 'Send test notification' }).click();
+  await expect(webhook).toContainText('synthetic-queued-test');
+  await wizard.getByText('Notification delivery history', { exact: true }).click();
+  await expect(wizard.getByRole('list')).toContainText('pending');
+  expect(writes.slice(-2)).toEqual([
+    {
+      path: 'settings',
+      body: {
+        notifications: {
+          webhook: {
+            enabled: true,
+            url: 'https://example.invalid/synthetic',
+            secret: 'synthetic-local-fixture',
+          },
+        },
+      },
+    },
+    { path: 'notifications/test', body: { channel: 'webhook' } },
+  ]);
+});
+
+test('observation-only tinySA windows can collect originals while arming stays unavailable', async ({
+  page,
+}) => {
+  const upperSession = 'upper-synthetic-session',
+    upperStream = 'upper-tinysa-stream',
+    upperProject = 'upper-tinysa-project';
+  const upper = {
+    ...project,
+    id: upperProject,
+    name: 'Synthetic upper band',
+    active_session_id: upperSession,
+    primary_source_kind: 'tinysa',
+    primary_stream_id: upperStream,
+    receiver_stream_id: null,
+    analyzer_stream_id: upperStream,
+    baseline_id: null,
+    state: 'draft',
+  };
+  let created = false,
+    collecting = false;
+  const writes: string[] = [];
+  const envelopePage = (items: unknown[]) => envelope({ items, next_cursor: null });
+  await page.route('**/api/v1/archive/location', (r) =>
+    r.fulfill({
+      json: envelope({
+        storage_id: 'node-archive',
+        label: 'Synthetic archive',
+        database: 'sessions.sqlite3',
+        available_bytes: 8000000000,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/sessions', async (r) => {
+    if (r.request().method() !== 'POST') return r.continue();
+    writes.push('sessions');
+    const { streams } = r.request().postDataJSON();
+    expect(streams).toHaveLength(1);
+    expect(streams[0].settings.adapter).toBe('tinysa-serial');
+    await r.fulfill({ json: envelope({ id: upperSession, streams }) });
+  });
+  await page.route('**/api/v1/monitoring-projects', async (r) => {
+    if (r.request().method() !== 'POST') return r.continue();
+    writes.push('monitoring-projects');
+    created = true;
+    await r.fulfill({ json: envelope(upper) });
+  });
+  await page.route('**/api/v1/monitoring-projects?*', (r) =>
+    r.fulfill({ json: envelopePage(created ? [upper] : []) }),
+  );
+  await page.route('**/api/v1/monitoring-projects/' + upperProject + '/**', async (r) => {
+    const path = new URL(r.request().url()).pathname.split(upperProject + '/')[1];
+    if (r.request().method() === 'POST') {
+      writes.push(path);
+      if (path === 'preparation/start') collecting = true;
+      if (path === 'scan-plan')
+        expect(r.request().postDataJSON().bands[0]).toMatchObject({
+          start_hz: 900000000,
+          stop_hz: 901500000,
+          step_hz: 10000,
+        });
+      return r.fulfill({
+        json: envelope(
+          path === 'preparation/start' ? { project: { ...upper, state: 'collecting' } } : upper,
+        ),
+      });
+    }
+    const data =
+      path === 'preflight'
+        ? {
+            ready: false,
+            preparation_ready: true,
+            baseline_ready: false,
+            checks: [
+              {
+                name: 'measurement_qualification',
+                ok: false,
+                detail: 'No eligible automatic-duty windows',
+              },
+            ],
+            baseline_collection: { bands: [], ready: false },
+          }
+        : path === 'status'
+          ? {
+              project: { ...upper, state: collecting ? 'collecting' : 'draft' },
+              active: false,
+              workers: [],
+              manual: [],
+            }
+          : path === 'search/status'
+            ? { active: false, marks: [], series: [] }
+            : path === 'storage'
+              ? { ready: true }
+              : { items: [], next_cursor: null };
+    await r.fulfill({ json: envelope(data) });
+  });
+  await page.route('**/api/v1/sessions/' + upperSession + '/sweeps?*', (r) =>
+    r.fulfill({ json: envelope([]) }),
+  );
+  await openDesk(page);
+  await page.getByRole('button', { name: 'Prepare project' }).click();
+  const wizard = page.getByRole('dialog', { name: 'Prepare a receive-only project' });
+  await wizard.getByLabel('Project name').fill(upper.name);
+  await wizard.getByLabel('Site or location').fill('Synthetic');
+  await wizard.getByLabel('tinySA serial port').fill('SYNTHETIC-NO-OPEN');
+  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  await wizard.getByLabel('Start (MHz)').fill('900');
+  await wizard.getByLabel('Stop (MHz)').fill('901.5');
+  await expect(wizard).toContainText('observation-only');
+  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  await wizard.getByLabel('Archive on the recording node').selectOption('node-archive');
+  await wizard.getByLabel('Antenna and receive path notes').fill('Synthetic fixture');
+  await wizard.getByLabel('Receive path and antenna checked').check();
+  await wizard.getByLabel('Location and ordinary RF environment checked').check();
+  await wizard.getByRole('button', { name: 'Start receive collection' }).click();
+  await expect.poll(() => collecting).toBe(true);
+  await wizard.getByRole('button', { name: 'Close setup' }).click();
+  await expect(page.getByRole('button', { name: 'Arm guard', exact: true })).toBeDisabled();
+  expect(writes).toEqual([
+    'sessions',
+    'monitoring-projects',
+    'scan-plan',
+    'preparation',
+    'preparation/start',
+  ]);
 });

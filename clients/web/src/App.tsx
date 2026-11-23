@@ -5,6 +5,7 @@ import { Spectrum, Waterfall } from './charts';
 import { originalJSON, encodePathSegment } from './wire';
 import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
+import { preparationReady } from './station';
 import { BaselineCounts, sourceNames } from './DutySetup';
 import {
   OriginalObservation,
@@ -64,7 +65,9 @@ function PreparationPanel({ desk }: { desk: Desk }) {
           {desk.preflight
             ? desk.preflight.ready
               ? t('Preflight passed')
-              : t('Preparation needs attention')
+              : preparationReady(desk.preflight)
+                ? t('Collection available · duty checks need attention')
+                : t('Preparation needs attention')
             : t('Checking core readiness')}
         </strong>
         <button
@@ -132,7 +135,11 @@ function PreparationPanel({ desk }: { desk: Desk }) {
       <div className="actions">
         <button
           disabled={
-            desk.busy || !desk.project || desk.guard?.active || collecting || !desk.preflight?.ready
+            desk.busy ||
+            !desk.project ||
+            desk.guard?.active ||
+            collecting ||
+            !preparationReady(desk.preflight)
           }
           onClick={() => void desk.command('preparation/start')}
         >

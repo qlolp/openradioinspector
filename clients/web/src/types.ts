@@ -155,6 +155,7 @@ export interface GuardStatus {
 }
 export interface Preflight {
   ready: boolean;
+  preparation_ready?: boolean;
   storage?: StorageReport | null;
   checks: { name: string; ok: boolean; detail: string }[];
   baseline_ready: boolean;

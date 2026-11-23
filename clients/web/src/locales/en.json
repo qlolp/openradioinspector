@@ -947,5 +947,6 @@
   "Choose local archive folder": "Choose local archive folder",
   "To choose another drive on this PC, stop the local node in Connection settings and choose the archive folder before restarting.": "To choose another drive on this PC, stop the local node in Connection settings and choose the archive folder before restarting.",
   "Leave setup for local archive settings": "Leave setup for local archive settings",
-  "Test notification": "Test notification"
+  "Test notification": "Test notification",
+  "Collection available · duty checks need attention": "Collection available · duty checks need attention"
 }

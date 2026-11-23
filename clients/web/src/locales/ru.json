@@ -947,5 +947,6 @@
   "Choose local archive folder": "Выбрать папку локального архива",
   "To choose another drive on this PC, stop the local node in Connection settings and choose the archive folder before restarting.": "Чтобы выбрать другой диск на этом ПК, остановите локальный узел в настройках подключения, затем выберите папку архива и снова запустите узел.",
   "Leave setup for local archive settings": "Выйти из мастера и открыть настройки архива",
-  "Test notification": "Проверочное уведомление"
+  "Test notification": "Проверочное уведомление",
+  "Collection available · duty checks need attention": "Запись доступна · проверьте условия дежурства"
 }
